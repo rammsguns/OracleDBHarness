@@ -7,12 +7,14 @@ explanation rather than producing an empty panel that looks healthy.
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from harness_api.models import ConnectionProfile, TargetCapability
 from tests.conftest import execute, open_worksheet
 
 
+@pytest.mark.needs_second_target
 def test_two_targets_do_not_mix_identity_or_state(client: TestClient, developer, targets) -> None:
     development = targets["development"]["id"]
     test_target = targets["test"]["id"]

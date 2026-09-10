@@ -929,6 +929,11 @@ dependencies = [
     { name = "harness-worker" },
 ]
 
+[package.optional-dependencies]
+oracle = [
+    { name = "harness-worker", extra = ["oracle"] },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "httpx" },
@@ -942,7 +947,9 @@ dev = [
 requires-dist = [
     { name = "harness-api", editable = "services/api" },
     { name = "harness-worker", editable = "services/worker" },
+    { name = "harness-worker", extras = ["oracle"], marker = "extra == 'oracle'", editable = "services/worker" },
 ]
+provides-extras = ["oracle"]
 
 [package.metadata.requires-dev]
 dev = [

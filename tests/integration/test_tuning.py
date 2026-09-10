@@ -247,6 +247,7 @@ def test_another_user_cannot_read_your_observations(
     assert response.status_code == 404
 
 
+@pytest.mark.stand_in_only
 def test_a_plan_query_that_failed_is_not_reported_as_an_available_empty_plan(
     client: TestClient, developer, targets, monkeypatch
 ) -> None:
@@ -281,6 +282,7 @@ def test_a_plan_query_that_failed_is_not_reported_as_an_available_empty_plan(
     assert detail["statistics"]["rows"], detail
 
 
+@pytest.mark.stand_in_only
 def test_a_cursor_search_that_failed_is_not_reported_as_no_cursors(
     client: TestClient, developer, targets, monkeypatch
 ) -> None:
@@ -314,6 +316,7 @@ def test_a_cursor_search_that_failed_is_not_reported_as_no_cursors(
     assert "rows" not in search
 
 
+@pytest.mark.stand_in_only
 def test_cursor_statistics_that_failed_are_not_reported_as_measured(
     client: TestClient, developer, targets, monkeypatch
 ) -> None:

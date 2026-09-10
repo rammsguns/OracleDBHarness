@@ -1,10 +1,24 @@
 # OracleDBHarness MVP plan
 
-Status: Proposed implementation plan. No application has been implemented.
+Status: implemented through milestone 5; nothing is qualified. The plan is kept as
+it was written and annotated in place, so the difference between what was planned and
+what was built stays visible.
+
+Two words are used throughout, and they mean different things:
+
+- **Implemented** - the code exists and the automated suite covers it. That suite runs
+  against the local stand-in Oracle backend, a fixture copilot provider and development
+  tokens. It exercises the harness logic; it demonstrates nothing about Oracle.
+- **Qualified** - verified against the real dependency: Oracle 19c, an OIDC provider, a
+  real OracleDataForge installation, a real model provider, or measured load.
+
+**Nothing here is qualified yet.** Every acceptance claim below currently rests on the
+stand-in. [docs/compatibility.md](docs/compatibility.md) records what has and has not
+actually been run; it is the file to update when that changes, not this one.
 
 ## Product direction
 
-OracleDBHarness will be a dedicated workspace for developers and DBAs to connect to Oracle databases, inspect schemas, develop SQL and PL/SQL, investigate performance, and execute repeatable operational procedures with clear permissions and execution history.
+OracleDBHarness is a dedicated workspace for developers and DBAs to connect to Oracle databases, inspect schemas, develop SQL and PL/SQL, investigate performance, and execute repeatable operational procedures with clear permissions and execution history.
 
 The harness is the shared execution and AI context layer: every supported operation has typed inputs, a target database, capability checks, execution limits, and structured results. The web console and IDE adapters reuse this layer so developers can receive Oracle-aware copilot assistance inside their existing editor.
 
@@ -29,17 +43,17 @@ Success means these workflows are reliable and auditable. Supporting every Oracl
 
 ## Scope and acceptance criteria
 
-| Area | MVP deliverable | Acceptance evidence |
-| --- | --- | --- |
-| Connections | Named profiles, environment badges, service-name connections, credential references, connection test, version/container identity, capability discovery | Two databases can be used concurrently without mixing identity, credentials, or session state; missing privileges show actionable diagnostics |
-| Schema explorer | Tables, columns, keys, indexes, views, sequences, synonyms, packages, procedures, functions, triggers; source and dependency inspection | Large object lists load in pages; restricted accounts see only accessible metadata |
-| SQL worksheet | Execute one selected statement or complete PL/SQL block, bind parameters, bounded result grid, cancellation, elapsed time, saved scripts, explicit transaction controls | DML remains uncommitted until requested; rollback works; cancellation does not affect another user's execution |
-| PL/SQL workspace | Source editor, source diff, compile package specification/body and standalone routines, compiler errors, bounded DBMS_OUTPUT, anonymous test blocks | Seeded invalid package shows correct errors, can be repaired and compiled, and produces expected test output |
-| Tuning workbench | Explain plan; cached cursor plan when accessible; SQL ID/child cursor selection; current SQL statistics; saved before/after observations | A seeded slow query can be examined and compared under equivalent test conditions; estimated and measured values are clearly distinguished |
-| DBA overview | Sessions and blockers, tablespace usage, invalid objects, scheduler job status/failures, connection health | Each panel shows collection time and permission/error state; unavailable data is never displayed as healthy |
-| Controlled runbooks | Collect health report, recompile one selected object, gather statistics for one selected table | Mutations show exact target and parameters, require an authorized execution action, and preserve outcome and verification evidence |
-| Access and history | OIDC login, application roles, per-target access, credential isolation, execution/audit records | Direct API calls enforce the same permissions as the UI; users cannot access another user's session or restricted results |
-| IDE copilot | OracleDataForge integration, explicit target selection, explain SQL/PLSQL, diagnose supplied errors, propose changes and test blocks, explain supplied plans | Existing DataForge connection works without credential duplication; selected source and authorized context produce a reviewable answer/diff; database execution remains a separate authorized action |
+| Area | MVP deliverable | Acceptance evidence | Status |
+| --- | --- | --- | --- |
+| Connections | Named profiles, environment badges, service-name connections, credential references, connection test, version/container identity, capability discovery | Two databases can be used concurrently without mixing identity, credentials, or session state; missing privileges show actionable diagnostics | Implemented. Identity and capability probing are unqualified: no Oracle has answered them |
+| Schema explorer | Tables, columns, keys, indexes, views, sequences, synonyms, packages, procedures, functions, triggers; source and dependency inspection | Large object lists load in pages; restricted accounts see only accessible metadata | Implemented. The dictionary views behind it are seeded tables in the stand-in, not Oracle's |
+| SQL worksheet | Execute one selected statement or complete PL/SQL block, bind parameters, bounded result grid, cancellation, elapsed time, saved scripts, explicit transaction controls | DML remains uncommitted until requested; rollback works; cancellation does not affect another user's execution | Implemented. Cancellation, DDL-commit and connection-loss behaviour are unqualified - see the gap table in docs/compatibility.md |
+| PL/SQL workspace | Source editor, source diff, compile package specification/body and standalone routines, compiler errors, bounded DBMS_OUTPUT, anonymous test blocks | Seeded invalid package shows correct errors, can be repaired and compiled, and produces expected test output | Implemented, least qualified area. The stand-in has no PL/SQL engine, so compile, line-level errors and DBMS_OUTPUT are exercised only against a stub driver |
+| Tuning workbench | Explain plan; cached cursor plan when accessible; SQL ID/child cursor selection; current SQL statistics; saved before/after observations | A seeded slow query can be examined and compared under equivalent test conditions; estimated and measured values are clearly distinguished | Implemented. There is no optimizer behind the stand-in, so no real plan has been produced or read |
+| DBA overview | Sessions and blockers, tablespace usage, invalid objects, scheduler job status/failures, connection health | Each panel shows collection time and permission/error state; unavailable data is never displayed as healthy | Implemented. Panels, permission states and collection times are covered; the underlying queries are unqualified |
+| Controlled runbooks | Collect health report, recompile one selected object, gather statistics for one selected table | Mutations show exact target and parameters, require an authorized execution action, and preserve outcome and verification evidence | Implemented. All three runbooks exist with verification evidence; none has run against Oracle |
+| Access and history | OIDC login, application roles, per-target access, credential isolation, execution/audit records | Direct API calls enforce the same permissions as the UI; users cannot access another user's session or restricted results | Implemented. Roles, per-target grants, revocation and audit are covered. The OIDC path is written against JWKS but only the development signer has been exercised |
+| IDE copilot | OracleDataForge integration, explicit target selection, explain SQL/PLSQL, diagnose supplied errors, propose changes and test blocks, explain supplied plans | Existing DataForge connection works without credential duplication; selected source and authorized context produce a reviewable answer/diff; database execution remains a separate authorized action | Implemented against a stubbed harness and a fixture provider. Not integrated with a DataForge installation, and no model provider has been called |
 
 Production mutation support, session termination, user/role provisioning, and arbitrary privileged scripts are outside the initial release. Development SQL is still a powerful capability and must use appropriately constrained Oracle accounts.
 
@@ -47,7 +61,7 @@ Production mutation support, session termination, user/role provisioning, and ar
 
 The web console manages harness connections, access, diagnostics, and history. IDE adapters contribute editor context and present answers or proposed edits. Both call the same authenticated copilot backend; no adapter receives privileged Oracle credentials. In DataForge mode, the DataForge backend retains ownership of its Oracle credentials and execution; only scoped context reaches the harness. Harness history covers these copilot requests, not all independent DataForge database operations.
 
-First adapter: an optional OracleDataForge backend bridge and embedded copilot UI. Reuse DataForge's selection callbacks, source metadata and diff components. The adapter resolves context under the current DataForge user's permissions and calls a versioned harness API. This is proposed integration work, not existing compatibility.
+First adapter: an optional OracleDataForge backend bridge and embedded copilot UI. Reuse DataForge's selection callbacks, source metadata and diff components. The adapter resolves context under the current DataForge user's permissions and calls a versioned harness API. This is proposed integration work, not existing compatibility. The adapter, its contracts and its fixtures are implemented; the integration itself is still proposed.
 
 Next adapter: a VS Code companion extension used alongside Oracle SQL Developer for VS Code. Oracle offers an official [SQL Developer extension](https://www.oracle.com/database/sqldeveloper/vscode/), and VS Code documents an extensible [Chat Participant API](https://code.visualstudio.com/api/extension-guides/ai/chat). This supports a follow-on integration candidate; it does not establish access to Oracle's extension internals or saved connections.
 
@@ -109,16 +123,18 @@ Exclude AWR, ASH, ADDM, SQL Tuning Advisor, and Real-Time SQL Monitoring from MV
 
 Do not automatically create indexes, change optimizer parameters, or accept tuning recommendations. Comparisons record SQL/binds policy, plan, data/statistics context, elapsed time, and available execution counters; improvement must be measured on representative test data.
 
-## Proposed architecture
+## Architecture
 
-| Component | Proposed choice | Purpose |
+Built as proposed, with two corrections marked below.
+
+| Component | Choice | Purpose |
 | --- | --- | --- |
 | Web UI | React, TypeScript, Monaco editor | Schema navigation, worksheets, PL/SQL editor, diagnostics and runbook screens |
 | API | Python, FastAPI, typed request/result models | Authentication, policy enforcement, operation catalog, execution lifecycle |
 | IDE adapter | TypeScript DataForge backend bridge and UI integration | Existing connection selection, scoped context, streamed answers and reviewed diffs; preserve DataForge's Node runtime |
 | AI/context service | Backend module with one provider adapter initially | Permission-filtered schema context, prompt assembly, generation limits and structured proposals |
-| Oracle adapter | python-oracledb, synchronous operations in bounded worker processes | Oracle connectivity, dedicated worksheet sessions, diagnostics, cancellation |
-| Metadata | PostgreSQL | Profiles, access grants, scripts, execution state, observations, audit metadata |
+| Oracle adapter | python-oracledb, synchronous operations on a bounded thread pool - *processes cannot own a leased connection; see ADR-0002* | Oracle connectivity, dedicated worksheet sessions, diagnostics, cancellation |
+| Metadata | PostgreSQL (SQLite for development and the test suite) | Profiles, access grants, scripts, execution state, observations, audit metadata |
 | Identity and secrets | OIDC provider; mounted or external secret references | Central login and credentials kept out of browser and application records |
 | Packaging | Container images and Docker Compose pilot deployment | Repeatable application installation near the target databases |
 
@@ -134,7 +150,7 @@ Audit records contain actor, target, operation, timestamps, status, statement fi
 
 ## Repository and core records
 
-Proposed directories:
+Directories, as built:
 
 ```text
 apps/web/                    Web console
@@ -153,51 +169,65 @@ deploy/                      Local/pilot containers and configuration
 docs/                        Architecture, setup, operations, compatibility
 ```
 
+Beyond the list above the tree also carries `tests/unit/` for the adapter, session,
+policy and statement-parser tests, and `oracle/qualification/` for the Oracle 19c
+fixtures and their teardown.
+
 Core records: ConnectionProfile, SecretReference, TargetCapability, UserTargetGrant, WorksheetSession, SavedScript, Execution, AuditEvent, RunbookDefinition, DiagnosticObservation, CopilotRequest, and ProposedEdit. AI proposals reference the target, document version and context provenance. No database passwords belong in these records.
+
+All of these exist. The metadata schema is created by `initialize_schema`, which has no
+migration history: a real migration tool is a prerequisite for the pilot upgrading
+anything in place, and is not yet written.
 
 ## Delivery sequence
 
 Planning estimate: 12-14 weeks with two engineers and part-time Oracle DBA support, including the DataForge copilot integration and editor prerequisites. The earlier web-only estimate was 8-10 weeks. This estimate depends on database access, identity/secrets integration, network requirements, and the joint DataForge/model-provider spike. Re-estimate after milestone 1; a solo implementation should use the same sequence with a longer timeline. DataForge-side implementation is coordinated work in its own repository.
 
-| Milestone | Target | Work and exit gate |
-| --- | --- | --- |
-| 1. Connectivity and design spike | Week 1 | Confirm pilot workflows and database versions; obtain test environments; validate driver/network mode, authentication, grants, cancellation and DDL behavior. Validate DataForge context/diff interfaces, worksheet buffer prerequisites, delegated identity, protocol handshake and one AI provider/data-sharing configuration. Exit: executable connection and DataForge-to-harness probes plus recorded architecture decisions |
-| 2. Execution foundation | Weeks 2-3 | Scaffold UI/API/metadata; implement login, target grants, credential references, connection identity, operation contract, session ownership and audit. Exit: bounded query runs against two targets with isolation and no credential leakage |
-| 3. Developer workflow | Weeks 4-5 | Schema explorer, SQL worksheet, binds/results, commit/rollback, cancellation, PL/SQL source/compile/errors/output. Exit: developer workflow passes on Oracle 19c |
-| 4. DBA and tuning workflow | Weeks 6-7 | Capability-aware diagnostic panels, plan viewer, current SQL observations, comparison and three runbooks. Exit: seeded blocking and slow-query scenarios can be investigated; a test maintenance action is verified |
-| 5. DataForge copilot | Weeks 8-11 | Optional adapter, simple setup, versioned contracts, independent editor buffers, scoped metadata context, explain/fix/test/plan actions, reviewed diffs and AI evaluations. Exit: DataForge workflow passes without duplicated Oracle credentials, automatic database changes or cross-target context leakage |
-| 6. Pilot and release | Weeks 12-14 | Failure recovery, access tests, load checks, both-project regression checks, compatibility matrix, install/upgrade instructions, metadata backup/restore, DBA review and user pilot. Exit: release criteria below are met |
+| Milestone | Target | Work and exit gate | Status |
+| --- | --- | --- | --- |
+| 1. Connectivity and design spike | Week 1 | Confirm pilot workflows and database versions; obtain test environments; validate driver/network mode, authentication, grants, cancellation and DDL behavior. Validate DataForge context/diff interfaces, worksheet buffer prerequisites, delegated identity, protocol handshake and one AI provider/data-sharing configuration. Exit: executable connection and DataForge-to-harness probes plus recorded architecture decisions | **Exit gate not met, and the work continued anyway.** Architecture decisions are recorded in docs/decisions.md and the DataForge probe runs against fixtures. No Oracle test environment was ever obtained, so driver mode, network mode, authentication, grants, cancellation and DDL behaviour are all unvalidated. This is the deferral every unqualified item below inherits |
+| 2. Execution foundation | Weeks 2-3 | Scaffold UI/API/metadata; implement login, target grants, credential references, connection identity, operation contract, session ownership and audit. Exit: bounded query runs against two targets with isolation and no credential leakage | Implemented; exit gate met against the stand-in only |
+| 3. Developer workflow | Weeks 4-5 | Schema explorer, SQL worksheet, binds/results, commit/rollback, cancellation, PL/SQL source/compile/errors/output. Exit: developer workflow passes on Oracle 19c | Implemented; exit gate **not met** - it names Oracle 19c explicitly |
+| 4. DBA and tuning workflow | Weeks 6-7 | Capability-aware diagnostic panels, plan viewer, current SQL observations, comparison and three runbooks. Exit: seeded blocking and slow-query scenarios can be investigated; a test maintenance action is verified | Implemented; exit gate met against seeded stand-in rows, not a real blocking scenario or a real plan |
+| 5. DataForge copilot | Weeks 8-11 | Optional adapter, simple setup, versioned contracts, independent editor buffers, scoped metadata context, explain/fix/test/plan actions, reviewed diffs and AI evaluations. Exit: DataForge workflow passes without duplicated Oracle credentials, automatic database changes or cross-target context leakage | Implemented against fixtures and a stubbed harness; exit gate **not met** - no DataForge installation has been connected |
+| 6. Pilot and release | Weeks 12-14 | Failure recovery, access tests, load checks, both-project regression checks, compatibility matrix, install/upgrade instructions, metadata backup/restore, DBA review and user pilot. Exit: release criteria below are met | Not started |
 
 Critical dependency: get a representative Oracle 19c test database and reviewed grants during week 1. Testing only against a newer Free database is insufficient to claim 19c support.
 
 ## First implementation backlog
 
-1. Record target versions, environments, authentication and network requirements.
-2. Create project skeleton, CI, formatting and configuration validation.
-3. Provision an isolated Oracle test schema with sample data, a package, invalid object, blocking scenario and slow-query fixture.
-4. Implement connection identity and capability probe with secret references.
-5. Implement authenticated per-target authorization and reviewed Oracle grants.
-6. Implement execution records, dedicated worksheet sessions and bounded fetch.
-7. Demonstrate commit, rollback, cancellation, idle expiry and network-failure behavior.
-8. Add schema navigation and one usable SQL worksheet screen.
-9. Prototype DataForge selection -> authenticated backend bridge -> harness answer -> reviewed editor diff, using a fixture before connecting a model provider; prove a capabilities handshake without exporting database credentials.
+Item 3 is the one that was never done, and items 1, 4, 5 and 7 are only as
+trustworthy as the stand-in they were built against.
 
-This first vertical slice must work before broadening the dashboard or adding advanced automation.
+1. Record target versions, environments, authentication and network requirements. **Not done** - there is no target to record.
+2. Create project skeleton, CI, formatting and configuration validation. Done.
+3. Provision an isolated Oracle test schema with sample data, a package, invalid object, blocking scenario and slow-query fixture. **Not done against Oracle.** The equivalent fixtures exist twice: seeded into the stand-in by `harness_worker.backend.fake`, and as reviewed Oracle DDL under `oracle/qualification/` waiting for a database to run against.
+4. Implement connection identity and capability probe with secret references. Implemented; unqualified.
+5. Implement authenticated per-target authorization and reviewed Oracle grants. Implemented. The grant script in `oracle/grants/` is reviewed but has never been executed.
+6. Implement execution records, dedicated worksheet sessions and bounded fetch. Implemented; unqualified.
+7. Demonstrate commit, rollback, cancellation, idle expiry and network-failure behavior. Demonstrated against the stand-in and a stub driver. Each of these is a documented Oracle gap; the word in the backlog item is *demonstrate*, and against Oracle it has not been.
+8. Add schema navigation and one usable SQL worksheet screen. Implemented.
+9. Prototype DataForge selection -> authenticated backend bridge -> harness answer -> reviewed editor diff, using a fixture before connecting a model provider; prove a capabilities handshake without exporting database credentials. Implemented, and the fixture stage is exactly where it still is.
+
+This first vertical slice must work before broadening the dashboard or adding advanced automation. It works against the stand-in. It has not been shown to work against Oracle, which is what the item was for.
 
 ## Validation and release criteria
 
-- Integration tests on Oracle 19c plus the selected development database version; document exact tested versions and configurations.
-- Exercise restricted and developer credentials; ensure missing privileges degrade individual features clearly.
-- Verify multi-user session isolation, commit/rollback behavior, DDL handling, cancellation, blocked queries, connection loss, worker restart and unknown write outcomes.
-- Verify binds, quoted identifiers, Unicode, NUMBER precision, dates/time zones, nulls and bounded LOB handling.
-- Verify UI and direct API access controls, absence of secrets/result payloads in routine logs, and no default collection from excluded pack-dependent features.
-- Run end-to-end developer and DBA scenarios with fixtures whose expected results are known.
-- Load target for the pilot: ten concurrent users across three registered databases, with measured connection limits and no session cross-contamination. Establish metadata-panel latency targets after measuring the test network; report database execution time separately from application overhead.
-- Demonstrate installation from documentation and restoration of application metadata from backup.
-- Evaluate at least 30 representative copilot cases covering explanations, compile errors, SQL/PLSQL drafts, test blocks, tuning evidence, inaccessible objects, stale source and malicious embedded instructions. Require all authorization and no-automatic-execution cases to pass; target at least 90% DBA-reviewed correctness on explain/fix cases and disclose the remaining failure patterns.
-- Verify stale diffs are rejected, credentials and unauthorized metadata never enter model context, provider failures leave editing usable, and accepting an edit does not execute database code.
-- Meet the DataForge integration release gates: ten-minute setup target on running services, compatible protocol negotiation, unchanged DataForge role/transaction/confirmation behavior, disabled/outage operation and published tested-version matrix.
-- At least one developer and one DBA complete the six MVP workflows across the web console and supported IDE, with no unresolved defects that risk incorrect database changes, access leakage, or misleading outcomes.
+No gate here is fully met. Each is marked with what is missing; the three marked
+partly met are the ones that do not depend on Oracle, a provider or a pilot.
+
+- **Not met.** Integration tests on Oracle 19c plus the selected development database version; document exact tested versions and configurations. One configuration switches the backend, the API suites and the qualification suite onto a real target, and `oracle/qualification/` holds the fixtures. Nothing has been run.
+- **Not met.** Exercise restricted and developer credentials; ensure missing privileges degrade individual features clearly. Degradation is implemented and covered; the privileges it degrades on are simulated.
+- **Not met.** Verify multi-user session isolation, commit/rollback behavior, DDL handling, cancellation, blocked queries, connection loss, worker restart and unknown write outcomes. All implemented and regression-tested; every one is listed as an open Oracle gap in docs/compatibility.md.
+- **Not met.** Verify binds, quoted identifiers, Unicode, NUMBER precision, dates/time zones, nulls and bounded LOB handling. The stand-in cannot show any of these: it has SQLite's type system, not Oracle's.
+- **Partly met.** Verify UI and direct API access controls, absence of secrets/result payloads in routine logs, and no default collection from excluded pack-dependent features. Access control and log content are covered by the suite and do not depend on Oracle. Pack-dependent collection is excluded by construction: no collector references AWR, ASH, ADDM or Real-Time SQL Monitoring.
+- **Partly met.** Run end-to-end developer and DBA scenarios with fixtures whose expected results are known. `tests/e2e` runs the six MVP workflows against known fixtures. It can now be pointed at Oracle by configuration, but has only been run on the stand-in.
+- **Not met.** Nothing has been measured. Load target for the pilot: ten concurrent users across three registered databases, with measured connection limits and no session cross-contamination. Establish metadata-panel latency targets after measuring the test network; report database execution time separately from application overhead.
+- **Not met.** Demonstrate installation from documentation and restoration of application metadata from backup. The Compose deployment and the operations guide exist; neither has been installed from scratch by someone following them, and no metadata backup has been restored. There is also no migration tool, so an in-place upgrade has no supported path.
+- **Not met.** No provider call has been made, so no case has been evaluated. Evaluate at least 30 representative copilot cases covering explanations, compile errors, SQL/PLSQL drafts, test blocks, tuning evidence, inaccessible objects, stale source and malicious embedded instructions. Require all authorization and no-automatic-execution cases to pass; target at least 90% DBA-reviewed correctness on explain/fix cases and disclose the remaining failure patterns.
+- **Partly met.** Verify stale diffs are rejected, credentials and unauthorized metadata never enter model context, provider failures leave editing usable, and accepting an edit does not execute database code. All four are implemented and covered in `tests/copilot`, against the fixture provider and a stubbed editor.
+- **Not met.** No DataForge installation has been connected. Meet the DataForge integration release gates: ten-minute setup target on running services, compatible protocol negotiation, unchanged DataForge role/transaction/confirmation behavior, disabled/outage operation and published tested-version matrix.
+- **Not met.** No pilot has run. At least one developer and one DBA complete the six MVP workflows across the web console and supported IDE, with no unresolved defects that risk incorrect database changes, access leakage, or misleading outcomes.
 
 ## Deferred roadmap
 

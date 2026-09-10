@@ -13,6 +13,7 @@ docs/compatibility.md.
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.conftest import audit_events, execute, live_connection, open_worksheet
@@ -38,6 +39,7 @@ def test_a_successful_commit_is_durable_and_audited(client: TestClient, develope
     assert rows == [[11]]
 
 
+@pytest.mark.stand_in_only
 def test_a_refused_commit_leaves_the_work_pending_on_a_usable_session(
     client: TestClient, developer, targets
 ) -> None:
@@ -66,6 +68,7 @@ def test_a_refused_commit_leaves_the_work_pending_on_a_usable_session(
     assert rolled_back.status_code == 200, rolled_back.text
 
 
+@pytest.mark.stand_in_only
 def test_a_commit_whose_answer_is_lost_is_reported_as_outcome_unknown(
     client: TestClient, developer, targets
 ) -> None:
@@ -87,6 +90,7 @@ def test_a_commit_whose_answer_is_lost_is_reported_as_outcome_unknown(
     assert "verify" in error["message"].lower()
 
 
+@pytest.mark.stand_in_only
 def test_a_lost_commit_is_recorded_in_the_audit_trail(
     client: TestClient, developer, targets
 ) -> None:
@@ -104,6 +108,7 @@ def test_a_lost_commit_is_recorded_in_the_audit_trail(
     assert events[0].risk_class == "persistent_write"
 
 
+@pytest.mark.stand_in_only
 def test_a_session_that_lost_its_commit_is_retired_not_reused(
     client: TestClient, developer, targets
 ) -> None:
@@ -188,6 +193,7 @@ def _latest_execution(client: TestClient, operation_id: str):
         ).first()
 
 
+@pytest.mark.stand_in_only
 def test_a_lost_one_shot_commit_is_not_recorded_as_a_failed_execution(
     client: TestClient, developer, targets
 ) -> None:
