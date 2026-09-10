@@ -148,7 +148,7 @@ def test_a_lost_connection_during_a_write_is_outcome_unknown(
         # the session is killed. It generates real undo and redo rather than being
         # optimised away.
         connection.execute(
-            "UPDATE harness_order_lines SET unit_price = unit_price + 0.01",
+            "UPDATE order_lines SET unit_price = unit_price + 0.01",
             {},
             StatementKind.DML,
             generous,
@@ -196,7 +196,7 @@ def test_a_lost_connection_during_commit_is_outcome_unknown(
     assert identity.session_id is not None and identity.serial_number is not None
 
     connection.execute(
-        "INSERT INTO harness_departments (department_id, department_name, location_id)"
+        "INSERT INTO departments (department_id, department_name, location_id)"
         " VALUES (920, 'Committed or not', 9999)",
         {},
         StatementKind.DML,

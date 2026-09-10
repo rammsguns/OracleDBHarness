@@ -10,6 +10,7 @@ the development one, because the accounts it creates would otherwise be real acc
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,29 @@ DEMO_USERS = [
     ("admin@example.internal", "Ada Administrator", [AppRole.ADMINISTRATOR.value]),
 ]
 
+
+@dataclass(frozen=True)
+class TargetEndpoint:
+    """Where one demonstration target actually points.
+
+    The defaults describe the local stand-in, which invents a database per
+    host/port/service and needs no real credential. A qualification run overrides
+    them so the same seeded users, grants and profiles sit in front of a real Oracle
+    target — which is what lets the integration and end-to-end suites run against
+    one without a parallel set of fixtures.
+    """
+
+    host: str = "localhost"
+    port: int = 1521
+    service_name: str = ""
+    username: str = "harness_app"
+    default_schema: str = "HARNESS_APP"
+    # Names of a credential reference and the file it points at - not a credential.
+    secret_name: str = "harness-app"  # noqa: S105
+    secret_locator: str = "harness_app.password"  # noqa: S105
+    description: str = "Oracle account used by the demonstration targets."
+
+
 DEMO_TARGETS: list[dict[str, Any]] = [
     {
         "name": "development",
@@ -69,7 +93,37 @@ DEMO_TARGETS: list[dict[str, Any]] = [
 ]
 
 
-def seed(settings: Settings | None = None, *, probe: bool = True) -> dict:
+def _resolve_endpoints(
+    overrides: dict[str, TargetEndpoint] | None,
+) -> dict[str, TargetEndpoint]:
+    """One endpoint per demonstration target, defaulting to the stand-in's.
+
+    An override for a target the seed does not create is refused rather than
+    ignored: it means the caller expected a target that will not exist, and finding
+    that out from a later connection error is a much longer trip.
+    """
+
+    names = [str(spec["name"]) for spec in DEMO_TARGETS]
+    unknown = set(overrides or {}) - set(names)
+    if unknown:
+        raise ConfigurationError(
+            f"No demonstration target is named {sorted(unknown)}.",
+            detail={"known": names},
+        )
+    resolved: dict[str, TargetEndpoint] = {}
+    for spec in DEMO_TARGETS:
+        name = str(spec["name"])
+        override = (overrides or {}).get(name)
+        resolved[name] = override or TargetEndpoint(service_name=str(spec["service_name"]))
+    return resolved
+
+
+def seed(
+    settings: Settings | None = None,
+    *,
+    probe: bool = True,
+    endpoints: dict[str, TargetEndpoint] | None = None,
+) -> dict:
     settings = settings or get_settings()
     if settings.auth_mode != "dev":
         raise ConfigurationError(
@@ -77,13 +131,17 @@ def seed(settings: Settings | None = None, *, probe: bool = True) -> dict:
             "create accounts through the admin API against your identity provider."
         )
 
+    resolved = _resolve_endpoints(endpoints)
+
     secret_dir = Path(settings.secret_dir)
     secret_dir.mkdir(parents=True, exist_ok=True)
-    password_file = secret_dir / "harness_app.password"
-    if not password_file.exists():
-        # The stand-in backend ignores the value; a real target reads its password
-        # from a mounted file exactly like this one.
-        password_file.write_text("not-a-real-password", encoding="utf-8")
+    for endpoint in resolved.values():
+        password_file = secret_dir / endpoint.secret_locator
+        if not password_file.exists():
+            # The stand-in backend ignores the value; a real target reads its password
+            # from a mounted file exactly like this one. A caller pointing the seed at
+            # a real database writes the file itself before calling.
+            password_file.write_text("not-a-real-password", encoding="utf-8")
 
     engine = build_engine(settings)
     initialize_schema(engine)
@@ -95,18 +153,23 @@ def seed(settings: Settings | None = None, *, probe: bool = True) -> dict:
         with factory() as db:
             register_definitions(db, execution)
 
-            secret = db.scalars(
-                select(SecretReference).where(SecretReference.name == "harness-app")
-            ).first()
-            if secret is None:
-                secret = SecretReference(
-                    name="harness-app",
-                    provider="file",
-                    locator="harness_app.password",
-                    description="Oracle account used by the demonstration targets.",
-                )
-                db.add(secret)
-                db.commit()
+            secrets: dict[str, SecretReference] = {}
+            for endpoint in resolved.values():
+                if endpoint.secret_name in secrets:
+                    continue
+                secret = db.scalars(
+                    select(SecretReference).where(SecretReference.name == endpoint.secret_name)
+                ).first()
+                if secret is None:
+                    secret = SecretReference(
+                        name=endpoint.secret_name,
+                        provider="file",
+                        locator=endpoint.secret_locator,
+                        description=endpoint.description,
+                    )
+                    db.add(secret)
+                secrets[endpoint.secret_name] = secret
+            db.commit()
 
             users: dict[str, User] = {}
             for subject, display_name, roles in DEMO_USERS:
@@ -123,16 +186,17 @@ def seed(settings: Settings | None = None, *, probe: bool = True) -> dict:
                 profile = db.scalars(
                     select(ConnectionProfile).where(ConnectionProfile.name == str(spec["name"]))
                 ).first()
+                endpoint = resolved[str(spec["name"])]
                 if profile is None:
                     profile = ConnectionProfile(
                         name=spec["name"],
                         environment=spec["environment"],
-                        host="localhost",
-                        port=1521,
-                        service_name=spec["service_name"],
-                        username="harness_app",
-                        default_schema="HARNESS_APP",
-                        secret_reference_id=secret.id,
+                        host=endpoint.host,
+                        port=endpoint.port,
+                        service_name=endpoint.service_name,
+                        username=endpoint.username,
+                        default_schema=endpoint.default_schema,
+                        secret_reference_id=secrets[endpoint.secret_name].id,
                         worksheets_enabled=spec["worksheets_enabled"],
                         mutating_runbooks_enabled=spec["mutating_runbooks_enabled"],
                         notes=spec["notes"],

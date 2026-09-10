@@ -30,9 +30,14 @@ END employee_report;
 
 
 def test_workflow_1_register_verify_and_inspect_a_connection(
-    client: TestClient, administrator, developer, targets
+    client: TestClient, administrator, developer, targets, spare_endpoint
 ) -> None:
-    """Register a connection, verify identity and permissions, inspect its schemas."""
+    """Register a connection, verify identity and permissions, inspect its schemas.
+
+    The endpoint comes from a fixture. Against the stand-in it is a service name
+    nothing has used yet, so a fresh database appears; against Oracle it is the
+    configured target, registered under a second profile.
+    """
 
     created = client.post(
         "/api/v1/admin/targets",
@@ -40,13 +45,9 @@ def test_workflow_1_register_verify_and_inspect_a_connection(
         json={
             "name": "workflow-1",
             "environment": "development",
-            "host": "localhost",
-            "port": 1521,
-            "serviceName": "WORKFLOW1",
-            "username": "harness_app",
-            "defaultSchema": "HARNESS_APP",
             "secretReference": "harness-app",
             "worksheetsEnabled": True,
+            **spare_endpoint,
         },
     )
     assert created.status_code == 201, created.text
@@ -65,7 +66,10 @@ def test_workflow_1_register_verify_and_inspect_a_connection(
 
     verified = client.post(f"/api/v1/targets/{profile_id}/test", headers=developer).json()
     assert verified["connected"] is True
-    assert verified["identity"]["databaseName"] == "WORKFLOW1"
+    # Identity is queried, not copied from the profile, so the name is whatever the
+    # database calls itself rather than the service name registered above.
+    assert verified["identity"]["databaseName"]
+    assert verified["identity"]["currentSchema"].upper() == spare_endpoint["defaultSchema"].upper()
     assert verified["identity"]["version"].startswith("19.")
     assert all(c["checkedAt"] for c in verified["capabilities"])
 

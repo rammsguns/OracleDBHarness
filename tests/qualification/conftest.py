@@ -1,6 +1,6 @@
 """Fixtures for the Oracle 19c qualification suite.
 
-Nothing here runs unless the configuration in ``config.py`` is present. When it is,
+Nothing here runs unless the configuration in ``tests/oracle_config.py`` is present. When it is,
 the schema objects in ``oracle/qualification/`` are rebuilt once for the session and
 dropped afterwards, so a run is repeatable regardless of how the previous one ended.
 """
@@ -13,9 +13,9 @@ import pytest
 
 from harness_worker.backend import OracleBackend, OracleConnection, create_backend
 from harness_worker.types import ExecutionLimits
-from tests.qualification import config as qual_config
+from tests import oracle_config as qual_config
+from tests.oracle_fixtures import apply_fixtures, drop_fixtures
 from tests.qualification.evidence import Evidence
-from tests.qualification.fixtures import apply_fixtures, drop_fixtures
 
 
 def pytest_configure(config: pytest.Config) -> None:

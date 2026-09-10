@@ -5,7 +5,7 @@
 -- Run as the harness application account, in an isolated schema on a NON-PRODUCTION
 -- database. 02_teardown.sql removes everything this creates.
 --
--- This script is applied by tests/qualification/fixtures.py, which splits it on the
+-- This script is applied by tests/oracle_fixtures.py, which splits it on the
 -- '--#' separators below and runs each statement in order. Keep one statement per
 -- section and do not use SQL*Plus commands: the harness never runs them.
 --
@@ -13,13 +13,13 @@
 -- either OR REPLACE or preceded by its DROP.
 
 --# drop_order_lines
-BEGIN EXECUTE IMMEDIATE 'DROP TABLE harness_order_lines PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
+BEGIN EXECUTE IMMEDIATE 'DROP TABLE order_lines PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
 
 --# drop_employees
-BEGIN EXECUTE IMMEDIATE 'DROP TABLE harness_employees PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
+BEGIN EXECUTE IMMEDIATE 'DROP TABLE employees PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
 
 --# drop_departments
-BEGIN EXECUTE IMMEDIATE 'DROP TABLE harness_departments PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
+BEGIN EXECUTE IMMEDIATE 'DROP TABLE departments PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
 
 --# drop_types
 BEGIN EXECUTE IMMEDIATE 'DROP TABLE harness_types PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
@@ -33,42 +33,42 @@ BEGIN EXECUTE IMMEDIATE 'DROP TABLE "Harness Mixed Case" PURGE'; EXCEPTION WHEN 
 -- Reference data ----------------------------------------------------------------
 
 --# departments
-CREATE TABLE harness_departments (
-  department_id   NUMBER(4)     CONSTRAINT harness_dept_pk PRIMARY KEY,
+CREATE TABLE departments (
+  department_id   NUMBER(4)     CONSTRAINT dept_pk PRIMARY KEY,
   department_name VARCHAR2(30)  NOT NULL,
   location_id     NUMBER(4)
 )
 
 --# employees
-CREATE TABLE harness_employees (
-  employee_id   NUMBER(6)     CONSTRAINT harness_emp_pk PRIMARY KEY,
+CREATE TABLE employees (
+  employee_id   NUMBER(6)     CONSTRAINT emp_pk PRIMARY KEY,
   first_name    VARCHAR2(20),
   last_name     VARCHAR2(25)  NOT NULL,
   email         VARCHAR2(25)  NOT NULL,
   hire_date     DATE          NOT NULL,
   salary        NUMBER(8,2),
-  department_id NUMBER(4)     CONSTRAINT harness_emp_dept_fk
-                              REFERENCES harness_departments (department_id)
+  department_id NUMBER(4)     CONSTRAINT emp_dept_fk
+                              REFERENCES departments (department_id)
 )
 
 --# employees_index
-CREATE INDEX harness_emp_department_ix ON harness_employees (department_id)
+CREATE INDEX emp_department_ix ON employees (department_id)
 
 --# departments_rows
 INSERT ALL
-  INTO harness_departments VALUES (10, 'Administration', 1700)
-  INTO harness_departments VALUES (20, 'Engineering', 1400)
-  INTO harness_departments VALUES (30, 'Support', 1500)
+  INTO departments VALUES (10, 'Administration', 1700)
+  INTO departments VALUES (20, 'Engineering', 1400)
+  INTO departments VALUES (30, 'Support', 1500)
 SELECT * FROM dual
 
 --# employees_rows
 INSERT ALL
-  INTO harness_employees VALUES (100, 'Ada',   'Byron',   'ADA',      DATE '2019-04-01', 12000, 20)
-  INTO harness_employees VALUES (101, 'Grace', 'Hopper',  'GHOPPER',  DATE '2019-06-15', 11500, 20)
-  INTO harness_employees VALUES (102, 'Ken',   'Iverson', 'KIVERSON', DATE '2020-01-20',  9000, 20)
-  INTO harness_employees VALUES (103, 'Jean',  'Bartik',  'JBARTIK',  DATE '2021-03-05',  8200, 30)
-  INTO harness_employees VALUES (104, 'Mary',  'Keller',  'MKELLER',  DATE '2022-08-11',  7600, 30)
-  INTO harness_employees VALUES (105, 'Alan',  'Perlis',  'APERLIS',  DATE '2023-02-27', 15000, 10)
+  INTO employees VALUES (100, 'Ada',   'Byron',   'ADA',      DATE '2019-04-01', 12000, 20)
+  INTO employees VALUES (101, 'Grace', 'Hopper',  'GHOPPER',  DATE '2019-06-15', 11500, 20)
+  INTO employees VALUES (102, 'Ken',   'Iverson', 'KIVERSON', DATE '2020-01-20',  9000, 20)
+  INTO employees VALUES (103, 'Jean',  'Bartik',  'JBARTIK',  DATE '2021-03-05',  8200, 30)
+  INTO employees VALUES (104, 'Mary',  'Keller',  'MKELLER',  DATE '2022-08-11',  7600, 30)
+  INTO employees VALUES (105, 'Alan',  'Perlis',  'APERLIS',  DATE '2023-02-27', 15000, 10)
 SELECT * FROM dual
 
 -- Slow-query fixture ------------------------------------------------------------
@@ -77,8 +77,8 @@ SELECT * FROM dual
 -- cancellation has something long enough to interrupt.
 
 --# order_lines
-CREATE TABLE harness_order_lines (
-  line_id     NUMBER(10)    CONSTRAINT harness_order_lines_pk PRIMARY KEY,
+CREATE TABLE order_lines (
+  line_id     NUMBER(10)    CONSTRAINT order_lines_pk PRIMARY KEY,
   order_id    NUMBER(10)    NOT NULL,
   product_id  NUMBER(6)     NOT NULL,
   quantity    NUMBER(4)     NOT NULL,
@@ -87,7 +87,7 @@ CREATE TABLE harness_order_lines (
 )
 
 --# order_lines_rows
-INSERT INTO harness_order_lines (line_id, order_id, product_id, quantity, unit_price, created_at)
+INSERT INTO order_lines (line_id, order_id, product_id, quantity, unit_price, created_at)
 SELECT level,
        1000 + MOD(level, 500),
        1 + MOD(level, 40),
@@ -98,10 +98,10 @@ SELECT level,
 CONNECT BY level <= 400000
 
 --# order_lines_order_index
-CREATE INDEX harness_order_lines_ord_ix ON harness_order_lines (order_id)
+CREATE INDEX order_lines_ord_ix ON order_lines (order_id)
 
 --# order_lines_stats
-BEGIN DBMS_STATS.GATHER_TABLE_STATS(USER, 'HARNESS_ORDER_LINES', cascade => TRUE); END;
+BEGIN DBMS_STATS.GATHER_TABLE_STATS(USER, 'ORDER_LINES', cascade => TRUE); END;
 
 -- Type-coverage fixture ---------------------------------------------------------
 -- One row per bind and precision case the release criteria name. The stand-in has
@@ -179,23 +179,23 @@ CREATE TABLE "Harness Mixed Case" ("Column One" NUMBER(4), "select" VARCHAR2(20)
 INSERT INTO "Harness Mixed Case" ("Column One", "select") VALUES (1, 'reserved word')
 
 -- PL/SQL fixture ----------------------------------------------------------------
--- The specification is valid. The body references HARNESS_EMPLOYEE, which does not
+-- The specification is valid. The body references EMPLOYEE, which does not
 -- exist, so the body compiles INVALID on purpose: the PL/SQL workspace acceptance
 -- test reads the line-level error, repairs it and recompiles. Keep the misspelling.
 
 --# package_spec
-CREATE OR REPLACE PACKAGE harness_employee_report AS
+CREATE OR REPLACE PACKAGE employee_report AS
   FUNCTION headcount(p_department_id IN NUMBER) RETURN NUMBER;
   PROCEDURE report_department(p_department_id IN NUMBER);
   PROCEDURE emit_lines(p_count IN NUMBER, p_width IN NUMBER DEFAULT 40);
-END harness_employee_report;
+END employee_report;
 
 --# package_body_invalid
-CREATE OR REPLACE PACKAGE BODY harness_employee_report AS
+CREATE OR REPLACE PACKAGE BODY employee_report AS
   FUNCTION headcount(p_department_id IN NUMBER) RETURN NUMBER IS
     l_count NUMBER;
   BEGIN
-    SELECT COUNT(*) INTO l_count FROM harness_employee WHERE department_id = p_department_id;
+    SELECT COUNT(*) INTO l_count FROM employee WHERE department_id = p_department_id;
     RETURN l_count;
   END headcount;
   PROCEDURE report_department(p_department_id IN NUMBER) IS
@@ -208,7 +208,7 @@ CREATE OR REPLACE PACKAGE BODY harness_employee_report AS
       DBMS_OUTPUT.PUT_LINE(LPAD(TO_CHAR(i), p_width, '.'));
     END LOOP;
   END emit_lines;
-END harness_employee_report;
+END employee_report;
 
 -- A standalone procedure used by the cancellation and connection-loss checks. It
 -- burns server time without allocating, so breaking it is a clean interrupt.

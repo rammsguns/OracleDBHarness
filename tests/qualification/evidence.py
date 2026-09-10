@@ -18,7 +18,7 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Any
 
-from tests.qualification.config import OracleTestConfig
+from tests.oracle_config import OracleTestConfig
 
 
 def _harness_build() -> str:

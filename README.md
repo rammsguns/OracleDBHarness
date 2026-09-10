@@ -29,7 +29,7 @@ qualification still requires Oracle 19c. See [docs/compatibility.md](docs/compat
 | Execution records and append-only audit | Implemented, tested |
 | Copilot: context policy, streaming, proposals, budgets, one provider adapter | Implemented, tested against a fixture provider |
 | DataForge adapter: contract, bridge, routes, fixtures | Implemented, tested against a stubbed harness; **not integrated with DataForge** |
-| Oracle 19c qualification | **Suite written, never run.** Fixtures and tests in [oracle/qualification](oracle/qualification/README.md); no database has been connected to |
+| Oracle 19c qualification | **Written, never run.** Fixtures and a backend suite in [oracle/qualification](oracle/qualification/README.md); configuring a target also switches the integration and end-to-end suites onto it. No database has been connected to |
 | Copilot answer-quality evaluation | **Not started** |
 | Load testing | **Not started** |
 

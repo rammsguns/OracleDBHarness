@@ -11,7 +11,7 @@ from typing import Any
 
 from harness_worker.backend import OracleConnection
 from harness_worker.types import Capability, ExecutionLimits, StatementKind
-from tests.qualification.config import OracleTestConfig
+from tests.oracle_config import OracleTestConfig
 from tests.qualification.evidence import Evidence, driver_versions
 
 
