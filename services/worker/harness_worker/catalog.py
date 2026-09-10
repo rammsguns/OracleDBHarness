@@ -141,6 +141,9 @@ class QueryCatalog:
         return needed
 
 
+_SCRIPT_DIRECTORIES = frozenset({"grants", "qualification"})
+
+
 def load_catalog(root: Path) -> QueryCatalog:
     """Load every .sql file under ``root`` (recursively) into a catalog."""
 
@@ -150,9 +153,11 @@ def load_catalog(root: Path) -> QueryCatalog:
         )
     entries: dict[str, CatalogEntry] = {}
     for path in sorted(root.rglob("*.sql")):
-        # grants/ holds reviewed DBA setup scripts. They are documentation for a human
-        # to run, never operations the application dispatches.
-        if path.name.startswith("_") or "grants" in path.relative_to(root).parts:
+        parts = path.relative_to(root).parts
+        # These directories hold reviewed scripts a human runs against a database:
+        # grants/ sets up the harness roles, qualification/ builds the Oracle 19c test
+        # fixtures. Neither is an operation the application dispatches.
+        if path.name.startswith("_") or _SCRIPT_DIRECTORIES.intersection(parts):
             continue
         entry = parse_entry(path)
         if entry.operation_id in entries:
