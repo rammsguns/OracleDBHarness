@@ -122,7 +122,7 @@ def test_cancelling_one_statement_leaves_earlier_work_in_the_transaction(
     """
 
     connection.execute(
-        "INSERT INTO harness_departments (department_id, department_name, location_id)"
+        "INSERT INTO departments (department_id, department_name, location_id)"
         " VALUES (910, 'Before the cancel', 9999)",
         {},
         StatementKind.DML,
@@ -142,7 +142,7 @@ def test_cancelling_one_statement_leaves_earlier_work_in_the_transaction(
 
     try:
         result = connection.execute(
-            "SELECT COUNT(*) FROM harness_departments WHERE department_id = 910",
+            "SELECT COUNT(*) FROM departments WHERE department_id = 910",
             {},
             StatementKind.QUERY,
             limits,

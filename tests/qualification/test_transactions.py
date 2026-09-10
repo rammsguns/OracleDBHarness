@@ -16,7 +16,7 @@ from tests.qualification.evidence import Evidence
 
 
 def _count(connection: OracleConnection, limits: ExecutionLimits, where: str = "") -> int:
-    sql = "SELECT COUNT(*) FROM harness_departments"
+    sql = "SELECT COUNT(*) FROM departments"
     if where:
         sql = f"{sql} WHERE {where}"
     result = connection.execute(sql, {}, StatementKind.QUERY, limits)
@@ -26,7 +26,7 @@ def _count(connection: OracleConnection, limits: ExecutionLimits, where: str = "
 
 def _insert(connection: OracleConnection, limits: ExecutionLimits, department_id: int) -> None:
     connection.execute(
-        "INSERT INTO harness_departments (department_id, department_name, location_id)"
+        "INSERT INTO departments (department_id, department_name, location_id)"
         " VALUES (:id, :name, :loc)",
         {"id": department_id, "name": f"Qualification {department_id}", "loc": 9999},
         StatementKind.DML,
@@ -64,7 +64,7 @@ def test_commit_makes_the_change_visible_and_closes_the_transaction(
         assert _count(second_connection, limits, "department_id = 901") == 1
     finally:
         connection.execute(
-            "DELETE FROM harness_departments WHERE department_id = 901",
+            "DELETE FROM departments WHERE department_id = 901",
             {},
             StatementKind.DML,
             limits,
@@ -119,7 +119,7 @@ def test_ddl_commits_the_open_transaction(
     finally:
         connection.execute("DROP TABLE harness_ddl_probe PURGE", {}, StatementKind.DDL, limits)
         connection.execute(
-            "DELETE FROM harness_departments WHERE department_id = 903",
+            "DELETE FROM departments WHERE department_id = 903",
             {},
             StatementKind.DML,
             limits,
@@ -139,7 +139,7 @@ def test_a_plsql_block_leaves_its_transaction_open(
     """
 
     connection.execute(
-        "BEGIN INSERT INTO harness_departments (department_id, department_name, location_id)"
+        "BEGIN INSERT INTO departments (department_id, department_name, location_id)"
         " VALUES (904, 'From a block', 9999); END;",
         {},
         StatementKind.PLSQL_BLOCK,
@@ -208,7 +208,7 @@ def test_a_worksheet_commit_resolves_the_same_state_as_the_toolbar(
         assert not connection.transaction_open
     finally:
         connection.execute(
-            "DELETE FROM harness_departments WHERE department_id = 907",
+            "DELETE FROM departments WHERE department_id = 907",
             {},
             StatementKind.DML,
             limits,
@@ -236,7 +236,7 @@ def test_create_or_replace_of_a_program_unit_clears_the_transaction(
     finally:
         connection.execute("DROP PROCEDURE harness_noop", {}, StatementKind.DDL, limits)
         connection.execute(
-            "DELETE FROM harness_departments WHERE department_id = 908",
+            "DELETE FROM departments WHERE department_id = 908",
             {},
             StatementKind.DML,
             limits,

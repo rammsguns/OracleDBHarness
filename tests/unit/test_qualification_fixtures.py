@@ -17,7 +17,7 @@ import pytest
 from harness_worker.catalog import load_catalog
 from harness_worker.statement import classify
 from harness_worker.types import StatementKind
-from tests.qualification.fixtures import Step, parse_script, qualification_dir
+from tests.oracle_fixtures import Step, parse_script, qualification_dir
 
 SCRIPTS = ["01_fixtures.sql", "02_teardown.sql"]
 

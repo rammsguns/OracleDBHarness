@@ -3,12 +3,27 @@
 Everything in the automated suite runs against the local stand-in. This directory and
 `tests/qualification/` are how that changes.
 
-**Nothing here has been executed.** The scripts and the suite are written and are
-checked structurally by `tests/unit/test_qualification_fixtures.py` in ordinary CI,
-but no Oracle database has ever been connected to. The first person to run this
-should expect to fix things, and should record what they fixed.
+**Nothing here has been executed.** The scripts and the suites are written, and the
+wiring is checked in ordinary CI by `tests/unit/test_qualification_fixtures.py` and
+`tests/unit/test_oracle_wiring.py`. No Oracle database has ever been connected to. The
+first person to run this should expect to fix things, and should record what they
+fixed.
 
-## What it covers
+## One switch, three suites
+
+`tests/oracle_config.py` reads the `HARNESS_QUAL_*` variables below. With them set:
+
+| Suite | Against the stand-in | With a target configured |
+| --- | --- | --- |
+| `tests/qualification` | Skips entirely | Drives the backend directly: transactions, cancellation, connection loss, compilation, binds, LOBs |
+| `tests/integration`, `tests/e2e` | Runs, as it always has | Runs through the API against the real target |
+| `tests/unit` | Runs | Runs, unchanged — it touches no database |
+
+So `uv run pytest` covers the backend behaviour and the API-level acceptance criteria
+in one run. What the API suites cannot do against Oracle, and why, is in
+[docs/compatibility.md](../../docs/compatibility.md).
+
+## What the backend suite covers
 
 The six areas the release criteria name, each one currently answered only by a stub:
 
@@ -27,18 +42,24 @@ The six areas the release criteria name, each one currently answered only by a s
 Use a **non-production** database. The fixtures drop and recreate their own objects on
 every run, and the cancellation and connection-loss tests deliberately kill sessions.
 
-1. Create an isolated schema and grant it what `oracle/grants/harness_roles.sql`
-   describes, after reviewing that script.
+1. Create a schema named **`HARNESS_APP`** and grant it what
+   `oracle/grants/harness_roles.sql` describes, after reviewing that script. The name
+   is not arbitrary: the integration and end-to-end suites address the demonstration
+   schema by name, so a different one is refused up front. Only `tests/qualification`
+   can run against a differently named schema.
 2. Put the account's password in a file. It is read from a file rather than an
    environment variable so it does not appear in a process listing or shell history.
 3. Optionally create a privileged account that can run
    `ALTER SYSTEM KILL SESSION`. Without it the connection-loss suite skips: a session
    cannot honestly lose itself, so those checks need something outside it.
+4. Optionally provide a second, genuinely separate database. Without it the two-target
+   isolation check skips, because two profiles pointing at one database would pass it
+   without demonstrating anything.
 
 ```bash
 export HARNESS_QUAL_ORACLE_DSN=dbhost:1521/ORCLPDB1
-export HARNESS_QUAL_ORACLE_USER=harness_qual
-export HARNESS_QUAL_ORACLE_PASSWORD_FILE=/run/secrets/harness_qual.password
+export HARNESS_QUAL_ORACLE_USER=harness_app
+export HARNESS_QUAL_ORACLE_PASSWORD_FILE=/run/secrets/harness_app.password
 export HARNESS_QUAL_REPORT=./qualification-report.md
 
 # Optional, for the connection-loss suite:
@@ -46,9 +67,18 @@ export HARNESS_QUAL_ADMIN_DSN=dbhost:1521/ORCLPDB1
 export HARNESS_QUAL_ADMIN_USER=system
 export HARNESS_QUAL_ADMIN_PASSWORD_FILE=/run/secrets/system.password
 
+# Optional, for the two-target isolation check:
+export HARNESS_QUAL_SECOND_DSN=dbhost:1521/ORCLPDB2
+export HARNESS_QUAL_SECOND_USER=harness_app
+export HARNESS_QUAL_SECOND_PASSWORD_FILE=/run/secrets/harness_app.password
+
 uv sync --extra oracle
-uv run pytest tests/qualification -v
+uv run pytest -v
 ```
+
+The DSN must be `host:port/service`. A connect descriptor or a tnsnames alias is
+refused, because a connection profile has separate host, port and service columns and
+nothing else — accepting one here would qualify a path the application cannot use.
 
 Driver mode is process wide. To qualify Thick mode, run the suite again in a separate
 process with `HARNESS_QUAL_DRIVER_MODE=thick` and
@@ -65,9 +95,16 @@ failure mode worth avoiding.
 `01_fixtures.sql` builds the objects the acceptance criteria refer to, mirroring what
 `harness_worker.backend.fake` seeds into the stand-in so the same assertions mean the
 same thing on both. `02_teardown.sql` removes them. Both are idempotent and both are
-applied by `tests/qualification/fixtures.py`, through the same python-oracledb
-connection the harness uses — so a fixture the driver cannot execute fails here rather
-than being papered over by a separate client.
+applied by `tests/oracle_fixtures.py`, through the same python-oracledb connection the
+harness uses — so a fixture the driver cannot execute fails here rather than being
+papered over by a separate client.
+
+They use the ordinary names a sample schema uses — `EMPLOYEES`, `DEPARTMENTS`,
+`ORDER_LINES`, `EMPLOYEE_REPORT` — because that is what the stand-in seeds and what
+the suites query. Objects that exist only for qualification and have no counterpart in
+the stand-in keep a `HARNESS_` prefix: `HARNESS_TYPES`, `HARNESS_LOBS`,
+`HARNESS_BURN`. **The setup drops every one of these before creating it.** Use a
+schema that holds nothing else.
 
 The slow-query fixture is 400,000 rows. Building it takes a minute or two on the first
 run and is the reason the setup budget is 15 minutes rather than the interactive 30

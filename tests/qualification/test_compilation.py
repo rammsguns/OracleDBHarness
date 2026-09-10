@@ -12,11 +12,11 @@ from harness_worker.backend import OracleConnection
 from harness_worker.types import ExecutionLimits, StatementKind
 from tests.qualification.evidence import Evidence
 
-_VALID_BODY = """CREATE OR REPLACE PACKAGE BODY harness_employee_report AS
+_VALID_BODY = """CREATE OR REPLACE PACKAGE BODY employee_report AS
   FUNCTION headcount(p_department_id IN NUMBER) RETURN NUMBER IS
     l_count NUMBER;
   BEGIN
-    SELECT COUNT(*) INTO l_count FROM harness_employees WHERE department_id = p_department_id;
+    SELECT COUNT(*) INTO l_count FROM employees WHERE department_id = p_department_id;
     RETURN l_count;
   END headcount;
   PROCEDURE report_department(p_department_id IN NUMBER) IS
@@ -29,9 +29,9 @@ _VALID_BODY = """CREATE OR REPLACE PACKAGE BODY harness_employee_report AS
       DBMS_OUTPUT.PUT_LINE(LPAD(TO_CHAR(i), p_width, '.'));
     END LOOP;
   END emit_lines;
-END harness_employee_report;"""
+END employee_report;"""
 
-_INVALID_BODY = _VALID_BODY.replace("FROM harness_employees", "FROM harness_employee")
+_INVALID_BODY = _VALID_BODY.replace("FROM employees", "FROM employee")
 
 
 def _object_status(
@@ -114,7 +114,7 @@ def test_a_repaired_package_produces_the_expected_output(
     connection.execute(_VALID_BODY, {}, StatementKind.PLSQL_SOURCE, limits)
     try:
         result = connection.execute(
-            "BEGIN harness_employee_report.report_department(20); END;",
+            "BEGIN employee_report.report_department(20); END;",
             {},
             StatementKind.PLSQL_BLOCK,
             limits,
@@ -143,7 +143,7 @@ def test_dbms_output_arrives_in_the_order_it_was_written(
     try:
         generous = limits.model_copy(update={"max_dbms_output_bytes": 1 << 20})
         result = connection.execute(
-            "BEGIN harness_employee_report.emit_lines(250, 10); END;",
+            "BEGIN employee_report.emit_lines(250, 10); END;",
             {},
             StatementKind.PLSQL_BLOCK,
             generous,
@@ -173,7 +173,7 @@ def test_dbms_output_is_bounded_and_says_so(
     try:
         tight = limits.model_copy(update={"max_dbms_output_bytes": 512})
         result = connection.execute(
-            "BEGIN harness_employee_report.emit_lines(500, 60); END;",
+            "BEGIN employee_report.emit_lines(500, 60); END;",
             {},
             StatementKind.PLSQL_BLOCK,
             tight,

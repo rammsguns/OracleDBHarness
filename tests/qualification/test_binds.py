@@ -40,16 +40,16 @@ def test_a_bind_is_a_bind_and_not_string_substitution(
 ) -> None:
     """The value that would end a statement if it were interpolated."""
 
-    hostile = "'; DROP TABLE harness_employees; --"
+    hostile = "'; DROP TABLE employees; --"
     row = _one(
         connection,
-        "SELECT COUNT(*) FROM harness_employees WHERE last_name = :name",
+        "SELECT COUNT(*) FROM employees WHERE last_name = :name",
         {"name": hostile},
         limits,
     )
     assert row[0] == 0
     # The table is still here, which is the actual assertion.
-    assert _one(connection, "SELECT COUNT(*) FROM harness_employees", {}, limits)[0] == 6
+    assert _one(connection, "SELECT COUNT(*) FROM employees", {}, limits)[0] == 6
 
 
 @pytest.mark.parametrize(
@@ -235,7 +235,7 @@ def test_bounded_fetch_stops_at_the_row_limit_and_says_so(
 
     tight = limits.model_copy(update={"max_rows": 10})
     result = connection.execute(
-        "SELECT line_id FROM harness_order_lines ORDER BY line_id",
+        "SELECT line_id FROM order_lines ORDER BY line_id",
         {},
         StatementKind.QUERY,
         tight,

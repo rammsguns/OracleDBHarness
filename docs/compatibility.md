@@ -63,7 +63,9 @@ namespace. `oracle/qualification/README.md` has the full procedure; in outline:
    skip, because a session cannot honestly lose itself.
 3. `uv sync --extra oracle`, set `HARNESS_QUAL_ORACLE_DSN`, `HARNESS_QUAL_ORACLE_USER`,
    `HARNESS_QUAL_ORACLE_PASSWORD_FILE` and `HARNESS_QUAL_REPORT`, then
-   `uv run pytest tests/qualification`.
+   `uv run pytest`. The same variables switch `tests/integration` and `tests/e2e`
+   over as well, so one run covers the backend behaviour and the API-level
+   acceptance criteria together.
 4. The fixture objects the acceptance criteria refer to are built and dropped by the
    suite itself, from the reviewed DDL in `oracle/qualification/`. They mirror what
    the stand-in seeds, so the same assertions mean the same thing on both.
@@ -74,15 +76,32 @@ namespace. `oracle/qualification/README.md` has the full procedure; in outline:
 Driver mode is process wide, so Thick mode is a second run in a separate process with
 `HARNESS_QUAL_DRIVER_MODE=thick`.
 
-**What this still does not cover.** The qualification suite drives the backend
-directly, which is where the behaviour in the gap table lives. It does not run
-`tests/integration` and `tests/e2e` against Oracle: those go through the API and the
-demonstration seed, whose targets are hard-coded to `localhost:1521`. Pointing them at
-a real database is further work and is not done. Until it is, the API-level acceptance
-criteria remain qualified only against the stand-in.
+### What runs, and what cannot
 
-Until the qualification suite has been run and recorded, no release claim about Oracle
-support is supportable.
+With a target configured, `tests/integration` and `tests/e2e` run against Oracle too:
+the `settings` fixture switches the backend, the demonstration seed is pointed at the
+real endpoints, and the fixture schema is built from the same reviewed DDL. Two groups
+are excluded, and both are excluded for a reason rather than because they are
+inconvenient:
+
+| Excluded | Why | Where the evidence comes from instead |
+| --- | --- | --- |
+| Five commit-outcome tests and three tuning tests, marked `stand_in_only` | They inject a fault the stand-in exposes for the purpose (`fail_next_commit`), or patch its class. There is nothing to patch on a real driver | `tests/qualification/test_connection_loss.py`, which ends real sessions from a privileged connection |
+| `test_two_targets_do_not_mix_identity_or_state`, marked `needs_second_target` | It compares two databases. Without `HARNESS_QUAL_SECOND_DSN` both profiles point at one, and it would pass trivially | Set a second DSN and it runs |
+
+Three constraints follow from the fixtures being a mirror of the demonstration schema:
+
+* The schema must be `HARNESS_APP`. The API suites name it in queries, runbook
+  parameters and object lookups. A different name is refused up front with one
+  message rather than several dozen `ORA-00942`s.
+* The account needs the grants in `oracle/grants/harness_roles.sql`. The health-report
+  check asserts every DBA panel is available, so a missing grant fails it — which is
+  the useful answer, not a nuisance.
+* The tuning checks read a cursor Oracle already has. `EXPLAIN PLAN` executes nothing,
+  so the fixture setup runs the slow query once to put one in the shared pool.
+
+Until this has been run and recorded, no release claim about Oracle support is
+supportable.
 
 ## Open Oracle gaps in the transaction, cancellation and output safety work
 

@@ -103,3 +103,31 @@ def apply_fixtures(connection: OracleConnection) -> list[str]:
 
 def drop_fixtures(connection: OracleConnection) -> list[str]:
     return run_script(connection, qualification_dir() / "02_teardown.sql")
+
+
+#: The statement the tuning suite looks for a cached cursor of. Kept identical to
+#: SLOW_QUERY in tests/integration/test_tuning.py: Oracle keys a cursor on the exact
+#: text, so a difference in whitespace would leave nothing to find.
+SLOW_QUERY = (
+    "SELECT order_id, SUM(quantity * unit_price) FROM order_lines "
+    "WHERE product_id = 3 GROUP BY order_id"
+)
+
+
+def warm_cursor_cache(connection: OracleConnection) -> None:
+    """Execute the slow-query fixture once, so a cursor for it exists in ``v$sql``.
+
+    The tuning workbench reads cursors Oracle already has. ``EXPLAIN PLAN`` does not
+    execute anything, so nothing else in the suite would put this statement in the
+    shared pool, and the cursor checks would fail for a reason that has nothing to do
+    with the harness.
+
+    A failure here is not fatal. The cursor checks will then fail on their own and
+    say what is missing, which is more useful than the whole session erroring out
+    during setup.
+    """
+
+    try:
+        connection.execute(SLOW_QUERY, {}, classify(SLOW_QUERY), _SETUP_LIMITS)
+    except Exception:  # noqa: BLE001,S110 - reported by the tests that need it
+        pass
