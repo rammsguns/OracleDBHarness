@@ -9,8 +9,10 @@ see tests/copilot/README.md.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 SELECTED_SOURCE = """\
@@ -123,6 +125,39 @@ def test_an_unknown_credential_is_refused(client: TestClient) -> None:
         headers={"Authorization": "Bearer odbh_not-a-real-token"},
     )
     assert response.status_code == 401
+
+
+def test_two_credentials_that_share_a_prefix_both_work(client: TestClient) -> None:
+    """The stored prefix narrows the search; only the hash decides who is calling."""
+
+    from harness_api.models import IntegrationInstance
+    from harness_api.security import TOKEN_PREFIX_LENGTH, hash_token
+
+    tokens = ("odbh_collides-first", "odbh_collides-second")
+    assert tokens[0][:TOKEN_PREFIX_LENGTH] == tokens[1][:TOKEN_PREFIX_LENGTH]
+
+    factory = client.app.state.harness.session_factory  # type: ignore[attr-defined]
+    with factory() as db:
+        for index, token in enumerate(tokens):
+            db.add(
+                IntegrationInstance(
+                    id=f"int-collide-{index}",
+                    name=f"dataforge-collide-{index}",
+                    kind="dataforge",
+                    scopes=["copilot:assist"],
+                    token_hash=hash_token(token),
+                    token_prefix=token[:TOKEN_PREFIX_LENGTH],
+                )
+            )
+        db.commit()
+
+    for index, token in enumerate(tokens):
+        response = client.get(
+            "/api/v1/integrations/capabilities",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["actor"]["integrationId"] == f"int-collide-{index}"
 
 
 # -- context policy -------------------------------------------------------------------
@@ -439,3 +474,72 @@ def test_copilot_history_records_the_request_without_the_prompt(
     assert "promptText" not in latest
     assert SELECTED_SOURCE.splitlines()[0] not in json.dumps(latest)
     assert "recorded by that IDE" in body["note"]
+
+
+@pytest.mark.parametrize("stop_after", ["start", "delta", "done", "task_cancel"])
+async def test_closing_a_stream_preserves_the_correct_terminal_state(
+    client: TestClient, stop_after: str,
+) -> None:
+    """A caller that closes the stream still leaves a request in a terminal state."""
+
+    from harness_api.copilot import CopilotAsk, EditorReference
+    from harness_api.copilot.provider import FakeProvider
+    from harness_api.models import CopilotRequest
+    from harness_api.security import Principal
+
+    harness = client.app.state.harness  # type: ignore[attr-defined]
+    entered_provider = asyncio.Event()
+    provider_closed = asyncio.Event()
+
+    class WaitingProvider(FakeProvider):
+        async def stream(self, system, user_message):
+            try:
+                entered_provider.set()
+                await asyncio.Event().wait()
+                yield "unreachable"
+            finally:
+                provider_closed.set()
+
+    if stop_after == "task_cancel":
+        harness.copilot._provider = WaitingProvider()
+    payload = base_payload()
+    ask = CopilotAsk(
+        action=payload["action"],
+        user_message=payload["userMessage"],
+        target_reference=payload["targetReference"],
+        context=harness.copilot.context_policy.build(
+            target_reference=payload["targetReference"],
+            raw_attachments=payload["attachments"],
+            database_version=payload["databaseVersion"],
+            schema=payload["schema"],
+        ),
+        editor=EditorReference(editor_id="buffer-1", revision="7", text=SELECTED_SOURCE),
+    )
+
+    stream = harness.copilot.run(Principal(subject="dev@example.internal"), ask)
+    request_id = ""
+    async for name, data in stream:
+        if name == "start":
+            request_id = data["requestId"]
+            if stop_after == "task_cancel":
+                pending = asyncio.create_task(anext(stream))
+                await asyncio.wait_for(entered_provider.wait(), timeout=2)
+                pending.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await pending
+                assert provider_closed.is_set()
+                break
+        if name == stop_after:
+            break
+    await stream.aclose()
+
+    assert request_id
+    with harness.session_factory() as db:
+        row = db.get(CopilotRequest, request_id)
+        assert row is not None
+        assert row.outcome == ("succeeded" if stop_after == "done" else "cancelled")
+        assert row.error_code == ("" if stop_after == "done" else "client_disconnected")
+        assert row.latency_ms is not None
+        if stop_after != "done":
+            assert row.prompt_tokens is None
+            assert row.completion_tokens is None
