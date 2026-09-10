@@ -47,29 +47,50 @@ passing test never quietly stands in for Oracle behaviour.
 
 ## Qualifying against Oracle 19c
 
-1. Provision a 19c instance and a schema, and run `oracle/grants/harness_roles.sql`
-   after review.
-2. Create the fixture objects the acceptance criteria refer to: the sample tables, the
-   `EMPLOYEE_REPORT` package with an invalid body, a blocking scenario, and a
-   slow-query fixture large enough to measure.
-3. Set `HARNESS_ORACLE_BACKEND=oracledb` and point a profile at it.
-4. Run `tests/integration` and `tests/e2e` against that target and record the results
-   here, including the exact database version, patch level, character set and driver
-   mode.
-5. Additionally verify, because the stand-in cannot: binds of every scalar type,
-   quoted identifiers, Unicode, NUMBER precision, dates and time zones, nulls, bounded
-   LOB handling, DDL against an open transaction, a real cancellation of a long
-   statement, connection loss mid-write, and worker restart.
+An earlier version of this section said to set `HARNESS_ORACLE_BACKEND=oracledb` and
+run the existing suites. That was wrong, and worth recording as a trap: the fixtures in
+`tests/conftest.py` construct `Settings` directly with `oracle_backend="fake"`, so the
+environment variable changes nothing and the suite would have gone on passing against
+the stand-in while appearing to qualify Oracle.
 
-Until step 4 has been done and recorded, no release claim about Oracle support is
-supportable.
+The switch is `tests/qualification/config.py`, which reads its own `HARNESS_QUAL_*`
+namespace. `oracle/qualification/README.md` has the full procedure; in outline:
+
+1. Provision a 19c instance and an isolated schema on a **non-production** database,
+   and run `oracle/grants/harness_roles.sql` after review.
+2. Put the account password in a file, and optionally provide a privileged account
+   that can run `ALTER SYSTEM KILL SESSION` — without it the connection-loss checks
+   skip, because a session cannot honestly lose itself.
+3. `uv sync --extra oracle`, set `HARNESS_QUAL_ORACLE_DSN`, `HARNESS_QUAL_ORACLE_USER`,
+   `HARNESS_QUAL_ORACLE_PASSWORD_FILE` and `HARNESS_QUAL_REPORT`, then
+   `uv run pytest tests/qualification`.
+4. The fixture objects the acceptance criteria refer to are built and dropped by the
+   suite itself, from the reviewed DDL in `oracle/qualification/`. They mirror what
+   the stand-in seeds, so the same assertions mean the same thing on both.
+5. Append the generated report block to "Recording a run" below. It carries the exact
+   version, patch level, character set, container identity and driver version, and the
+   suite's answers to the open questions in the gap table above.
+
+Driver mode is process wide, so Thick mode is a second run in a separate process with
+`HARNESS_QUAL_DRIVER_MODE=thick`.
+
+**What this still does not cover.** The qualification suite drives the backend
+directly, which is where the behaviour in the gap table lives. It does not run
+`tests/integration` and `tests/e2e` against Oracle: those go through the API and the
+demonstration seed, whose targets are hard-coded to `localhost:1521`. Pointing them at
+a real database is further work and is not done. Until it is, the API-level acceptance
+criteria remain qualified only against the stand-in.
+
+Until the qualification suite has been run and recorded, no release claim about Oracle
+support is supportable.
 
 ## Open Oracle gaps in the transaction, cancellation and output safety work
 
 Several failure paths were fixed and covered by regression tests, all of them against
 the stand-in or against a stub driver connection. The harness logic is proven; the
-Oracle behaviour each one depends on is not. These have to be confirmed on 19c as part
-of step 5 above, and until they are, the fixes are unqualified against Oracle:
+Oracle behaviour each one depends on is not. Confirming these is what the
+qualification suite above is for, and until it has been run, the fixes are
+unqualified against Oracle:
 
 | Workflow | What the tests prove | What only Oracle can confirm |
 | --- | --- | --- |
@@ -87,6 +108,12 @@ of step 5 above, and until they are, the fixes are unqualified against Oracle:
 The stub driver connection in `tests/unit/test_oracle_adapter.py` asserts the
 adapter's own logic. It asserts nothing about python-oracledb, and its ORA codes are
 taken from documentation rather than observation.
+
+`tests/qualification/` is written to answer the right-hand column of that table. Each
+check records what the database actually did, including when it contradicts the
+assumption — a run where `ROLLBACK TO SAVEPOINT` closes the transaction, or where a
+cancellation discards earlier work, produces a report saying so rather than a failure
+nobody can interpret. None of it has been executed.
 
 ## Recording a run
 
