@@ -8,6 +8,11 @@ dependencies = [
     "harness-worker",
 ]
 
+[project.optional-dependencies]
+# The Oracle driver is not installed by default: the whole default test suite runs
+# against the stand-in and does not need it. The qualification suite does.
+oracle = ["harness-worker[oracle]"]
+
 [tool.uv.workspace]
 members = ["services/api", "services/worker"]
 
