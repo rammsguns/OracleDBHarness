@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: API and worker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Lint
+        run: uv run ruff check .
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Types
+        run: uv run mypy services/api/harness_api services/worker/harness_worker
+      - name: Tests
+        run: uv run pytest -q
+      - name: Contracts are current
+        # generate.py writes packages/contracts/*. If this leaves a diff, someone
+        # changed the API without regenerating the published contract.
+        run: |
+          uv run python packages/contracts/generate.py
+          git diff --exit-code packages/contracts
+
+  web:
+    name: Web console
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm --prefix apps/web install --no-audit --no-fund
+      - run: npm --prefix apps/web run typecheck
+      - run: npm --prefix apps/web test
+      - run: npm --prefix apps/web run build
+
+  adapter:
+    name: DataForge adapter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm --prefix integrations/dataforge install --no-audit --no-fund
+      - run: npm --prefix integrations/dataforge run typecheck
+      - run: npm --prefix integrations/dataforge test
+
+  # Everything above runs against the local stand-in backend. It proves the harness
+  # code works; it proves nothing about Oracle. Qualification against Oracle 19c is a
+  # separate, manual run - see docs/compatibility.md.

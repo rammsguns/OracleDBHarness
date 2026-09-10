@@ -1,0 +1,15 @@
+{
+  "description": "A harness one major version ahead. The adapter must offer no actions.",
+  "status": 200,
+  "body": {
+    "protocolVersion": "2.0",
+    "supportedProtocolMajors": [2],
+    "enabled": true,
+    "actions": ["explain"],
+    "providerReady": true,
+    "isFixtureProvider": false,
+    "limits": { "maxContextBytes": 131072, "userDailyRequests": 100 },
+    "executesDatabaseOperations": false,
+    "requiredAdapterVersion": ">=1.0.0"
+  }
+}

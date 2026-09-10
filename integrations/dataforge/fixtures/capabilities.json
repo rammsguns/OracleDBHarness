@@ -1,0 +1,28 @@
+{
+  "description": "A healthy harness answering GET /api/v1/integrations/capabilities.",
+  "status": 200,
+  "body": {
+    "protocolVersion": "1.0",
+    "supportedProtocolMajors": [1],
+    "enabled": true,
+    "actions": ["explain", "diagnose", "propose", "test_block", "explain_plan", "validate"],
+    "providerReady": true,
+    "providerDetail": "",
+    "provider": "anthropic",
+    "model": "claude-opus-5",
+    "isFixtureProvider": false,
+    "limits": { "maxContextBytes": 131072, "userDailyRequests": 100 },
+    "contextCategories": [
+      "database_version",
+      "error_text",
+      "object_definition",
+      "plan_text",
+      "schema_metadata",
+      "selected_source",
+      "user_message"
+    ],
+    "executesDatabaseOperations": false,
+    "requiredAdapterVersion": ">=0.1.0",
+    "grantedScopes": ["copilot:assist"]
+  }
+}

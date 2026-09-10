@@ -1,0 +1,114 @@
+{
+  "$id": "https://oracledbharness.invalid/schemas/copilot-protocol.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "definitions": {
+    "action": {
+      "enum": [
+        "explain",
+        "diagnose",
+        "propose",
+        "test_block",
+        "explain_plan",
+        "validate"
+      ]
+    },
+    "contextCategory": {
+      "enum": [
+        "selected_source",
+        "object_definition",
+        "schema_metadata",
+        "error_text",
+        "plan_text",
+        "database_version",
+        "user_message"
+      ]
+    },
+    "forbiddenContextCategory": {
+      "description": "Never accepted, whatever a caller sends. Credentials, wallets, result rows and bind values do not enter model context.",
+      "enum": [
+        "result_rows",
+        "bind_values",
+        "credentials",
+        "wallet"
+      ]
+    },
+    "streamEvent": {
+      "oneOf": [
+        {
+          "description": "Sent once, before any answer text. Carries the context preview.",
+          "required": [
+            "requestId",
+            "protocolVersion",
+            "action",
+            "provider",
+            "model"
+          ],
+          "title": "start",
+          "type": "object"
+        },
+        {
+          "description": "A chunk of answer text.",
+          "required": [
+            "text"
+          ],
+          "title": "delta",
+          "type": "object"
+        },
+        {
+          "description": "A reviewable editor diff, pinned to the document revision and hash it was generated from. Applying it changes the editor buffer only.",
+          "required": [
+            "proposalId",
+            "editorId",
+            "baseRevision",
+            "baseHash",
+            "targetReference",
+            "proposedText",
+            "appliesToEditorOnly"
+          ],
+          "title": "proposal",
+          "type": "object"
+        },
+        {
+          "description": "Provider, model and token usage for the completed request.",
+          "required": [
+            "provider",
+            "model"
+          ],
+          "title": "usage",
+          "type": "object"
+        },
+        {
+          "description": "Terminal event. Always the last event of a successful stream.",
+          "required": [
+            "requestId",
+            "outcome",
+            "latencyMs"
+          ],
+          "title": "done",
+          "type": "object"
+        },
+        {
+          "description": "Typed failure. The code is stable: disabled, unauthorized, unsupported-version, context-too-large, rate-limit, timeout and provider-failure outcomes all arrive here.",
+          "required": [
+            "code",
+            "message"
+          ],
+          "title": "error",
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "description": "The contract between an IDE adapter and the harness copilot API. A major version mismatch is rejected; unknown optional fields are ignored.",
+  "guarantees": [
+    "Applying a proposal updates an editor buffer. It never runs, compiles, commits, or pushes anything.",
+    "A proposal is rejected if the document, its revision, the editor, or the target changed since it was generated.",
+    "An actor reference asserted by an adapter is namespaced by integration instance and is never treated as a role.",
+    "A partially delivered request is never replayed automatically."
+  ],
+  "protocolVersion": "1.0",
+  "supportedProtocolMajors": [
+    1
+  ],
+  "title": "OracleDBHarness copilot protocol"
+}

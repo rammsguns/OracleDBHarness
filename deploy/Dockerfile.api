@@ -1,0 +1,38 @@
+# OracleDBHarness API and execution service.
+#
+# Thin mode needs no Oracle Client libraries, which is why this image is small. A
+# deployment that requires Thick mode (Native Network Encryption, some wallet
+# configurations) needs a separate image with the Instant Client, and a separate
+# worker deployment, because the driver mode is process wide.
+FROM python:3.12-slim AS base
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+COPY services/worker/pyproject.toml services/worker/pyproject.toml
+COPY services/worker/harness_worker services/worker/harness_worker
+COPY services/api/pyproject.toml services/api/pyproject.toml
+COPY services/api/harness_api services/api/harness_api
+COPY oracle oracle
+
+RUN pip install --no-cache-dir \
+        "./services/worker[oracle]" \
+        "./services/api[postgres,copilot]" \
+    && useradd --system --uid 10001 --create-home harness \
+    && chown -R harness:harness /app
+
+USER harness
+
+# The reviewed query catalog is read from here at startup.
+ENV HARNESS_ORACLE_CATALOG_DIR=/app/oracle \
+    HARNESS_SECRET_DIR=/run/secrets
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).status == 200 else 1)"
+
+CMD ["uvicorn", "harness_api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

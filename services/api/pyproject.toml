@@ -1,0 +1,29 @@
+[project]
+name = "harness-api"
+version = "0.1.0"
+description = "API, policy, authentication and operation catalog for OracleDBHarness"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "sqlalchemy>=2.0",
+    "python-jose[cryptography]>=3.3",
+    "httpx>=0.27",
+    "harness-worker",
+]
+
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.1"]
+copilot = ["anthropic>=0.40"]
+
+[tool.uv.sources]
+harness-worker = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["harness_api"]

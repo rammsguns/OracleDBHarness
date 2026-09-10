@@ -1,0 +1,17 @@
+{
+  "name": "@oracledbharness/dataforge-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OracleDataForge backend bridge to the OracleDBHarness copilot API.",
+  "main": "src/adapter.ts",
+  "types": "src/adapter.ts",
+  "scripts": {
+    "test": "node --test test/adapter.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

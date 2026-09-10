@@ -1,0 +1,12 @@
+-- @id: runbook.recompile_object
+-- @title: Recompile one object
+-- @description: Recompiles a single named program unit. This is DDL: it commits any
+--               open transaction in its own session and changes shared database
+--               state, so it requires an explicit authorized execution action.
+-- @capabilities: compile_objects
+-- @risk: administrative
+-- @min_version: 11
+-- @identifier_parameters: owner, object_name, object_kind
+-- @privileges: ALTER ANY PROCEDURE, or ownership of the object
+-- @returns: none
+ALTER ${object_kind} ${owner}.${object_name} COMPILE

@@ -1,0 +1,143 @@
+# Operations
+
+## Reading a failure
+
+Every error the API returns carries a stable `code`. The console and the IDE adapters
+branch on it; so should you.
+
+| Code | HTTP | What it means | What to do |
+| --- | --- | --- | --- |
+| `authentication_required` | 401 | No token, a bad token, or an account that is authenticated but not registered in the harness | Register the account; check the issuer and audience |
+| `not_authorized` | 403 | No grant on this target, or someone else's worksheet session | Grant access; the message is deliberately identical for a missing and a foreign session so identifiers cannot be probed |
+| `policy_refused` | 403 | A layer refused: grant permission, role, environment, or worksheets disabled | The message names the layer |
+| `capability_unavailable` | 409 | A required Oracle view or privilege is missing on this target | Grant it, or accept that the feature stays off; it will not degrade quietly |
+| `session_expired` | 409 | Idle expiry, or the session was closed | Open a new one; uncommitted work was rolled back |
+| `session_busy` | 409 | A statement is still running in that session, or a cancellation of one is still being delivered | Wait, or cancel it; a break takes one round trip |
+| `limit_exceeded` | 413 | Result, response or copilot context limit | Narrow the request |
+| `execution_timeout` | 504 | The statement passed its budget and did not stop | The session was discarded |
+| `outcome_unknown` | 502 | **A write may or may not have been applied** | Verify in the database. Do not retry blindly |
+| `provider_failure` | 502 | The model provider failed | Database workflows are unaffected |
+| `oracle_error` | 400 | Oracle raised an error; `oracleCode` carries the ORA/PLS code | As for the ORA code |
+
+`outcome_unknown` is the one that matters most. It appears when a connection breaks
+mid-statement, when a statement does not stop after cancellation, and when a commit
+loses its connection with the `COMMIT` in flight. The harness will not guess and will
+not retry.
+
+A commit is the sharpest case, because Oracle may have made the transaction durable
+and lost only the acknowledgement. Three answers are kept apart:
+
+| Answer | Code | Session | What to tell the user |
+| --- | --- | --- | --- |
+| Committed | 200 | Kept | Nothing further |
+| Refused by Oracle | 400 `oracle_error` | Kept, transaction still open | The work is still pending; commit again or roll back |
+| Connection lost mid-commit | 502 `outcome_unknown` | **Retired** | Verify the affected rows in the database before running anything again |
+
+The retired session is dropped from the registry so nothing can commit it a second
+time, and the audit event for that commit is written with outcome `outcome_unknown`
+and `verificationRequired: true` in its detail. Search the audit trail for those to
+find every commit that needs checking after an incident.
+
+## Health and configuration
+
+- `GET /healthz` - liveness. It never opens an Oracle connection, so it stays useful
+  when a database is down.
+- `GET /api/v1/system/info` - version, identity mode, backend, catalog size, and the
+  list of configuration warnings this deployment currently has. Check it after every
+  deployment; it is faster than reading the environment.
+
+## Sessions
+
+Idle worksheet sessions are reaped every 15 seconds against a five-minute default
+timeout. Expiry rolls back, never commits: abandoned work is not assumed to be wanted.
+
+`GET /api/v1/worksheets` shows your own live sessions with their transaction state and
+expiry. A session whose connection broke is discarded rather than reused.
+
+Three other things retire a session before the user asks:
+
+- A statement that does not stop within five seconds of a delivered break. The session
+  is dropped from the registry immediately, because a worker thread is still inside the
+  driver call and the transaction on that connection must never be committed by a later
+  request. The connection is closed once the statement finally returns; until then it
+  counts against the target, so a run of these is worth investigating on the database
+  side. The response for the statement itself is `outcome_unknown` for a write. The
+  same rule applies to the one-shot connections diagnostics, compilation and runbooks
+  open: nothing rolls back or closes them while a worker still owns them.
+- A commit that lost its connection, as above.
+- Revoking a grant, or narrowing it so the worksheet permission is gone. Sessions the
+  user held on that target are closed and their uncommitted work rolled back, rather
+  than being left able to commit. A commit re-checks target access before it runs, so
+  the same applies to a session the API only learns about at commit time.
+
+## History and audit
+
+- `GET /api/v1/executions` - your own executions, with state, policy decision, row
+  counts, timings and verification evidence.
+- `GET /api/v1/audit` - Administrator only. Append-only: nothing in the application
+  updates or deletes an audit event.
+
+Statements are recorded by SHA-256 fingerprint, with literals removed. Raw SQL is kept
+only for reviewed catalog operations, whose text is fixed and reviewed. Worksheet SQL
+is not retained, because it can contain data a user pasted in. Result rows and bind
+values are never stored.
+
+Decide retention and backup for `audit_events` during the pilot. Nothing here rotates
+it for you.
+
+## What to watch
+
+- **Executions ending `outcome_unknown`.** Any is worth a look; a pattern means the
+  network or the target is unstable.
+- **Panels reporting `capability_unavailable`.** Usually a grant that was revoked.
+- **Sessions closed with reason `statement did not stop after cancellation`.** The
+  target is under pressure, or a statement is genuinely stuck.
+- **Copilot `provider_failure` rates.** Users should still be able to work; if they
+  cannot, something is coupling the copilot to a database path that should be
+  independent.
+
+## Restarting
+
+Execution intent is persisted before dispatch, so after a restart an `Execution` row
+left in `queued` or `running` is a statement whose fate is unknown. Reconcile those:
+they are not evidence that nothing ran.
+
+Worksheet sessions do not survive a restart. Their connections are closed by the
+database when the process goes away, which rolls back uncommitted work.
+
+## Upgrading
+
+1. Back up the metadata store.
+2. Read `docs/compatibility.md` for anything newly qualified.
+3. Deploy; the API creates missing tables and records the schema version at startup.
+4. Check `GET /api/v1/system/info` for new warnings.
+
+There is no migration tool yet. Before a schema change that is not additive, one has to
+exist; `initialize_schema` deliberately refuses to guess about drift rather than
+altering tables underneath you.
+
+Schema version 2 narrows the uniqueness of `executions.dedup_key` from the key alone to
+`(user_id, dedup_key)`, so one user's idempotency key cannot collide with another's. A
+store created before that still carries the old constraint, and `initialize_schema` will
+not alter it. On an existing PostgreSQL store, run this once:
+
+```sql
+ALTER TABLE executions DROP CONSTRAINT uq_executions_dedup_key;
+ALTER TABLE executions ADD CONSTRAINT uq_executions_actor_dedup_key UNIQUE (user_id, dedup_key);
+UPDATE schema_version SET version = '2';
+```
+
+Schema version 3 adds an exact request digest for worksheet idempotency. After the
+version 2 migration, run this on an existing PostgreSQL or SQLite store before
+starting the updated API:
+
+```sql
+ALTER TABLE executions ADD COLUMN request_digest VARCHAR(64);
+UPDATE schema_version SET version = '3';
+```
+
+The digest covers prepared SQL (including literals), named bind values and types,
+and effective execution limits. Bind ordering does not matter. Raw SQL and bind
+values are not retained by this mechanism. Reusing a key with different inputs is
+rejected. Old executions have no digest and cannot be verified as identical retries;
+their keys are rejected too. Verify their outcome before submitting a new request.

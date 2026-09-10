@@ -1,0 +1,14 @@
+# Web console. Built assets served by nginx, which also proxies the API so the
+# console and the API share an origin and no CORS configuration is needed.
+FROM node:24-alpine AS build
+WORKDIR /build
+COPY apps/web/package.json apps/web/package-lock.json* apps/web/
+RUN cd apps/web && npm install --no-audit --no-fund
+COPY packages/contracts packages/contracts
+COPY apps/web apps/web
+RUN cd apps/web && npx tsc --noEmit && npx vite build
+
+FROM nginx:1.27-alpine
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /build/apps/web/dist /usr/share/nginx/html
+EXPOSE 8080

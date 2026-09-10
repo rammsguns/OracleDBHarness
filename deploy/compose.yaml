@@ -1,0 +1,85 @@
+# Pilot deployment: one API process, the metadata store, and the console.
+#
+# Deliberately not here: Kubernetes, a distributed queue, and a second execution
+# service. One execution service owns the worksheet connections for the pilot.
+name: oracledbharness
+
+services:
+  metadata:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: harness
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_DB: harness
+    secrets:
+      - postgres_password
+    volumes:
+      - metadata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U harness -d harness"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    depends_on:
+      metadata:
+        condition: service_healthy
+    environment:
+      HARNESS_ENV: pilot
+      HARNESS_LOG_LEVEL: INFO
+      # No password here: the API reads the same mounted secret PostgreSQL does, so
+      # there is one password rather than a file for the store and a literal here.
+      HARNESS_METADATA_URL: postgresql+psycopg://harness@metadata:5432/harness
+      HARNESS_METADATA_PASSWORD_FILE: /run/secrets/postgres_password
+      HARNESS_AUTH_MODE: oidc
+      HARNESS_OIDC_ISSUER: ${HARNESS_OIDC_ISSUER:?set your identity provider issuer}
+      HARNESS_OIDC_JWKS_URL: ${HARNESS_OIDC_JWKS_URL:?set your identity provider JWKS URL}
+      HARNESS_OIDC_AUDIENCE: oracledbharness
+      HARNESS_ORACLE_BACKEND: oracledb
+      HARNESS_ORACLE_DRIVER_MODE: thin
+      # Restrict which endpoints an operator may register. Never leave this empty in
+      # a shared deployment.
+      HARNESS_ALLOWED_ENDPOINTS: ${HARNESS_ALLOWED_ENDPOINTS:?set the endpoint allowlist}
+      HARNESS_MAX_ROWS: "1000"
+      HARNESS_STATEMENT_TIMEOUT_SECONDS: "30"
+      HARNESS_WORKSHEET_IDLE_SECONDS: "300"
+      HARNESS_WORKER_PROCESSES: "4"
+      HARNESS_COPILOT_ENABLED: ${HARNESS_COPILOT_ENABLED:-false}
+      HARNESS_COPILOT_PROVIDER: ${HARNESS_COPILOT_PROVIDER:-anthropic}
+      HARNESS_COPILOT_MODEL: ${HARNESS_COPILOT_MODEL:-claude-opus-5}
+      HARNESS_COPILOT_API_KEY_REF: ${HARNESS_COPILOT_API_KEY_REF:-}
+    secrets:
+      - source: postgres_password
+        target: postgres_password
+      - source: oracle_password
+        target: oracle_app.password
+      - source: provider_api_key
+        target: provider_api_key
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    depends_on:
+      - api
+    ports:
+      - "127.0.0.1:8080:8080"
+
+volumes:
+  metadata:
+
+# Secrets are files on the host. The application reads them through a
+# SecretReference; no password is ever written to the metadata store.
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  oracle_password:
+    file: ./secrets/oracle_app.password
+  provider_api_key:
+    file: ./secrets/provider_api_key

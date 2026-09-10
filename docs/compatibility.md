@@ -1,0 +1,94 @@
+# Compatibility and test evidence
+
+This file records what has been run. It is not a support matrix and it is not a
+claim. Where something has not been tested, it says so.
+
+## What has been tested
+
+| Component | Version | Evidence |
+| --- | --- | --- |
+| Python | 3.11 | Full test suite |
+| Node | 24 | Console typecheck, unit tests and production build; adapter tests |
+| Metadata store | SQLite 3 | Full test suite |
+| Oracle backend | Local stand-in (SQLite) | Full test suite |
+| Copilot provider | Fixture provider | Copilot test suite |
+| Protocol | 1.0 | Contract tests, adapter tests |
+
+## What has not been tested
+
+| Component | Status |
+| --- | --- |
+| **Oracle 19c** | **Never connected to.** This is the primary compatibility target and it is unqualified. |
+| Oracle Database Free (23ai) | Never connected to. |
+| python-oracledb thin mode | The adapter is written and typechecked; no statement has been executed through it. |
+| python-oracledb thick mode | Not exercised. Needs Oracle Client libraries and a separate worker (ADR-0002). |
+| TCPS and wallets | Not exercised. `ConnectionSpec` carries the fields; the path is untested. |
+| PostgreSQL as the metadata store | The schema is portable SQLAlchemy and the container is configured, but the suite runs on SQLite. |
+| OIDC | The verification path is written against JWKS; only the development signer has been exercised. |
+| A real model provider | The Anthropic adapter is written against the current Messages API; no call has been made. |
+| OracleDataForge | Not integrated. See `integrations/dataforge/COMPATIBILITY.md`. |
+| Load | The pilot target is ten concurrent users across three databases. Not measured. |
+
+## Why the stand-in is not evidence
+
+`harness_worker.backend.fake` runs real SQL, real binds, real transactions and real
+row counts, so the harness code above it - policy, session leases, limits, commit and
+rollback, bounded fetch, cancellation paths - is genuinely exercised. That is what the
+test suite demonstrates.
+
+It is not Oracle. It does not implement PL/SQL beyond a small documented slice, it has
+no optimizer, and its dictionary views are seeded tables. Behaviours that only appear
+against a real database - DDL committing an open transaction for real, `ORA-00060`
+deadlocks, `DBMS_XPLAN` output, cursor invalidation, LOB streaming, NUMBER precision,
+time-zone handling - are untested.
+
+Where the stand-in cannot honour something it raises an error naming itself, so a
+passing test never quietly stands in for Oracle behaviour.
+
+## Qualifying against Oracle 19c
+
+1. Provision a 19c instance and a schema, and run `oracle/grants/harness_roles.sql`
+   after review.
+2. Create the fixture objects the acceptance criteria refer to: the sample tables, the
+   `EMPLOYEE_REPORT` package with an invalid body, a blocking scenario, and a
+   slow-query fixture large enough to measure.
+3. Set `HARNESS_ORACLE_BACKEND=oracledb` and point a profile at it.
+4. Run `tests/integration` and `tests/e2e` against that target and record the results
+   here, including the exact database version, patch level, character set and driver
+   mode.
+5. Additionally verify, because the stand-in cannot: binds of every scalar type,
+   quoted identifiers, Unicode, NUMBER precision, dates and time zones, nulls, bounded
+   LOB handling, DDL against an open transaction, a real cancellation of a long
+   statement, connection loss mid-write, and worker restart.
+
+Until step 4 has been done and recorded, no release claim about Oracle support is
+supportable.
+
+## Open Oracle gaps in the transaction, cancellation and output safety work
+
+Several failure paths were fixed and covered by regression tests, all of them against
+the stand-in or against a stub driver connection. The harness logic is proven; the
+Oracle behaviour each one depends on is not. These have to be confirmed on 19c as part
+of step 5 above, and until they are, the fixes are unqualified against Oracle:
+
+| Workflow | What the tests prove | What only Oracle can confirm |
+| --- | --- | --- |
+| A commit whose answer is lost is reported as `outcome_unknown`, audited as such, and its session retired | `tests/integration/test_commit_outcomes.py`, `tests/unit/test_oracle_adapter.py` | That a real connection loss during `COMMIT` surfaces as one of the codes in `_FATAL_CODES` (`ORA-03113`, `ORA-03135`, `DPY-4011`), rather than some other code that would be classified as a plain failure. Reproduce by killing the session or the network mid-commit and recording the code the driver raises. |
+| A statement broken on request is reported as `cancelled` rather than `failed` | `tests/unit/test_oracle_adapter.py`, `tests/unit/test_session_lifetime.py` | That breaking a running statement really does surface as `ORA-01013` from python-oracledb in the driver mode the deployment uses, and that it rolls back that statement alone while earlier work in the same transaction stays pending. Reproduce by cancelling a long `UPDATE` that follows an earlier one in the same transaction, then checking what survives a commit. |
+| A statement that ignores a break leaves its connection untouched until the driver call returns | `tests/unit/test_session_quarantine.py`, `tests/unit/test_oneshot_cleanup.py` | That `Connection.cancel()` behaves as assumed against a genuinely long-running statement, and that a connection abandoned this way is reclaimed rather than leaking a server-side session. Check `v$session` after the statement finally ends. |
+| Statement terminator handling | `tests/unit/test_statement.py` | That the statements the parser now passes through unchanged - a trailing comment after a removed `;`, a block comment ending in `/` - are accepted by Oracle as written. |
+| Transaction state tracking in the adapter | `tests/unit/test_oracle_adapter.py` | That Oracle's implicit commits match what the adapter records: DDL and `CREATE OR REPLACE` of a program unit clearing the pending transaction, and PL/SQL blocks leaving one open. |
+| A `COMMIT` or `ROLLBACK` typed into the worksheet resolves the same state the toolbar buttons do, and a lost connection during one is `outcome_unknown` rather than a plain failure | `tests/unit/test_oracle_adapter.py` | That `ROLLBACK TO SAVEPOINT` really does leave the transaction open where the adapter says it does, and that `COMMIT FORCE`/`ROLLBACK FORCE` against an in-doubt distributed transaction leave the local one untouched. Reproduce with a savepoint and with a distributed transaction left in doubt. |
+| The profile's default schema is applied with `ALTER SESSION SET CURRENT_SCHEMA`, and a schema that cannot be set fails the connection rather than silently running elsewhere | `tests/unit/test_oracle_adapter.py` | That the quoted, upper-cased identifier the adapter generates addresses the intended schema on the target, including a schema whose name needs quoting; and which ORA code a non-existent or unauthorised schema raises. The stand-in reports `default_schema` as the current schema without ever setting it. |
+| `DBMS_OUTPUT.GET_LINES` is bound as a collection, and output that cannot be read back is a warning rather than a failed block | `tests/unit/test_oracle_adapter.py` | That `Cursor.arrayvar` binds acceptably to `DBMSOUTPUT_LINESARRAY` on the target's driver and character set, that lines longer than the buffer behave as expected, and that a real block's output arrives in the order it was written. The stand-in implements no PL/SQL, so no `DBMS_OUTPUT` has ever been produced or read. |
+| A cleanup failure after the statement has already run is a warning on the result, not a failed execution | `tests/unit/test_oracle_adapter.py` | Which code the driver raises when closing a cursor, or resetting `call_timeout`, finds the session already gone. Only the codes in `_FATAL_CODES` mark the connection broken, so any other code would leave a dead connection leased to the session. Reproduce by killing the session between the statement and its cleanup. |
+| `EXPLAIN PLAN` and the read of `PLAN_TABLE` share one connection | `tests/integration/test_tuning.py` | That the target's `PLAN_TABLE` is the default global temporary table, so the rows really are session-private, and that reading them back on the same connection returns the plan. The stand-in keeps one shared, persistent `plan_table`, where a read on any connection succeeds -- so it cannot show this failing, only that the connection is shared. If a site has replaced `PLAN_TABLE` with a permanent table, record that here: the sharing is still correct, but it is no longer what makes the read work. |
+
+The stub driver connection in `tests/unit/test_oracle_adapter.py` asserts the
+adapter's own logic. It asserts nothing about python-oracledb, and its ORA codes are
+taken from documentation rather than observation.
+
+## Recording a run
+
+Append; do not replace. Each entry should carry the date, the harness build, the exact
+database version and configuration, which suites were run, and what failed.

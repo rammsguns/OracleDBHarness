@@ -1,0 +1,9 @@
+event: start
+data: {"requestId":"cop_a10c","protocolVersion":"1.0","action":"explain","provider":"anthropic","model":"claude-opus-5","isFixtureProvider":false,"contextPreview":{"targetReference":"dataforge:inst-1:conn-9:HARNESS_APP","totalBytes":128,"categories":["selected_source"],"excluded":["result_rows","bind_values","credentials","wallet"],"attachments":[],"notes":[]}}
+
+event: error
+data: {"code":"provider_failure","message":"The model provider returned 529. Database workflows are unaffected.","detail":{"status":529},"retryable":false}
+
+event: done
+data: {"requestId":"cop_a10c","outcome":"provider_failure","latencyMs":810}
+
