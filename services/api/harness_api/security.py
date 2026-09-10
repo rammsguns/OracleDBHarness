@@ -182,15 +182,21 @@ class Authenticator:
         if not token.startswith("odbh_"):
             raise AuthenticationError("An integration credential is required on this endpoint.")
         digest = hash_token(token)
-        instance = session.scalars(
+        # The prefix narrows the search; it does not identify a credential. Two
+        # credentials can share one, so every candidate is checked - stopping at the
+        # first would make the other one unusable.
+        candidates = session.scalars(
             select(IntegrationInstance).where(
                 IntegrationInstance.token_prefix == token[:TOKEN_PREFIX_LENGTH]
             )
-        ).first()
-        # Compare in constant time even when no candidate was found, so a wrong prefix
-        # and a wrong secret take the same path.
-        expected = instance.token_hash if instance else "0" * 64
-        if not hmac.compare_digest(digest, expected) or instance is None:
+        ).all()
+        instance: IntegrationInstance | None = None
+        for candidate in candidates:
+            if hmac.compare_digest(digest, candidate.token_hash):
+                instance = candidate
+        if instance is None:
+            # Still perform a digest comparison when the prefix has no candidates.
+            hmac.compare_digest(digest, "0" * 64)
             raise AuthenticationError("The integration credential is not recognised.")
         if not instance.enabled or instance.revoked_at is not None:
             raise AuthenticationError(

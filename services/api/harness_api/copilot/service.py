@@ -15,10 +15,11 @@ Two guarantees this module is responsible for:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -194,7 +195,7 @@ class CopilotService:
 
     async def run(
         self, principal: Principal, ask: CopilotAsk
-    ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
+    ) -> AsyncGenerator[tuple[str, dict[str, Any]], None]:
         """Yield (event name, payload) pairs for the caller to serialise as SSE."""
 
         request_id = new_id("cop")
@@ -231,49 +232,68 @@ class CopilotService:
             db.add(record)
             db.commit()
 
-        system = SYSTEM_PROMPT
-        user_message = _build_user_message(ask)
-        if self._settings.copilot_log_prompts:
-            with self._sessions() as db:
-                row = db.get(CopilotRequest, request_id)
-                if row is not None:
-                    row.prompt_text = user_message
-                    db.commit()
-
-        yield (
-            "start",
-            {
-                "requestId": request_id,
-                "protocolVersion": PROTOCOL_VERSION,
-                "action": ask.action,
-                "provider": self._settings.copilot_provider,
-                "model": self._settings.copilot_model,
-                "isFixtureProvider": self._settings.copilot_provider == "fake",
-                "contextPreview": ask.context.preview(),
-            },
-        )
-
         collected: list[str] = []
         outcome = "succeeded"
         error_code = ""
         try:
-            provider = self.provider()
-            async for chunk in provider.stream(system, user_message):
-                collected.append(chunk)
-                yield ("delta", {"text": chunk})
-        except ProviderError as exc:
-            outcome, error_code = "provider_failure", exc.code
-            yield ("error", exc.as_dict())
-        except HarnessError as exc:
-            outcome, error_code = "failed", exc.code
-            yield ("error", exc.as_dict())
-        else:
-            answer = "".join(collected)
-            proposal = self._capture_proposal(request_id, ask, answer)
-            if proposal is not None:
-                yield ("proposal", proposal)
-            usage = provider.usage()
-            yield ("usage", usage.as_dict())
+            system = SYSTEM_PROMPT
+            user_message = _build_user_message(ask)
+            if self._settings.copilot_log_prompts:
+                with self._sessions() as db:
+                    row = db.get(CopilotRequest, request_id)
+                    if row is not None:
+                        row.prompt_text = user_message
+                        db.commit()
+
+            yield (
+                "start",
+                {
+                    "requestId": request_id,
+                    "protocolVersion": PROTOCOL_VERSION,
+                    "action": ask.action,
+                    "provider": self._settings.copilot_provider,
+                    "model": self._settings.copilot_model,
+                    "isFixtureProvider": self._settings.copilot_provider == "fake",
+                    "contextPreview": ask.context.preview(),
+                },
+            )
+
+            try:
+                provider = self.provider()
+                async for chunk in provider.stream(system, user_message):
+                    collected.append(chunk)
+                    yield ("delta", {"text": chunk})
+            except ProviderError as exc:
+                outcome, error_code = "provider_failure", exc.code
+                yield ("error", exc.as_dict())
+            except HarnessError as exc:
+                outcome, error_code = "failed", exc.code
+                yield ("error", exc.as_dict())
+            else:
+                answer = "".join(collected)
+                proposal = self._capture_proposal(request_id, ask, answer)
+                if proposal is not None:
+                    yield ("proposal", proposal)
+                usage = provider.usage()
+                yield ("usage", usage.as_dict())
+
+            latency_ms = self._finalise(request_id, outcome, error_code, started)
+        except (GeneratorExit, asyncio.CancelledError):
+            # The caller walked away mid-stream, so the generator is being closed at
+            # one of the yields above. Nothing may be awaited here, but the record is
+            # written synchronously, so the request still reaches a terminal state
+            # rather than staying 'running' for ever.
+            self._finalise(request_id, "cancelled", "client_disconnected", started)
+            raise
+        except BaseException:
+            self._finalise(request_id, "failed", error_code or "internal_error", started)
+            raise
+
+        # Once the terminal record is saved, closing at 'done' must not overwrite it.
+        yield ("done", {"requestId": request_id, "outcome": outcome, "latencyMs": latency_ms})
+
+    def _finalise(self, request_id: str, outcome: str, error_code: str, started: float) -> int:
+        """Write the terminal record for one request and return its latency."""
 
         latency_ms = int((time.perf_counter() - started) * 1000)
         with self._sessions() as db:
@@ -282,16 +302,18 @@ class CopilotService:
                 row.outcome = outcome
                 row.error_code = error_code
                 row.latency_ms = latency_ms
-                try:
-                    usage = self.provider().usage()
-                    row.prompt_tokens = usage.prompt_tokens
-                    row.completion_tokens = usage.completion_tokens
-                    row.model = usage.model or row.model
-                except HarnessError:
-                    pass
+                # Usage is only valid after a completed provider stream. A cancelled
+                # request must not inherit the previous request's token counts.
+                if outcome == "succeeded":
+                    try:
+                        usage = self.provider().usage()
+                        row.prompt_tokens = usage.prompt_tokens
+                        row.completion_tokens = usage.completion_tokens
+                        row.model = usage.model or row.model
+                    except HarnessError:
+                        pass
                 db.commit()
-
-        yield ("done", {"requestId": request_id, "outcome": outcome, "latencyMs": latency_ms})
+        return latency_ms
 
     def _validate(self, principal: Principal, ask: CopilotAsk) -> None:
         if not self.enabled:

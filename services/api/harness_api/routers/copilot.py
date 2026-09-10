@@ -138,13 +138,20 @@ async def copilot_request(
             conversation_id=payload.conversation_id,
             protocol_version=payload.protocol_version,
         )
-        async for name, data in state.copilot.run(principal, ask):
-            if await request.is_disconnected():
-                # The caller went away. Stop consuming the provider rather than
-                # finishing a request nobody is waiting for; a partly delivered
-                # request is never replayed automatically.
-                break
-            yield _sse(name, data)
+        stream = state.copilot.run(principal, ask)
+        try:
+            async for name, data in stream:
+                if await request.is_disconnected():
+                    # The caller went away. Stop consuming the provider rather than
+                    # finishing a request nobody is waiting for; a partly delivered
+                    # request is never replayed automatically.
+                    break
+                yield _sse(name, data)
+        finally:
+            # Close the stream here rather than leaving it to the garbage collector,
+            # so an abandoned request is recorded as cancelled while we still know
+            # how long it ran for.
+            await stream.aclose()
 
     return StreamingResponse(
         events(),
