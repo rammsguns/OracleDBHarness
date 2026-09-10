@@ -114,3 +114,7 @@ The reasoning behind the less obvious of these is in [docs/decisions.md](docs/de
 - [MVP_PLAN.md](MVP_PLAN.md) - product direction, scope, delivery sequence
 - [ORACLEDATAFORGE_INTEGRATION.md](ORACLEDATAFORGE_INTEGRATION.md) - the first IDE
   integration
+
+## License
+
+[MIT](LICENSE), copyright (c) 2026 Angel Cervantes.
