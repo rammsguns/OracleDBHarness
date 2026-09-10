@@ -478,7 +478,8 @@ def test_copilot_history_records_the_request_without_the_prompt(
 
 @pytest.mark.parametrize("stop_after", ["start", "delta", "done", "task_cancel"])
 async def test_closing_a_stream_preserves_the_correct_terminal_state(
-    client: TestClient, stop_after: str,
+    client: TestClient,
+    stop_after: str,
 ) -> None:
     """A caller that closes the stream still leaves a request in a terminal state."""
 
