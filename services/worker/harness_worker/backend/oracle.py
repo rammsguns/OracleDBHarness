@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+from decimal import Decimal
 from typing import Any
 
 from harness_worker.backend.base import (
@@ -26,6 +27,7 @@ from harness_worker.errors import (
     ConnectionFailedError,
     OracleError,
     OutcomeUnknownError,
+    TimeoutError_,
     ValidationError,
 )
 from harness_worker.statement import (
@@ -58,6 +60,8 @@ _initialized_mode: str | None = None
 # How many DBMS_OUTPUT lines are asked for per GET_LINES round trip.
 _DBMS_OUTPUT_CHUNK_LINES = 100
 
+# CON_ID is 0 on a non-CDB and non-zero in a container database. CON_NAME is no use
+# for telling them apart: a non-CDB reports its database name there.
 IDENTITY_SQL = """
 SELECT SYS_CONTEXT('USERENV', 'DB_NAME')            AS database_name,
        SYS_CONTEXT('USERENV', 'INSTANCE_NAME')      AS instance_name,
@@ -65,9 +69,14 @@ SELECT SYS_CONTEXT('USERENV', 'DB_NAME')            AS database_name,
        SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')     AS current_schema,
        SYS_CONTEXT('USERENV', 'SESSION_USER')       AS session_user,
        SYS_CONTEXT('USERENV', 'CON_NAME')           AS container_name,
-       SYS_CONTEXT('USERENV', 'SID')                AS session_id
+       SYS_CONTEXT('USERENV', 'SID')                AS session_id,
+       SYS_CONTEXT('USERENV', 'CON_ID')             AS container_id
   FROM dual
 """
+
+# SERIAL# is not in USERENV. V$SESSION needs a grant the account may not have, so the
+# serial number is best effort; without it a session cannot be named for KILL SESSION.
+SERIAL_SQL = "SELECT serial# FROM v$session WHERE sid = SYS_CONTEXT('USERENV', 'SID')"
 
 VERSION_SQL = """
 SELECT version, banner_full
@@ -138,6 +147,21 @@ _FATAL_CODES = {
 # instruction, and the statement it was running was rolled back to where it started.
 _CANCELLED_CODE = "ORA-01013"
 
+# The driver's call_timeout expiring. The same break as a cancel, sent by the driver.
+_CALL_TIMEOUT_CODE = "DPY-4024"
+
+# Thin mode cannot decode a TIMESTAMP WITH TIME ZONE stored with a region name.
+_NAMED_TIME_ZONE_CODE = "DPY-3022"
+
+# python-oracledb returns TIMESTAMP WITH TIME ZONE as a naive datetime in both modes:
+# the wall-clock time survives, the offset does not, even when fetched as a string.
+# Measured against 19c. The harness cannot rewrite the user's SQL, so it says so.
+_TIME_ZONE_WARNING = (
+    "TIMESTAMP WITH TIME ZONE column(s) {} are shown without their offset: the driver "
+    "returns the wall-clock time only. Select them with "
+    "TO_CHAR(column, 'YYYY-MM-DD HH24:MI:SS.FF TZH:TZM') to see the offset."
+)
+
 
 def initialize(mode: str, lib_dir: str | None = None) -> None:
     """Initialise the driver once per process and refuse a later mode change."""
@@ -186,19 +210,28 @@ class OracleDbConnection(OracleConnection):
                     version, banner = version_row[0] or "", version_row[1] or ""
             except Exception:  # noqa: BLE001 - version view is not always readable
                 version = getattr(self._conn, "version", "") or ""
+            serial: int | None = None
+            try:
+                cur.execute(SERIAL_SQL)
+                serial_row = cur.fetchone()
+                if serial_row and serial_row[0] is not None:
+                    serial = int(serial_row[0])
+            except Exception:  # noqa: BLE001 - V$SESSION needs a grant the account may lack
+                serial = None
         con_name = row[5] if len(row) > 5 else None
+        con_id = row[7] if len(row) > 7 else None
         return TargetIdentity(
             databaseName=row[0] or "",
             instanceName=row[1],
             hostName=row[2],
             version=version,
             versionFull=banner or version,
-            isCdb=bool(con_name) and con_name != "CDB$ROOT" or con_name == "CDB$ROOT",
+            isCdb=con_id not in (None, "", "0"),
             containerName=con_name,
             currentSchema=row[3] or "",
             currentUser=row[4] or "",
             sessionId=int(row[6]) if len(row) > 6 and row[6] else None,
-            serialNumber=None,
+            serialNumber=serial,
         )
 
     def probe_capability(self, capability: Capability) -> CapabilityReport:
@@ -222,8 +255,13 @@ class OracleDbConnection(OracleConnection):
     # -- execution -----------------------------------------------------------------
 
     def enable_dbms_output(self, size_bytes: int) -> None:
+        # Unlimited on the server, bounded when read back. A server buffer sized to the
+        # budget does not truncate: PUT_LINE raises ORU-10027 once it is full, and that
+        # fails the user's block instead of shortening its output. The statement
+        # deadline is what bounds a block that writes without end.
+        del size_bytes
         with self._conn.cursor() as cur:
-            cur.callproc("dbms_output.enable", [max(size_bytes, 20000)])
+            cur.callproc("dbms_output.enable", [None])
         self._dbms_output_enabled = True
 
     def execute(
@@ -236,6 +274,7 @@ class OracleDbConnection(OracleConnection):
         collect_dbms_output: bool = False,
     ) -> StatementResult:
         with self._lock:
+            self._require_live_session()
             if collect_dbms_output and not self._dbms_output_enabled:
                 self.enable_dbms_output(limits.max_dbms_output_bytes)
             # The driver round-trip limit is a second line of defence; the engine also
@@ -250,10 +289,18 @@ class OracleDbConnection(OracleConnection):
                 cur = self._conn.cursor()
                 cur.arraysize = min(limits.max_rows, 500)
                 cur.prefetchrows = cur.arraysize + 1
+                cur.outputtypehandler = _output_type_handler
                 cur.execute(statement, binds or {})
                 result = StatementResult(statement_kind=kind)
                 if cur.description:
                     result.result_set = self._fetch_bounded(cur, limits)
+                    lost_offsets = [
+                        column.name
+                        for column in result.result_set.columns
+                        if column.type_name == "DB_TYPE_TIMESTAMP_TZ"
+                    ]
+                    if lost_offsets:
+                        result.warnings.append(_TIME_ZONE_WARNING.format(", ".join(lost_offsets)))
                 else:
                     result.rows_affected = cur.rowcount
                     if kind in (StatementKind.DML, StatementKind.PLSQL_BLOCK):
@@ -321,11 +368,41 @@ class OracleDbConnection(OracleConnection):
                         cur.close()
                     except Exception as exc:  # noqa: BLE001 - the statement already ran
                         self._note_cleanup_failure(exc, completed, "close the cursor")
-                try:
-                    self._conn.call_timeout = 0
-                except Exception as exc:  # noqa: BLE001 - a disconnected driver rejects this
-                    self._note_cleanup_failure(exc, completed, "reset the driver round-trip limit")
+                # Never on a session that is gone. When a call timeout cannot be
+                # delivered as a break, python-oracledb 4.0.2 (thin) drops the session
+                # with DPY-4011, and assigning call_timeout on it crashes the process
+                # with an access violation - every user's work, not one statement.
+                # Observed against Oracle 19c; see docs/compatibility.md. A session in
+                # that state is retired, so there is nothing to reset.
+                if self._session_alive():
+                    try:
+                        self._conn.call_timeout = 0
+                    except Exception as exc:  # noqa: BLE001 - a disconnected driver rejects this
+                        self._note_cleanup_failure(
+                            exc, completed, "reset the driver round-trip limit"
+                        )
             return result
+
+    def _session_alive(self) -> bool:
+        """Local check only: no round trip, and safe on a session the driver dropped."""
+
+        if self._broken:
+            return False
+        try:
+            healthy = bool(self._conn.is_healthy())
+        except Exception:  # noqa: BLE001 - an unreadable state is not a live session
+            healthy = False
+        if not healthy:
+            self._broken = True
+        return healthy
+
+    def _require_live_session(self) -> None:
+        if not self._session_alive():
+            raise ConnectionFailedError(
+                "This session is no longer connected to the database and has been retired. "
+                "Open a new one.",
+                detail={"profileId": self._spec.profile_id},
+            )
 
     def _note_cleanup_failure(
         self, exc: Exception, completed: StatementResult | None, what: str
@@ -413,6 +490,12 @@ class OracleDbConnection(OracleConnection):
                     used += size
                 if truncated or count.getvalue() < _DBMS_OUTPUT_CHUNK_LINES:
                     break
+            if truncated:
+                # What was not read stays in the server buffer and would come back as
+                # the next statement's output. DISABLE discards it; the next statement
+                # that collects output enables the buffer again.
+                cur.callproc("dbms_output.disable")
+                self._dbms_output_enabled = False
         return lines, truncated
 
     def _compiler_errors(self, statement: str) -> list[CompilerError] | None:
@@ -550,6 +633,24 @@ class OracleDbConnection(OracleConnection):
                 "The statement was cancelled before it finished. Oracle rolled it back; "
                 "any earlier work in this transaction is still pending.",
                 detail={"oracleCode": code, "message": message, "statementStarted": True},
+            )
+        if code == _CALL_TIMEOUT_CODE:
+            # The driver's round-trip limit, delivered as a break. Measured against 19c:
+            # the session survives, the statement is rolled back and earlier work in the
+            # transaction is still pending - the same state a cancel leaves. When the
+            # break cannot be delivered the driver drops the session instead, which
+            # arrives as DPY-4011 and is handled as a lost connection below.
+            return TimeoutError_(
+                "The statement ran past its deadline and was stopped. Oracle rolled it "
+                "back; any earlier work in this transaction is still pending.",
+                detail={"oracleCode": code, "message": message, "statementStarted": True},
+            )
+        if code == _NAMED_TIME_ZONE_CODE:
+            return OracleError(
+                "A TIMESTAMP WITH TIME ZONE value uses a named region (such as "
+                "Europe/Paris), which the driver's thin mode cannot read. Select it with "
+                "TO_CHAR(column, 'YYYY-MM-DD HH24:MI:SS.FF TZR') instead.",
+                oracle_code=code,
             )
         if code in _FATAL_CODES:
             if kind in (
@@ -698,20 +799,75 @@ def _message(exc: Exception) -> str:
     return str(text or exc).strip()
 
 
-def _shape(value: Any, lob_preview_bytes: int) -> Any:
-    """Bound LOBs and make binary values JSON-safe."""
+def _output_type_handler(cursor: Any, metadata: Any) -> Any:
+    """Fetch NUMBER as Decimal.
 
+    The driver's default is a float, and NUMBER(20,10) does not fit in one:
+    1234567890.0123456789 arrived as 1234567890.0123458 against 19c. _shape turns it
+    back into an int or float wherever that is exact.
+    """
+
+    if oracledb is not None and metadata.type_code is oracledb.DB_TYPE_NUMBER:
+        return cursor.var(Decimal, arraysize=cursor.arraysize)
+    return None
+
+
+# Integers beyond this lose precision in a JavaScript number, which is what the
+# console and the adapters parse the JSON into.
+_EXACT_JSON_INTEGER = 2**53
+
+
+def _number(value: Decimal) -> int | float | Decimal:
+    """The narrowest type that represents a NUMBER exactly.
+
+    An int or float stays a JSON number, which is what callers have always received.
+    Only a value neither can hold exactly stays a Decimal, which serialises as a
+    string: exact, rather than a number that is quietly wrong.
+    """
+
+    if not value.is_finite():
+        return value
+    if value == value.to_integral_value():
+        integer = int(value)
+        if abs(integer) <= _EXACT_JSON_INTEGER:
+            return integer
+        return value
+    as_float = float(value)
+    if Decimal(repr(as_float)) == value:
+        return as_float
+    return value
+
+
+def _shape(value: Any, lob_preview_bytes: int) -> Any:
+    """Bound LOBs, keep NUMBER exact, and make binary values JSON-safe."""
+
+    if isinstance(value, Decimal):
+        return _number(value)
     read = getattr(value, "read", None)
     if callable(read) and hasattr(value, "size"):
+        # For a CLOB the size is in characters, for a BLOB in bytes.
         size = value.size()
-        preview = read(1, min(lob_preview_bytes, size)) if size else ""
-        if isinstance(preview, bytes):
-            preview = preview.hex()
+        if not size or lob_preview_bytes <= 0:
+            # A zero budget means lengths only. The driver refuses a zero-length read
+            # (DPY-2047), so there is nothing to ask it for.
+            return {"kind": "lob", "preview": "", "byteLength": size, "truncated": size > 0}
+        content = read(1, min(lob_preview_bytes, size))
+        if isinstance(content, bytes):
+            return {
+                "kind": "lob",
+                "preview": content.hex(),
+                "byteLength": size,
+                "truncated": len(content) < size,
+            }
+        # The budget is in bytes and a read of N characters can be up to 4N bytes.
+        encoded = content.encode("utf-8")
+        if len(encoded) > lob_preview_bytes:
+            content = encoded[:lob_preview_bytes].decode("utf-8", "ignore")
         return {
             "kind": "lob",
-            "preview": preview,
+            "preview": content,
             "byteLength": size,
-            "truncated": size > lob_preview_bytes,
+            "truncated": len(content) < size,
         }
     if isinstance(value, bytes):
         return {

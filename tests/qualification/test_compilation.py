@@ -70,9 +70,7 @@ def test_the_seeded_package_body_is_invalid_with_line_level_errors(
     detail = "; ".join(f"line {e.line} col {e.position}: {e.text}" for e in result.compiler_errors)
     evidence.note("Compiler errors for the seeded invalid body", detail)
 
-    assert (
-        _object_status(connection, limits, "HARNESS_EMPLOYEE_REPORT", "PACKAGE BODY") == "INVALID"
-    )
+    assert _object_status(connection, limits, "EMPLOYEE_REPORT", "PACKAGE BODY") == "INVALID"
     assert any("ORA-00942" in e.text for e in result.compiler_errors), (
         f"Expected a missing-table error. Got: {detail}"
     )
@@ -93,7 +91,7 @@ def test_the_package_can_be_repaired_and_recompiles_clean(
     assert result.compiler_errors == [], (
         f"The corrected body still reported errors: {result.compiler_errors}"
     )
-    assert _object_status(connection, limits, "HARNESS_EMPLOYEE_REPORT", "PACKAGE BODY") == "VALID"
+    assert _object_status(connection, limits, "EMPLOYEE_REPORT", "PACKAGE BODY") == "VALID"
 
     # Leave the fixture as the next test expects to find it.
     connection.execute(_INVALID_BODY, {}, StatementKind.PLSQL_SOURCE, limits)

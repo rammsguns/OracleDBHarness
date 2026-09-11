@@ -29,7 +29,13 @@ from harness_api.execution import ExecutionService
 from harness_api.seed import TargetEndpoint, seed
 from harness_worker.backend import create_backend
 from tests import oracle_config
-from tests.oracle_fixtures import apply_fixtures, drop_fixtures, warm_cursor_cache
+from tests.oracle_fixtures import (
+    SEEDED_PACKAGE_STEPS,
+    apply_fixtures,
+    drop_fixtures,
+    reapply_steps,
+    warm_cursor_cache,
+)
 
 MARKERS = [
     (
@@ -141,6 +147,33 @@ def _oracle_schema(oracle_target: oracle_config.OracleTestConfig | None) -> Iter
             finally:
                 connection.close()
         backend.shutdown()
+
+
+@pytest.fixture
+def restore_seeded_package(
+    oracle_target: oracle_config.OracleTestConfig | None, _oracle_schema: None
+) -> Iterator[None]:
+    """Put EMPLOYEE_REPORT back to its seeded, invalid state after a test repairs it.
+
+    The stand-in gives every test a fresh database, so a repair never outlived its
+    test there. The Oracle schema is built once per run, and a repaired body left
+    behind makes every later test that reads the seeded errors wrong - the first run
+    against 19c read the previous test's errors this way.
+    """
+
+    yield
+    if oracle_target is None:
+        return
+    backend = create_backend(
+        "oracledb",
+        driver_mode=oracle_target.driver_mode,
+        lib_dir=oracle_target.client_lib_dir or None,
+    )
+    connection = backend.connect(oracle_target.connection_spec("api-suite-restore"))
+    try:
+        reapply_steps(connection, SEEDED_PACKAGE_STEPS)
+    finally:
+        connection.close()
 
 
 @pytest.fixture

@@ -1,6 +1,12 @@
 -- Reviewed role and grant setup for OracleDBHarness.
 --
--- Run this as a DBA on each registered target, then create one database account per
+-- Run this as SYS on each registered target. SYSTEM is not enough: granting SELECT on
+-- the SYS views below needs SYS or the grant option, and SYSTEM holds neither by
+-- default, so those lines fail with ORA-01031 (found against 19c). If SYS is not
+-- available, granting SELECT_CATALOG_ROLE instead of the seven view grants works, but
+-- reads every dictionary view rather than the seven the diagnostics use.
+--
+-- Then create one database account per
 -- (role, target) combination the harness needs. Do not give every application user a
 -- shared DBA connection: the harness associates a credential reference with a
 -- specific actor/target/capability combination.

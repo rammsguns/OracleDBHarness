@@ -128,7 +128,10 @@ def test_gather_statistics_verification_shows_the_recorded_values(
         headers=dba,
         params={"owner": "HARNESS_APP", "objectName": "ORDER_LINES", "objectType": "TABLE"},
     ).json()["panels"]["statistics"]["rows"]
-    assert before[0][2] is None, "the fixture starts with no statistics"
+    # The stand-in seeds no statistics. The Oracle fixture gathers them on purpose,
+    # for the tuning checks, and 12c onwards also gathers them during a bulk load.
+    # Either way the runbook has to leave a fresh, recorded result behind.
+    analyzed_before = before[0][3]
 
     body = client.post(
         "/api/v1/runbooks/runbook.gather_table_stats/run",
@@ -141,8 +144,11 @@ def test_gather_statistics_verification_shows_the_recorded_values(
     ).json()
     assert body["outcome"] == "succeeded"
     rows = body["verification"]["rows"]
-    assert rows[0][2] == 4000
+    # 4,000 rows in the stand-in, 400,000 in the Oracle fixture.
+    assert rows[0][2] in (4000, 400000)
     assert rows[0][3], "last_analyzed is recorded"
+    if analyzed_before is not None:
+        assert str(rows[0][3]) >= str(analyzed_before), "the gather left an older result"
 
 
 def test_identifier_parameters_are_validated_not_interpolated(

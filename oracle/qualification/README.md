@@ -3,11 +3,13 @@
 Everything in the automated suite runs against the local stand-in. This directory and
 `tests/qualification/` are how that changes.
 
-**Nothing here has been executed.** The scripts and the suites are written, and the
-wiring is checked in ordinary CI by `tests/unit/test_qualification_fixtures.py` and
-`tests/unit/test_oracle_wiring.py`. No Oracle database has ever been connected to. The
-first person to run this should expect to fix things, and should record what they
-fixed.
+**First run: 2026-09-11, against 19c EE 19.9.1 (non-CDB), thin mode.** It failed
+before any test ran. Once the fixture script and a set of harness defects were fixed,
+the whole suite passed. What was found and fixed is in
+[docs/compatibility.md](../../docs/compatibility.md), "What the first Oracle 19c run
+found", and the run is recorded there. The wiring is still checked in ordinary CI by
+`tests/unit/test_qualification_fixtures.py` and `tests/unit/test_oracle_wiring.py`;
+the run itself is manual.
 
 ## One switch, three suites
 

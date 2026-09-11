@@ -62,9 +62,13 @@ _FETCH_FIRST = re.compile(
     r"\bFETCH\s+(?:FIRST|NEXT)\s+(:?[A-Za-z0-9_]+)\s+ROWS?\s+ONLY\b", re.IGNORECASE
 )
 _ROWNUM = re.compile(r"\b(?:AND|WHERE)\s+ROWNUM\s*<=?\s*(\d+)", re.IGNORECASE)
+# Oracle's grammar, not a convenient one: a body is compiled with
+# ALTER PACKAGE name COMPILE BODY. "ALTER PACKAGE BODY name COMPILE" is ORA-00922, and
+# the stand-in accepting it is how the recompile runbook shipped broken for bodies.
 _ALTER_COMPILE = re.compile(
-    r"^\s*ALTER\s+(PACKAGE\s+BODY|PACKAGE|PROCEDURE|FUNCTION|TRIGGER|TYPE\s+BODY|TYPE|VIEW)\s+"
-    r'(?:"?([A-Za-z0-9_$#]+)"?\s*\.\s*)?"?([A-Za-z0-9_$#]+)"?\s+COMPILE\b',
+    r"^\s*ALTER\s+(PACKAGE|PROCEDURE|FUNCTION|TRIGGER|TYPE|VIEW)\s+"
+    r'(?:"?([A-Za-z0-9_$#]+)"?\s*\.\s*)?"?([A-Za-z0-9_$#]+)"?\s+COMPILE'
+    r"(?:\s+(BODY|SPECIFICATION))?\b",
     re.IGNORECASE,
 )
 _GATHER_TABLE_STATS = re.compile(r"DBMS_STATS\s*\.\s*GATHER_TABLE_STATS", re.IGNORECASE)
@@ -76,6 +80,10 @@ _SIMPLE_FUNCTIONS = [
     (re.compile(r"\bSYSTIMESTAMP\b", re.IGNORECASE), "datetime('now')"),
     (re.compile(r"\bSYSDATE\b", re.IGNORECASE), "datetime('now')"),
     (re.compile(r"\bNVL\s*\(", re.IGNORECASE), "IFNULL("),
+    # The stand-in stores times without zones, so the conversion is a no-op here.
+    (re.compile(r"\bSYS_EXTRACT_UTC\s*\(", re.IGNORECASE), "("),
+    # SQLite cannot name a column ERROR#; the seeded table calls it error_number.
+    (re.compile(r"\bERROR#", re.IGNORECASE), "error_number"),
     (re.compile(r"\bUSER\b(?!\s*\()", re.IGNORECASE), "'HARNESS_APP'"),
 ]
 
@@ -325,8 +333,11 @@ def _seed_rows(cur: sqlite3.Cursor) -> None:
         "PACKAGE employee_report AS",
         "  FUNCTION headcount(p_department_id IN NUMBER) RETURN NUMBER;",
         "  PROCEDURE report_department(p_department_id IN NUMBER);",
+        "  PROCEDURE emit_lines(p_count IN NUMBER, p_width IN NUMBER DEFAULT 40);",
         "END employee_report;",
     ]
+    # Line for line what oracle/qualification/01_fixtures.sql creates, so an assertion
+    # about the source means the same thing on both backends.
     body = [
         "PACKAGE BODY employee_report AS",
         "  FUNCTION headcount(p_department_id IN NUMBER) RETURN NUMBER IS",
@@ -339,6 +350,12 @@ def _seed_rows(cur: sqlite3.Cursor) -> None:
         "  BEGIN",
         "    DBMS_OUTPUT.PUT_LINE('headcount=' || headcount(p_department_id));",
         "  END report_department;",
+        "  PROCEDURE emit_lines(p_count IN NUMBER, p_width IN NUMBER DEFAULT 40) IS",
+        "  BEGIN",
+        "    FOR i IN 1 .. p_count LOOP",
+        "      DBMS_OUTPUT.PUT_LINE(LPAD(TO_CHAR(i), p_width, '.'));",
+        "    END LOOP;",
+        "  END emit_lines;",
         "END employee_report;",
     ]
     cur.executemany(
@@ -905,7 +922,9 @@ class FakeOracleConnection(OracleConnection):
     def _recompile(self, match: re.Match[str]) -> StatementResult:
         """Re-derive an object status from its stored source, as ALTER ... COMPILE does."""
 
-        obj_type = re.sub(r"\s+", " ", match.group(1)).upper()
+        obj_type = match.group(1).upper()
+        if (match.group(4) or "").upper() == "BODY":
+            obj_type += " BODY"
         owner = (match.group(2) or self._spec.username).upper()
         name = match.group(3).upper()
         cur = self._conn.cursor()

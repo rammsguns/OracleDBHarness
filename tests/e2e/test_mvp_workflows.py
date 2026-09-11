@@ -1,32 +1,20 @@
 """The six MVP workflows, end to end.
 
 Each test walks one of the workflows in MVP_PLAN.md, "MVP outcome", through the same
-API the console and the IDE adapters use. They run against the local stand-in, so
-they demonstrate the workflows are wired together; they are not Oracle evidence.
+API the console and the IDE adapters use. By default they run against the local
+stand-in and show the workflows are wired together; with an Oracle target configured
+(tests/oracle_config.py) the same tests run against it.
 """
 
 from __future__ import annotations
 
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.conftest import execute, open_worksheet
-
-REPAIRED_BODY = """\
-CREATE OR REPLACE PACKAGE BODY employee_report AS
-  FUNCTION headcount(p_department_id IN NUMBER) RETURN NUMBER IS
-    l_count NUMBER;
-  BEGIN
-    SELECT COUNT(*) INTO l_count FROM employees WHERE department_id = p_department_id;
-    RETURN l_count;
-  END headcount;
-  PROCEDURE report_department(p_department_id IN NUMBER) IS
-  BEGIN
-    DBMS_OUTPUT.PUT_LINE('headcount=' || headcount(p_department_id));
-  END report_department;
-END employee_report;
-"""
+from tests.integration.test_plsql import REPAIRED_BODY
 
 
 def test_workflow_1_register_verify_and_inspect_a_connection(
@@ -129,8 +117,9 @@ def test_workflow_2_run_parameterized_sql_and_control_the_transaction(
     assert {h["state"] for h in history} == {"succeeded"}
 
 
+@pytest.mark.usefixtures("restore_seeded_package")
 def test_workflow_3_edit_compile_and_test_a_plsql_package(
-    client: TestClient, developer, targets
+    client: TestClient, developer, targets, oracle_target
 ) -> None:
     profile_id = targets["development"]["id"]
 
@@ -154,13 +143,16 @@ def test_workflow_3_edit_compile_and_test_a_plsql_package(
     assert compiled["errors"] == []
 
     session = open_worksheet(client, developer, profile_id)
-    tested = execute(
-        client,
-        developer,
-        session,
-        "BEGIN\n  DBMS_OUTPUT.PUT_LINE('headcount=' || "
-        "(SELECT COUNT(*) FROM employees WHERE department_id = 20));\nEND;",
+    # Against Oracle, test the package just repaired. The stand-in does not run package
+    # code, so there the block computes the same answer with a scalar subquery - which
+    # only the stand-in accepts: in real PL/SQL that is PLS-00405.
+    block = (
+        "BEGIN employee_report.report_department(20); END;"
+        if oracle_target is not None
+        else "BEGIN\n  DBMS_OUTPUT.PUT_LINE('headcount=' || "
+        "(SELECT COUNT(*) FROM employees WHERE department_id = 20));\nEND;"
     )
+    tested = execute(client, developer, session, block)
     assert tested["outcome"]["dbmsOutput"] == ["headcount=3"]
 
 
@@ -225,7 +217,7 @@ def test_workflow_4_investigate_a_slow_statement(client: TestClient, developer, 
 
 
 def test_workflow_5_dba_overview_and_a_reviewed_maintenance_action(
-    client: TestClient, dba, targets
+    client: TestClient, dba, targets, oracle_target
 ) -> None:
     profile_id = targets["development"]["id"]
 
@@ -233,8 +225,13 @@ def test_workflow_5_dba_overview_and_a_reviewed_maintenance_action(
     assert overview["unavailablePanels"] == []
     blocking = overview["panels"]["blocking"]
     assert blocking["available"] is True
-    assert blocking["rows"], "the seeded blocking scenario is visible"
-    assert overview["panels"]["schedulerFailures"]["rows"], "a failed job is visible"
+    if oracle_target is None:
+        # Scenarios the stand-in seeds as rows. Against Oracle nothing is blocked and
+        # no job has failed unless something made it so: the blocking panel is shown a
+        # real blocked session in tests/qualification/test_blocking.py, and creating
+        # a failing job needs CREATE JOB, which the harness roles do not grant.
+        assert blocking["rows"], "the seeded blocking scenario is visible"
+        assert overview["panels"]["schedulerFailures"]["rows"], "a failed job is visible"
     assert overview["panels"]["invalidObjects"]["rows"], "the invalid package is visible"
     assert "AWR" in overview["note"]
 
@@ -260,7 +257,8 @@ def test_workflow_5_dba_overview_and_a_reviewed_maintenance_action(
     ).json()
     assert run["outcome"] == "succeeded"
     assert run["verification"]["observed"] is True
-    assert run["verification"]["rows"][0][2] == 4000
+    # 4,000 rows in the stand-in, 400,000 in the Oracle fixture.
+    assert run["verification"]["rows"][0][2] in (4000, 400000)
 
 
 def test_workflow_6_ide_copilot_explains_a_selection_and_proposes_a_reviewed_diff(

@@ -116,6 +116,16 @@ def test_a_missing_display_cursor_capability_reports_instead_of_pretending(
     from harness_api.models import ConnectionProfile
 
     profile_id = targets["development"]["id"]
+    # A cursor that exists on this target. The stand-in's seeded SQL ID means nothing
+    # to a real V$SQL, so search for it as the console does.
+    search = client.get(
+        f"/api/v1/tuning/{profile_id}/cursors",
+        headers=developer,
+        params={"textFilter": "order_lines"},
+    ).json()
+    assert search["rows"], search
+    sql_id = search["rows"][0][0]
+
     state = client.app.state.harness
     with state.session_factory() as db:
         profile = db.get(ConnectionProfile, profile_id)
@@ -124,9 +134,7 @@ def test_a_missing_display_cursor_capability_reports_instead_of_pretending(
         row.detail = "ORA-01031: insufficient privileges (V$SQL_PLAN)"
         db.commit()
 
-    detail = client.get(
-        f"/api/v1/tuning/{profile_id}/cursors/c1n5xa9k4h2rd", headers=developer
-    ).json()
+    detail = client.get(f"/api/v1/tuning/{profile_id}/cursors/{sql_id}", headers=developer).json()
     assert detail["plan"]["available"] is False
     assert detail["plan"]["error"]["code"] == "capability_unavailable"
     assert detail["statistics"]["rows"], "statistics still work without V$SQL_PLAN"
