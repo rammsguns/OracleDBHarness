@@ -8,7 +8,10 @@ elsewhere in the test suite.
 
 from __future__ import annotations
 
+import pytest
+
 from harness_worker.backend import OracleConnection
+from harness_worker.errors import OracleError
 from harness_worker.types import ExecutionLimits, StatementKind
 from tests.qualification.evidence import Evidence
 
@@ -187,6 +190,45 @@ def test_dbms_output_is_bounded_and_says_so(
             f"Yes - a 512-byte budget returned {len(result.dbms_output)} line(s) "
             f"({produced} bytes) and set the truncated flag.",
         )
+    finally:
+        connection.execute(_INVALID_BODY, {}, StatementKind.PLSQL_SOURCE, limits)
+
+
+def test_a_block_that_fills_the_server_buffer_is_stopped_and_its_output_discarded(
+    connection: OracleConnection,
+    limits: ExecutionLimits,
+    evidence: Evidence,
+) -> None:
+    """The server buffer is finite so a block cannot grow session memory without limit.
+
+    Filling it stops the block with ORU-10027, and what it wrote must not come back as
+    the next statement's output.
+    """
+
+    connection.execute(_VALID_BODY, {}, StatementKind.PLSQL_SOURCE, limits)
+    try:
+        with pytest.raises(OracleError, match="ORU-10027") as excinfo:
+            # 40 lines of 30,000 bytes: past the 1,000,000-byte server buffer.
+            connection.execute(
+                "BEGIN employee_report.emit_lines(40, 30000); END;",
+                {},
+                StatementKind.PLSQL_BLOCK,
+                limits,
+                collect_dbms_output=True,
+            )
+        after = connection.execute(
+            "BEGIN DBMS_OUTPUT.PUT_LINE('after'); END;",
+            {},
+            StatementKind.PLSQL_BLOCK,
+            limits,
+            collect_dbms_output=True,
+        )
+        evidence.note(
+            "What happens when a block fills the DBMS_OUTPUT server buffer?",
+            f"Stopped with `{excinfo.value.oracle_code}`; the next block's output was "
+            f"`{after.dbms_output}`.",
+        )
+        assert after.dbms_output == ["after"]
     finally:
         connection.execute(_INVALID_BODY, {}, StatementKind.PLSQL_SOURCE, limits)
 

@@ -1339,7 +1339,8 @@ def _shape_value(value: Any, lob_preview_bytes: int) -> Any:
         return {
             "kind": "lob",
             "preview": value[:lob_preview_bytes],
-            "byteLength": len(value),
+            # Characters, as the Oracle backend reports a CLOB.
+            "charLength": len(value),
             "truncated": True,
         }
     return value

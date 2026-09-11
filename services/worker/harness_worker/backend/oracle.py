@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -153,9 +154,24 @@ _CALL_TIMEOUT_CODE = "DPY-4024"
 # Thin mode cannot decode a TIMESTAMP WITH TIME ZONE stored with a region name.
 _NAMED_TIME_ZONE_CODE = "DPY-3022"
 
-# python-oracledb returns TIMESTAMP WITH TIME ZONE as a naive datetime in both modes:
-# the wall-clock time survives, the offset does not, even when fetched as a string.
-# Measured against 19c. The harness cannot rewrite the user's SQL, so it says so.
+# PUT_LINE on a full DBMS_OUTPUT buffer. Raised inside the user's block, so it arrives
+# wrapped in the ORA-20000 that DBMS_OUTPUT raises it with.
+_DBMS_OUTPUT_OVERFLOW = "ORU-10027"
+
+# A view the account cannot read: it does not exist for this user, or is not granted.
+_UNREADABLE_VIEW_CODES = {"ORA-00942", "ORA-01031"}
+
+# The server-side DBMS_OUTPUT buffer: the largest finite size ENABLE accepts. Not
+# scaled to the read-back budget - against 19c a 512-byte budget scaled up still gave
+# Oracle's 2,048-byte floor, and a block writing 30 KB was stopped rather than
+# truncated. Not NULL either, which is unlimited.
+_DBMS_OUTPUT_SERVER_BYTES = 1_000_000
+
+# python-oracledb returned TIMESTAMP WITH TIME ZONE as a naive datetime: the wall-clock
+# time survives, the offset does not, even when fetched as a string. Measured in thin
+# mode against 19c; thick mode is unqualified, so the warning is raised from the values
+# actually fetched rather than assumed from the column type. The harness cannot rewrite
+# the user's SQL, so it says so.
 _TIME_ZONE_WARNING = (
     "TIMESTAMP WITH TIME ZONE column(s) {} are shown without their offset: the driver "
     "returns the wall-clock time only. Select them with "
@@ -208,7 +224,10 @@ class OracleDbConnection(OracleConnection):
                 version_row = cur.fetchone()
                 if version_row:
                     version, banner = version_row[0] or "", version_row[1] or ""
-            except Exception:  # noqa: BLE001 - version view is not always readable
+            except Exception as exc:  # noqa: BLE001 - version view is not always readable
+                # BANNER_FULL is 18c and later, and the view can be revoked. Either is a
+                # gap in the identity; a session that is gone is not.
+                self._raise_if_session_lost(exc)
                 version = getattr(self._conn, "version", "") or ""
             serial: int | None = None
             try:
@@ -216,8 +235,13 @@ class OracleDbConnection(OracleConnection):
                 serial_row = cur.fetchone()
                 if serial_row and serial_row[0] is not None:
                     serial = int(serial_row[0])
-            except Exception:  # noqa: BLE001 - V$SESSION needs a grant the account may lack
-                serial = None
+            except Exception as exc:  # noqa: BLE001 - narrowed below
+                # Only a missing V$SESSION grant is expected here. Anything else is
+                # reported, so a worksheet is not opened on a session that already
+                # failed and then fails on its first statement.
+                self._raise_if_session_lost(exc)
+                if _error_code(exc) not in _UNREADABLE_VIEW_CODES:
+                    raise self._translate(exc, StatementKind.QUERY) from exc
         con_name = row[5] if len(row) > 5 else None
         con_id = row[7] if len(row) > 7 else None
         return TargetIdentity(
@@ -255,13 +279,17 @@ class OracleDbConnection(OracleConnection):
     # -- execution -----------------------------------------------------------------
 
     def enable_dbms_output(self, size_bytes: int) -> None:
-        # Unlimited on the server, bounded when read back. A server buffer sized to the
-        # budget does not truncate: PUT_LINE raises ORU-10027 once it is full, and that
-        # fails the user's block instead of shortening its output. The statement
-        # deadline is what bounds a block that writes without end.
+        # Two bounds. The budget is applied when the output is read back, which
+        # truncates and says so. The server buffer is finite and far larger, so output
+        # past the budget is truncated rather than failed - a buffer sized to the
+        # budget makes PUT_LINE raise ORU-10027 and fails the user's block instead
+        # (found against 19c). Unlimited would let a block that writes in a loop grow
+        # session memory until its deadline, so a block that fills even the server
+        # buffer is stopped by Oracle and reported as such. A budget above the server
+        # buffer is therefore never reached.
         del size_bytes
         with self._conn.cursor() as cur:
-            cur.callproc("dbms_output.enable", [None])
+            cur.callproc("dbms_output.enable", [_DBMS_OUTPUT_SERVER_BYTES])
         self._dbms_output_enabled = True
 
     def execute(
@@ -294,11 +322,7 @@ class OracleDbConnection(OracleConnection):
                 result = StatementResult(statement_kind=kind)
                 if cur.description:
                     result.result_set = self._fetch_bounded(cur, limits)
-                    lost_offsets = [
-                        column.name
-                        for column in result.result_set.columns
-                        if column.type_name == "DB_TYPE_TIMESTAMP_TZ"
-                    ]
+                    lost_offsets = _columns_without_offsets(result.result_set)
                     if lost_offsets:
                         result.warnings.append(_TIME_ZONE_WARNING.format(", ".join(lost_offsets)))
                 else:
@@ -349,6 +373,10 @@ class OracleDbConnection(OracleConnection):
                 completed = result
             except Exception as exc:  # noqa: BLE001 - normalise every driver round trip
                 self._note_failure(exc)
+                if collect_dbms_output and _DBMS_OUTPUT_OVERFLOW in _message(exc):
+                    # A full buffer would otherwise come back as the next statement's
+                    # output.
+                    self._discard_dbms_output()
                 if kind == StatementKind.TRANSACTION_CONTROL and _is_commit(statement):
                     # A COMMIT is a COMMIT however it was entered. Routing it through the
                     # same translation as the toolbar keeps a connection lost in flight
@@ -395,6 +423,16 @@ class OracleDbConnection(OracleConnection):
         if not healthy:
             self._broken = True
         return healthy
+
+    def _raise_if_session_lost(self, exc: Exception) -> None:
+        """Surface a lost session from a best-effort probe instead of downgrading it."""
+
+        self._note_failure(exc)
+        if not self._session_alive():
+            raise ConnectionFailedError(
+                f"The session was lost while reading its identity: {_message(exc)}",
+                detail={"oracleCode": _error_code(exc), "profileId": self._spec.profile_id},
+            ) from exc
 
     def _require_live_session(self) -> None:
         if not self._session_alive():
@@ -497,6 +535,20 @@ class OracleDbConnection(OracleConnection):
                 cur.callproc("dbms_output.disable")
                 self._dbms_output_enabled = False
         return lines, truncated
+
+    def _discard_dbms_output(self) -> None:
+        """DISABLE, which empties the server buffer, after a statement that failed."""
+
+        if not self._session_alive():
+            return
+        try:
+            with self._conn.cursor() as cur:
+                cur.callproc("dbms_output.disable")
+        except Exception as exc:  # noqa: BLE001 - the statement's own error is reported
+            log.warning("Could not discard DBMS_OUTPUT after an overflow", exc_info=True)
+            self._note_failure(exc)
+        else:
+            self._dbms_output_enabled = False
 
     def _compiler_errors(self, statement: str) -> list[CompilerError] | None:
         """Read ALL_ERRORS for the object the statement just compiled.
@@ -652,6 +704,14 @@ class OracleDbConnection(OracleConnection):
                 "TO_CHAR(column, 'YYYY-MM-DD HH24:MI:SS.FF TZR') instead.",
                 oracle_code=code,
             )
+        if _DBMS_OUTPUT_OVERFLOW in message:
+            return OracleError(
+                "The block wrote more DBMS_OUTPUT than the server-side buffer holds, so "
+                "Oracle stopped it. The harness bounds that buffer so a block writing in "
+                "a loop cannot grow session memory without limit. Write less output, or "
+                f"write it to a table instead. Oracle said: {message}",
+                oracle_code=code,
+            )
         if code in _FATAL_CODES:
             if kind in (
                 StatementKind.DML,
@@ -665,7 +725,7 @@ class OracleDbConnection(OracleConnection):
                     detail={"oracleCode": code, "message": message},
                 )
             return ConnectionFailedError(message, detail={"oracleCode": code})
-        if code in {"ORA-00942", "ORA-01031"}:
+        if code in _UNREADABLE_VIEW_CODES:
             return CapabilityError(message, detail={"oracleCode": code})
         return OracleError(message, oracle_code=code)
 
@@ -780,6 +840,28 @@ def _dsn(spec: ConnectionSpec) -> str:
     )
 
 
+def _columns_without_offsets(result_set: ResultSet) -> list[str]:
+    """TIMESTAMP WITH TIME ZONE columns where a fetched value arrived without its offset."""
+
+    lost: list[str] = []
+    for index, column in enumerate(result_set.columns):
+        if column.type_name != "DB_TYPE_TIMESTAMP_TZ":
+            continue
+        if any(
+            isinstance(row[index], datetime) and row[index].tzinfo is None
+            for row in result_set.rows
+        ):
+            lost.append(column.name)
+    return lost
+
+
+_BINARY_LOB_TYPES = {"DB_TYPE_BLOB", "DB_TYPE_BFILE"}
+
+
+def _is_binary_lob(lob: Any) -> bool:
+    return getattr(getattr(lob, "type", None), "name", "") in _BINARY_LOB_TYPES
+
+
 def _error_code(exc: Exception) -> str:
     error = getattr(exc, "args", [None])[0]
     code = getattr(error, "full_code", None)
@@ -845,12 +927,15 @@ def _shape(value: Any, lob_preview_bytes: int) -> Any:
         return _number(value)
     read = getattr(value, "read", None)
     if callable(read) and hasattr(value, "size"):
-        # For a CLOB the size is in characters, for a BLOB in bytes.
+        # The driver's size is in characters for a CLOB or NCLOB and in bytes for a
+        # BLOB, so each is reported under the name of its own unit. A CLOB's byte length
+        # would mean reading the whole value, which is what the preview exists to avoid.
         size = value.size()
+        length_field = "byteLength" if _is_binary_lob(value) else "charLength"
         if not size or lob_preview_bytes <= 0:
             # A zero budget means lengths only. The driver refuses a zero-length read
             # (DPY-2047), so there is nothing to ask it for.
-            return {"kind": "lob", "preview": "", "byteLength": size, "truncated": size > 0}
+            return {"kind": "lob", "preview": "", length_field: size, "truncated": size > 0}
         content = read(1, min(lob_preview_bytes, size))
         if isinstance(content, bytes):
             return {
@@ -866,7 +951,7 @@ def _shape(value: Any, lob_preview_bytes: int) -> Any:
         return {
             "kind": "lob",
             "preview": content,
-            "byteLength": size,
+            "charLength": size,
             "truncated": len(content) < size,
         }
     if isinstance(value, bytes):

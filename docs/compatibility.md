@@ -11,7 +11,7 @@ claim. Where something has not been tested, it says so.
 | Node | 24 | Console typecheck, unit tests and production build; adapter tests |
 | Metadata store | SQLite 3 | Full test suite |
 | Oracle backend | Local stand-in (SQLite) | Full test suite |
-| **Oracle Database** | **19c Enterprise Edition 19.9.1.0.0, non-CDB, AL32UTF8** | `tests/qualification` (46 checks), `tests/integration` and `tests/e2e` against one instance, 2026-09-11. See [Recording a run](#recording-a-run) |
+| **Oracle Database** | **19c Enterprise Edition 19.9.1.0.0, non-CDB, AL32UTF8** | `tests/qualification` (47 checks), `tests/integration` and `tests/e2e` against one instance, two recorded runs on 2026-09-11. See [Recording a run](#recording-a-run) |
 | python-oracledb | 4.0.2, thin mode | The same run |
 | Copilot provider | Fixture provider | Copilot test suite |
 | Protocol | 1.0 | Contract tests, adapter tests |
@@ -42,9 +42,10 @@ test suite demonstrates.
 
 It is not Oracle. It does not implement PL/SQL beyond a small documented slice, it has
 no optimizer, and its dictionary views are seeded tables. Behaviours that only appear
-against a real database - DDL committing an open transaction for real, `ORA-00060`
-deadlocks, `DBMS_XPLAN` output, cursor invalidation, LOB streaming, NUMBER precision,
-time-zone handling - are untested.
+against a real database are not exercised by the default suite. The qualification run
+below covered DDL committing an open transaction, `DBMS_XPLAN` output, LOB previews,
+NUMBER precision and time-zone handling against one 19c instance; `ORA-00060`
+deadlocks and cursor invalidation remain untested anywhere.
 
 Where the stand-in cannot honour something it raises an error naming itself, so a
 passing test never quietly stands in for Oracle behaviour.
@@ -132,8 +133,10 @@ Three constraints follow from the fixtures being a mirror of the demonstration s
 * The tuning checks read a cursor Oracle already has. `EXPLAIN PLAN` executes nothing,
   so the fixture setup runs the slow query once to put one in the shared pool.
 
-Until this has been run and recorded, no release claim about Oracle support is
-supportable.
+One run is recorded below. It supports a claim about that configuration only - 19c
+19.9 as a non-CDB, thin mode, python-oracledb 4.0.2 - and the gaps listed under "What
+has not been tested" still stand. No broader claim about Oracle support is supportable
+until they are run and recorded too.
 
 ## What the first Oracle 19c run found
 
@@ -148,24 +151,24 @@ suite passed. Each has a regression test that fails without the fix.
 | **A statement deadline could crash the API process.** When the driver cannot deliver a call timeout as a break, python-oracledb 4.0.2 (thin) drops the session with `DPY-4011`, and assigning `call_timeout` on that session crashes the process with an access violation. The adapter reset `call_timeout` after every statement. | One statement past its deadline, inside an open transaction, ended the API for every user. Reproduced in 6 of 6 attempts under those conditions. | `call_timeout` is only touched on a session `is_healthy()` reports alive, and a session that is not is retired before anything else touches it. Measured on a dropped session: `close()`, `cursor.close()` and `is_healthy()` are safe; `ping()` and `rollback()` raise `DPY-1001`; only the `call_timeout` setter crashes. |
 | `NUMBER` arrived as a float | `NUMBER(20,10)` value `1234567890.0123456789` was shown as `1234567890.0123458` | Fetched as `Decimal`; kept as a JSON number where a float is exact, and as an exact string otherwise |
 | The driver deadline (`DPY-4024`) was reported as an Oracle error | A timeout looked like SQL Oracle refused | Reported as `execution_timeout`. Measured: the session survives and earlier work in the transaction stays pending |
-| `DBMS_OUTPUT.ENABLE` was sized to the budget | A block writing more than 20,000 bytes failed with ORU-10027 instead of being truncated | The server buffer is unlimited and the budget applies when reading. Unread output is discarded, so it cannot appear as the next statement's |
+| `DBMS_OUTPUT.ENABLE` was sized to the budget | A block writing more than 20,000 bytes failed with ORU-10027 instead of being truncated | The server buffer is 1,000,000 bytes, the largest finite size ENABLE accepts, and the budget applies when reading, so output past the budget is truncated. Scaling the buffer to the budget was tried and failed against 19c: a 512-byte budget hit ENABLE's 2,048-byte floor and a 30 KB block was stopped. It is not unlimited: a block writing in a loop would grow session memory until its deadline. A block that fills even the server buffer is stopped by Oracle and reported as such. Unread or overflowed output is discarded, so it cannot appear as the next statement's |
 | A zero LOB preview budget read zero bytes | `DPY-2047` on every query returning a LOB | No read when the budget is zero. Text previews are also now trimmed to the byte budget, not a character count |
+| A CLOB's length was reported as `byteLength` | The driver counts a CLOB or NCLOB in characters, so multibyte text was under-reported: 4,000 two-byte characters as 4,000 bytes | A text LOB reports `charLength` and the result grid says "characters"; a BLOB keeps `byteLength`. A true byte length would mean reading the whole value |
 | `isCdb` came from the container name | A non-CDB reported itself as a container database | Read from `CON_ID` |
-| The session serial number was never read | `KILL SESSION` could not name a harness session | Read from `V$SESSION` where the account can |
+| The session serial number was never read | `KILL SESSION` could not name a harness session | Read from `V$SESSION` where the account can. Only a missing grant leaves it unknown; a session lost during the probe fails the identity rather than opening a worksheet on a dead connection |
 | The recompile runbook generated `ALTER PACKAGE BODY x COMPILE` | ORA-00922 for every package or type body | `ALTER PACKAGE x COMPILE BODY`. The stand-in now refuses the old form as Oracle does |
 | `dba.scheduler_jobs` selected region-named `TIMESTAMP WITH TIME ZONE` columns | The panel was unavailable on every 19c in thin mode (`DPY-3022`) | Converted with `SYS_EXTRACT_UTC` and labelled `_utc` |
 | `dba.scheduler_failures` selected `ERROR_NUMBER` | ORA-00904; the column is `ERROR#` | `error# AS error_number` |
 
 **Driver limitations** the harness cannot fix, and now reports:
 
-* `TIMESTAMP WITH TIME ZONE` loses its offset. python-oracledb returns the
-  wall-clock time as a naive datetime, even when the column is fetched as a string.
-  A result containing such a column carries a warning naming it and the `TO_CHAR`
-  that shows the offset.
+* `TIMESTAMP WITH TIME ZONE` loses its offset in thin mode. python-oracledb returns
+  the wall-clock time as a naive datetime, even when the column is fetched as a
+  string. A result where such a column's values arrived without an offset carries a
+  warning naming it and the `TO_CHAR` that shows the offset. The warning is raised
+  from the fetched values, not the column type, because thick mode is unqualified.
 * A `TIMESTAMP WITH TIME ZONE` stored with a region name cannot be fetched at all in
   thin mode (`DPY-3022`). The error now says what to select instead.
-* `byteLength` on a CLOB or NCLOB counts characters. The value is the driver's; the
-  field name promises bytes. Not yet renamed.
 
 **Defects in the setup and the tests**:
 
@@ -225,7 +228,7 @@ database version and configuration, which suites were run, and what failed.
 
 ### Run 2026-09-11 19:04 UTC
 
-- Harness build: `4a0bf24` plus the fixes listed in "What the first Oracle 19c run found", uncommitted at the time
+- Harness build: `4a0bf24` plus the fixes listed in "What the first Oracle 19c run found", uncommitted at the time and committed as `12f6902`. The `charLength` field, the finite DBMS_OUTPUT buffer, the value-based offset warning and the narrowed identity probe came after this run, so its LOB rows below still say `byteLength`
 - Target: a single-instance non-CDB on a private network, service `ORCL`, as `harness_app`, schema `HARNESS_APP`
 - Platform: Windows-10-10.0.26200-SP0, Python 3.11.15
 - driverMode: `thin`
@@ -284,10 +287,71 @@ Observed Oracle behaviour:
 | Large CLOB under a 1 KiB preview limit | reported byteLength `65534`, preview is 1024 characters / 1024 bytes, truncated=`True` |
 | Lost connection during COMMIT | Raised `OutcomeUnknownError` with code `outcome_unknown` |
 | NCLOB of 4,000 two-byte characters: what is byteLength? | `4000`. 4000 means characters; 8000 means bytes. The field name promises bytes and the driver counted characters. |
-| Runtime error from a PL/SQL block | Oracle code `ORA-20001`, message `ORA-20001: qualification probe
-ORA-06512: at line 1` |
+| Runtime error from a PL/SQL block | Oracle code `ORA-20001`, message `ORA-20001: qualification probe`<br>`ORA-06512: at line 1` |
 | Shape of a small CLOB | `{'kind': 'lob', 'preview': 'short clob', 'byteLength': 10, 'truncated': False}` |
 | Unicode read back | `'こんにちは — café — مرحبا'` |
 | What does a broken statement raise? | `CancelledError_` with code `execution_cancelled`. Returned after 3.0s of a 30s statement. |
 | What does a killed session raise mid-statement? | `OutcomeUnknownError` / harness code `outcome_unknown` |
 | What enforces the execution deadline? | A 5s budget stopped a 30s statement after 5.0s, raising `TimeoutError_`. |
+
+### Run 2026-09-11 19:40 UTC
+
+- Harness build: `12f6902` plus the review fixes on PR #7 (`charLength`, the 1,000,000-byte DBMS_OUTPUT buffer, the value-based offset warning, the narrowed identity probe), uncommitted at the time
+- Target: the same instance, service `ORCL` as `harness_app`, schema `HARNESS_APP`
+- Platform: Windows-10-10.0.26200-SP0, Python 3.11.15
+- driverMode: `thin`
+- pythonOracledb: `4.0.2`
+
+Suites: the same four, in one run. Result: 398 passed, 18 skipped, 0 failed. The
+skips are the same as the previous run's. An earlier run that hour, with the server
+buffer scaled to four times the budget, failed one check: a 512-byte budget hit
+ENABLE's 2,048-byte floor and a 30 KB block was stopped rather than truncated. That
+run is not recorded separately; the fix was the fixed 1,000,000-byte buffer.
+
+Database, as reported by the database:
+
+- characterSet: `AL32UTF8`
+- containerName: `ORCL`
+- currentSchema: `HARNESS_APP`
+- currentUser: `HARNESS_APP`
+- databaseName: `ORCL`
+- driver.driverMode: `thin`
+- driver.pythonOracledb: `4.0.2`
+- hostName: `90520b67e617`
+- instanceName: `ORCL`
+- isCdb: `False`
+- nationalCharacterSet: `AL16UTF16`
+- version: `19.9.1.0.0`
+- versionFull: `19.9.1.0.0`
+
+Observed Oracle behaviour:
+
+| Question | What this database did |
+| --- | --- |
+| BLOB under a 256-byte preview limit | byteLength `20000`, preview 512 hex characters, truncated=`True` |
+| Capabilities on this account | connect: available<br>session_schema: available<br>all_objects: available<br>explain_plan: available<br>display_cursor: available<br>v_session: available<br>v_sql: available<br>dba_tablespaces: available<br>dba_scheduler_jobs: available<br>dbms_stats: available<br>compile_objects: available |
+| Compiler errors for the seeded invalid body | line 5 col 39: PL/SQL: ORA-00942: table or view does not exist; line 5 col 5: PL/SQL: SQL Statement ignored |
+| Database major version | 19c (`19.9.1.0.0`) |
+| Does DBMS_OUTPUT reach the adapter? | Yes - 1 line(s): ['headcount=3'] |
+| Does DDL commit pending DML? | Yes - the row inserted before the CREATE was visible to another session without an explicit commit. |
+| Does ROLLBACK TO SAVEPOINT leave the transaction open? | Adapter reports open=True; the row before the savepoint survived (1 == 1) and the row after it did not (0 == 0). |
+| Does a PL/SQL block leave a transaction open? | Yes - the adapter's assumption holds. |
+| Does a cancellation roll back earlier work in the same transaction? | No - the earlier insert was still pending, as assumed. |
+| Does the blocking panel show a real blocked session? | Session 2789 waiting on 1938: shown as `[2789, 'HARNESS_APP', 'enq: TX - row lock contention', 0]` blocked by SID `1938` |
+| EMPTY_CLOB() vs NULL | EMPTY_CLOB() arrived as `{'kind': 'lob', 'preview': '', 'charLength': 0, 'truncated': False}`; a NULL CLOB as `None`; EMPTY_BLOB() as `{'kind': 'lob', 'preview': '', 'byteLength': 0, 'truncated': False}`. |
+| How do TIMESTAMP columns arrive? | TIMESTAMP: `datetime.datetime(2026, 3, 1, 12, 34, 56, 789012)`<br>WITH TIME ZONE: `datetime.datetime(2026, 3, 1, 12, 34, 56, 789012)`<br>WITH LOCAL TIME ZONE: `datetime.datetime(2026, 3, 1, 18, 34, 56, 789012)`<br>Warning: `TIMESTAMP WITH TIME ZONE column(s) TS_TZ are shown without their offset: the driver returns the wall-clock time only. Select them with TO_CHAR(column, 'YYYY-MM-DD HH24:MI:SS.FF TZH:TZM') to see the offset.` |
+| How does NUMBER(20,10) arrive? | As `Decimal` with value `1234567890.0123456789` |
+| Is DBMS_OUTPUT bounded? | Yes - a 512-byte budget returned 8 line(s) (480 bytes) and set the truncated flag. |
+| Is a lost connection during a write reported as outcome_unknown? | Raised `OutcomeUnknownError` with code `outcome_unknown`. |
+| Is a session reusable after a cancellation? | Yes - the connection stayed healthy and answered a query afterwards. |
+| Is an empty VARCHAR2 stored as NULL? | v_ascii read back as `None`; NVL says `'was-null'`. |
+| Large CLOB under a 1 KiB preview limit | reported charLength `65534`, preview is 1024 characters / 1024 bytes, truncated=`True` |
+| Lost connection during COMMIT | Raised `OutcomeUnknownError` with code `outcome_unknown` |
+| NCLOB of 4,000 two-byte characters: reported length | charLength `4000`, byteLength `None` |
+| Runtime error from a PL/SQL block | Oracle code `ORA-20001`, message `ORA-20001: qualification probe<br>ORA-06512: at line 1` |
+| Shape of a small CLOB | `{'kind': 'lob', 'preview': 'short clob', 'charLength': 10, 'truncated': False}` |
+| Unicode read back | `'こんにちは — café — مرحبا'` |
+| What does a broken statement raise? | `CancelledError_` with code `execution_cancelled`. Returned after 3.0s of a 30s statement. |
+| What does a killed session raise mid-statement? | `OutcomeUnknownError` / harness code `outcome_unknown` |
+| What enforces the execution deadline? | A 5s budget stopped a 30s statement after 5.0s, raising `TimeoutError_`. |
+| What happens when a block fills the DBMS_OUTPUT server buffer? | Stopped with `ORA-20000`; the next block's output was `['after']`. |

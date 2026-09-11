@@ -1,7 +1,9 @@
 # Oracle 19c qualification
 
-Everything in the automated suite runs against the local stand-in. This directory and
-`tests/qualification/` are how that changes.
+By default the automated suite runs against the local stand-in, and that is what CI
+runs. This directory and `tests/qualification/` are how a run reaches a real Oracle
+target instead: with the `HARNESS_QUAL_*` variables below set, the backend suite runs
+and the integration and end-to-end suites run through the API against that target.
 
 **First run: 2026-09-11, against 19c EE 19.9.1 (non-CDB), thin mode.** It failed
 before any test ran. Once the fixture script and a set of harness defects were fixed,

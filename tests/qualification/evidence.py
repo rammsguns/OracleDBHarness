@@ -104,7 +104,10 @@ class Evidence:
             lines.append("| Question | What this database did |")
             lines.append("| --- | --- |")
             for key, value in sorted(self.observations.items()):
-                lines.append(f"| {key} | {value} |")
+                # A newline ends a Markdown table row, and Oracle's error stacks have
+                # them.
+                cell = value.replace("\r\n", "<br>").replace("\n", "<br>")
+                lines.append(f"| {key} | {cell} |")
         else:
             lines.append("")
             lines.append(

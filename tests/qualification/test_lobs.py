@@ -4,12 +4,10 @@
 flag. It has never met a LOB. The stand-in stores CLOBs as SQLite text and returns
 them whole, so neither the bound nor the shape of the result has been exercised.
 
-There is a known ambiguity here worth confirming rather than assuming: for a CLOB,
-python-oracledb's ``size()`` and ``read(offset, amount)`` count *characters*, while
-the limit applied to them is named ``lob_preview_bytes`` and the field reporting the
-result is named ``byteLength``. For single-byte characters the two agree. For the
-multi-byte content below they do not, and these tests record which one this driver
-returns.
+For a CLOB or NCLOB, python-oracledb's ``size()`` and ``read(offset, amount)`` count
+*characters*, while the preview limit is in bytes. The first 19c run found the length
+reported as ``byteLength`` in characters; a text LOB now reports ``charLength`` and a
+BLOB ``byteLength``, and the preview is trimmed to the byte budget.
 """
 
 from __future__ import annotations
@@ -72,7 +70,7 @@ def test_a_large_clob_is_cut_to_the_preview_limit(
     preview = value["preview"]
     evidence.note(
         "Large CLOB under a 1 KiB preview limit",
-        f"reported byteLength `{value['byteLength']}`, preview is "
+        f"reported charLength `{value['charLength']}`, preview is "
         f"{len(preview)} characters / {len(preview.encode('utf-8'))} bytes, "
         f"truncated=`{value['truncated']}`",
     )
@@ -92,26 +90,20 @@ def test_the_reported_length_of_a_multibyte_lob_is_recorded(
     limits: ExecutionLimits,
     evidence: Evidence,
 ) -> None:
-    """Which unit ``byteLength`` is actually in, for an NCLOB of 4,000 accented characters.
+    """An NCLOB of 4,000 accented characters reports its length in characters.
 
-    Recorded rather than asserted: the correct answer depends on what the field is
-    meant to promise, and that is a decision to take with the observation in hand.
-    A character count reported as ``byteLength`` under-reports this column by half.
+    The driver counts characters, so the field says so. Reporting 4,000 as
+    ``byteLength`` under-reported this column by half.
     """
 
     value = _row(connection, "n_large", 1, limits)[0]
-    reported = value["byteLength"]
     evidence.note(
-        "NCLOB of 4,000 two-byte characters: what is byteLength?",
-        f"`{reported}`. 4000 means characters; 8000 means bytes."
-        + (
-            " The field name promises bytes and the driver counted characters."
-            if reported == 4000
-            else ""
-        ),
+        "NCLOB of 4,000 two-byte characters: reported length",
+        f"charLength `{value.get('charLength')}`, byteLength `{value.get('byteLength')}`",
     )
-    assert reported > 0
     assert value["kind"] == "lob"
+    assert "byteLength" not in value
+    assert value["charLength"] == 4000
 
 
 def test_a_blob_is_previewed_as_hex_and_bounded(
@@ -154,7 +146,8 @@ def test_empty_and_null_lobs_are_distinguishable(
         "EMPTY_CLOB() came back as NULL. An empty LOB and an absent one are different "
         "facts about a row and the grid would show them identically."
     )
-    assert empty_clob["byteLength"] == 0
+    assert empty_clob["charLength"] == 0
+    assert empty_blob["byteLength"] == 0
     assert empty_clob["truncated"] is False
 
 
@@ -172,4 +165,4 @@ def test_a_zero_preview_budget_returns_no_content(
     value = _row(connection, "c_large", 1, none_at_all)[0]
     assert value["preview"] == ""
     assert value["truncated"] is True
-    assert value["byteLength"] > 0
+    assert value["charLength"] > 0
