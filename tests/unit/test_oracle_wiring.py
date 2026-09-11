@@ -292,12 +292,52 @@ def test_reseeding_a_stored_credential_reference_onto_another_file_is_refused(
         service_name="PDB_A",
         secret_locator="moved.password",  # noqa: S106 - a file name
     )
-    with pytest.raises(ConfigurationError, match="already exists"):
+    with pytest.raises(ConfigurationError, match="does not point at the requested file"):
         seed(
             settings,
             probe=False,
             endpoints={"development": moved, "test": moved, "production": moved},
         )
+
+
+def test_reseeding_over_a_stored_reference_on_another_provider_is_refused(
+    tmp_path: Path,
+) -> None:
+    """Same name and locator, but read from the environment rather than the file."""
+
+    settings = _seed_settings(tmp_path)
+    seed(settings, probe=False)
+    factory = build_session_factory(build_engine(settings))
+    with factory() as db:
+        for secret in db.scalars(select(SecretReference)):
+            secret.provider = "env"
+        db.commit()
+
+    with pytest.raises(ConfigurationError, match="does not point at the requested file"):
+        seed(settings, probe=False)
+
+
+def test_reseeding_an_existing_target_onto_a_new_reference_is_refused(
+    tmp_path: Path,
+) -> None:
+    """A new secret_name would be created but never bound to the existing profile."""
+
+    settings = _seed_settings(tmp_path)
+    seed(settings, probe=False)
+
+    renamed = TargetEndpoint(
+        service_name="DEVPDB1",
+        secret_name="renamed",  # noqa: S106 - a reference name
+        secret_locator="renamed.password",  # noqa: S106 - a file name
+    )
+    with pytest.raises(ConfigurationError, match="different credential reference"):
+        seed(settings, probe=False, endpoints={"development": renamed})
+
+
+def test_seeding_twice_with_the_same_endpoints_is_accepted(tmp_path: Path) -> None:
+    settings = _seed_settings(tmp_path)
+    seed(settings, probe=False)
+    assert seed(settings, probe=False)["targets"] == []
 
 
 def test_seeding_against_overridden_endpoints_keeps_their_credentials_apart(

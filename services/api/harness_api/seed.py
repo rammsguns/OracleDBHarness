@@ -181,15 +181,16 @@ def seed(
                         description=endpoint.description,
                     )
                     db.add(secret)
-                elif secret.locator != endpoint.secret_locator:
-                    # Reusing the stored reference would quietly keep the old file.
+                elif (secret.provider, secret.locator) != ("file", endpoint.secret_locator):
+                    # Reusing the stored reference would quietly read somewhere else:
+                    # another file, or an environment variable.
                     raise ConfigurationError(
                         f"The credential reference {endpoint.secret_name!r} already "
-                        "exists and points at a different file. Seed into a fresh "
-                        "metadata database, or give this endpoint its own secret_name.",
+                        "exists and does not point at the requested file. Seed into a "
+                        "fresh metadata database.",
                         detail={
-                            "stored": secret.locator,
-                            "requested": endpoint.secret_locator,
+                            "stored": {"provider": secret.provider, "locator": secret.locator},
+                            "requested": {"provider": "file", "locator": endpoint.secret_locator},
                         },
                     )
                 secrets[endpoint.secret_name] = secret
@@ -227,6 +228,14 @@ def seed(
                     )
                     db.add(profile)
                     created["targets"].append(str(spec["name"]))
+                elif profile.secret_reference_id != secrets[endpoint.secret_name].id:
+                    # An existing profile keeps its reference, so it would go on
+                    # reading the credential it was created with.
+                    raise ConfigurationError(
+                        f"The target {spec['name']!r} already exists and is bound to a "
+                        f"different credential reference than {endpoint.secret_name!r}. "
+                        "Seed into a fresh metadata database.",
+                    )
                 profiles[str(spec["name"])] = profile
             db.commit()
 
