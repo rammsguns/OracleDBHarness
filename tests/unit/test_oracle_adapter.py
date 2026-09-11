@@ -10,6 +10,9 @@ a real 19c instance, which is tracked in docs/compatibility.md.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -25,8 +28,9 @@ from harness_worker.errors import (
     HarnessError,
     OracleError,
     OutcomeUnknownError,
+    TimeoutError_,
 )
-from harness_worker.types import ExecutionLimits, StatementKind
+from harness_worker.types import ColumnMetadata, ExecutionLimits, ResultSet, StatementKind
 
 SPEC = ConnectionSpec(profile_id="prf_1", host="h", port=1521, service_name="s", username="u")
 LIMITS = ExecutionLimits(deadlineSeconds=30.0)
@@ -89,8 +93,9 @@ class StubCursor:
     def arrayvar(self, typ: Any, size: int) -> StubVar:
         return StubVar(is_array=True, size=size)
 
-    def callproc(self, name: str, args: list[Any]) -> None:
+    def callproc(self, name: str, args: list[Any] | None = None) -> None:
         self._owner.calls.append(name)
+        self._owner.call_args.append((name, list(args or [])))
         if name == "dbms_output.get_lines":
             if self._owner.get_lines_error is not None:
                 raise self._owner.get_lines_error
@@ -152,9 +157,28 @@ class StubConnection:
         self.rollbacks = 0
         self.cancels = 0
         self.closes = 0
-        self.call_timeout = 0
+        self.call_args: list[tuple[str, list[Any]]] = []
+        # What the real driver's is_healthy() reports: a local check, False once the
+        # driver has dropped the session.
+        self.healthy = True
+        self.call_timeout_writes: list[int] = []
+        self._call_timeout = 0
         self.autocommit = True
         self.module = ""
+
+    def is_healthy(self) -> bool:
+        return self.healthy
+
+    @property
+    def call_timeout(self) -> int:
+        return self._call_timeout
+
+    @call_timeout.setter
+    def call_timeout(self, value: int) -> None:
+        # Recorded rather than raised: the adapter swallows exceptions here, and on the
+        # real driver this is a process crash, not an exception. A test asserts on it.
+        self.call_timeout_writes.append(value)
+        self._call_timeout = value
 
     def cursor(self) -> StubCursor:
         cursor = StubCursor(self)
@@ -178,6 +202,13 @@ class StubConnection:
 
     def close(self) -> None:
         self.closes += 1
+
+
+def _cursor_with(driver: StubConnection, execute: Any) -> StubCursor:
+    cursor = StubCursor(driver)
+    cursor.execute = execute  # type: ignore[method-assign]
+    driver.cursors.append(cursor)
+    return cursor
 
 
 @pytest.fixture
@@ -508,7 +539,9 @@ def test_fetch_disconnect_marks_session_broken_and_cleans_up(pair) -> None:
     assert excinfo.value.detail["oracleCode"] == "ORA-03113"
     assert connection.is_broken is True
     assert driver.cursors[-1].closed is True
-    assert driver.call_timeout == 0
+    # Set for the statement and never touched after the session was lost: assigning
+    # call_timeout on a dropped python-oracledb session crashes the process.
+    assert driver.call_timeout_writes == [30000]
 
 
 def test_cleanup_failure_does_not_mask_unknown_write_outcome(pair, monkeypatch) -> None:
@@ -522,7 +555,7 @@ def test_cleanup_failure_does_not_mask_unknown_write_outcome(pair, monkeypatch) 
     with pytest.raises(OutcomeUnknownError) as excinfo:
         run(connection, "CREATE PROCEDURE p AS BEGIN NULL; END;", StatementKind.PLSQL_SOURCE)
     assert excinfo.value.detail["oracleCode"] == "ORA-03113"
-    assert driver.call_timeout == 0
+    assert driver.call_timeout_writes == [30000]
 
 
 def test_a_commit_that_loses_its_connection_is_outcome_unknown(pair) -> None:
@@ -619,6 +652,313 @@ def test_output_that_cannot_be_read_back_does_not_fail_a_block_that_ran(pair) ->
     assert len(result.warnings) == 1
     assert "could not be read back" in result.warnings[0]
     assert connection.transaction_open is True
+
+
+@pytest.mark.parametrize("budget", [512, 64 * 1024])
+def test_the_server_buffer_is_finite_and_not_sized_to_the_budget(pair, budget: int) -> None:
+    """A buffer sized to the budget fails the block with ORU-10027; NULL is unbounded.
+
+    Against 19c, even four times a 512-byte budget hit ENABLE's floor and stopped a
+    block that should have been truncated, so the buffer is ENABLE's finite maximum.
+    """
+
+    driver, connection = pair
+    limits = LIMITS.model_copy(update={"max_dbms_output_bytes": budget})
+    connection.execute(
+        "BEGIN report.run; END;", {}, StatementKind.PLSQL_BLOCK, limits, collect_dbms_output=True
+    )
+    assert driver.call_args[0] == ("dbms_output.enable", [1_000_000])
+
+
+def test_a_block_that_fills_the_server_buffer_is_reported_and_its_output_discarded(
+    pair,
+) -> None:
+    driver, connection = pair
+    driver.execute_error = DriverError(
+        "ORA-20000", "ORA-20000: ORU-10027: buffer overflow, limit of 262144 bytes"
+    )
+
+    with pytest.raises(OracleError, match="server-side buffer") as excinfo:
+        connection.execute(
+            "BEGIN LOOP DBMS_OUTPUT.PUT_LINE('x'); END LOOP; END;",
+            {},
+            StatementKind.PLSQL_BLOCK,
+            LIMITS,
+            collect_dbms_output=True,
+        )
+    assert excinfo.value.oracle_code == "ORA-20000"
+    # Left in place, the full buffer would be read back as the next block's output.
+    assert driver.calls[-1] == "dbms_output.disable"
+    assert connection.is_broken is False
+
+
+def test_output_beyond_the_budget_is_discarded_not_left_for_the_next_statement(pair) -> None:
+    driver, connection = pair
+    driver.output_lines = [f"line {n:03}" for n in range(300)]
+    tight = LIMITS.model_copy(update={"max_dbms_output_bytes": 100})
+
+    first = connection.execute(
+        "BEGIN report.run; END;", {}, StatementKind.PLSQL_BLOCK, tight, collect_dbms_output=True
+    )
+    assert first.dbms_output_truncated is True
+    assert "dbms_output.disable" in driver.calls
+
+    # The server discarded the rest on DISABLE; the next block starts from an enabled,
+    # empty buffer and reports only what it wrote.
+    driver.output_lines = ["second block"]
+    second = connection.execute(
+        "BEGIN other.run; END;", {}, StatementKind.PLSQL_BLOCK, LIMITS, collect_dbms_output=True
+    )
+    assert second.dbms_output == ["second block"]
+    assert driver.calls.count("dbms_output.enable") == 2
+
+
+# -- found against Oracle 19c --------------------------------------------------------
+
+
+def test_the_driver_deadline_is_reported_as_a_timeout(pair) -> None:
+    """DPY-4024 is the driver's call_timeout: the statement was stopped, not refused."""
+
+    driver, connection = pair
+    driver.execute_error = DriverError("DPY-4024", "call timeout of 30000 ms exceeded")
+    with pytest.raises(TimeoutError_) as excinfo:
+        run(connection, "BEGIN slow; END;", StatementKind.PLSQL_BLOCK)
+    assert excinfo.value.detail["statementStarted"] is True
+    # Against 19c the session survives a delivered timeout, so it stays usable.
+    assert connection.is_broken is False
+
+
+def test_a_dropped_session_is_never_given_a_call_timeout(pair) -> None:
+    """The crash found against 19c: a timeout the driver could not deliver as a break.
+
+    python-oracledb 4.0.2 then drops the session (DPY-4011), and assigning
+    call_timeout on it kills the process with an access violation.
+    """
+
+    driver, connection = pair
+
+    def drop_session(statement: str, binds: dict[str, Any] | None = None) -> None:
+        driver.healthy = False
+        raise DriverError("DPY-4011", "the database or network closed the connection")
+
+    driver.cursor = lambda: _cursor_with(driver, drop_session)  # type: ignore[method-assign]
+    with pytest.raises(OutcomeUnknownError):
+        run(connection, "BEGIN slow; END;", StatementKind.PLSQL_BLOCK)
+    assert driver.call_timeout_writes == [30000]
+
+    # And the retired session refuses further work before touching the driver.
+    with pytest.raises(ConnectionFailedError):
+        run(connection, "SELECT 1 FROM dual", StatementKind.QUERY)
+    assert driver.call_timeout_writes == [30000]
+
+
+def test_a_session_the_driver_reports_unhealthy_is_refused(pair) -> None:
+    driver, connection = pair
+    driver.healthy = False
+    with pytest.raises(ConnectionFailedError):
+        run(connection, "SELECT 1 FROM dual", StatementKind.QUERY)
+    assert driver.call_timeout_writes == []
+    assert connection.is_broken is True
+
+
+def test_a_named_time_zone_says_what_to_do_instead(pair) -> None:
+    driver, connection = pair
+    driver.execute_error = DriverError("DPY-3022", "named time zones are not supported")
+    with pytest.raises(OracleError, match="TO_CHAR") as excinfo:
+        run(connection, "SELECT ts FROM t", StatementKind.QUERY)
+    assert excinfo.value.oracle_code == "DPY-3022"
+
+
+def _tz_result(*values: Any) -> ResultSet:
+    return ResultSet(
+        columns=[
+            ColumnMetadata(name="ID", typeName="DB_TYPE_NUMBER"),
+            ColumnMetadata(name="TS_TZ", typeName="DB_TYPE_TIMESTAMP_TZ"),
+        ],
+        rows=[[n, value] for n, value in enumerate(values)],
+        rowCount=len(values),
+    )
+
+
+@pytest.mark.parametrize(
+    ("values", "warned"),
+    [
+        # What thin mode returned against 19c: the wall-clock time, no offset.
+        ((datetime(2026, 1, 1, 9, 30),), ["TS_TZ"]),
+        # A driver that keeps the offset has nothing to warn about.
+        ((datetime(2026, 1, 1, 9, 30, tzinfo=UTC),), []),
+        # Nor does a column with no values at all.
+        ((None, None), []),
+    ],
+)
+def test_the_offset_warning_follows_the_values_actually_fetched(
+    values: tuple[Any, ...], warned: list[str]
+) -> None:
+    assert oracle_backend._columns_without_offsets(_tz_result(*values)) == warned
+
+
+class _IdentityCursor:
+    """Answers the identity probes, failing whichever one a test names."""
+
+    def __init__(self, owner: StubConnection, failures: dict[str, Exception]) -> None:
+        self._owner = owner
+        self._failures = failures
+        self._row: tuple[Any, ...] | None = None
+
+    def __enter__(self) -> _IdentityCursor:
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        return None
+
+    def execute(self, statement: str, binds: Any = None) -> None:
+        for probe, error in self._failures.items():
+            if probe in statement:
+                if isinstance(error, DriverError) and error.args[0].full_code == "DPY-4011":
+                    self._owner.healthy = False
+                raise error
+        if "v$session" in statement:
+            self._row = (4711,)
+        elif "product_component_version" in statement:
+            self._row = ("19.0.0.0.0", "Oracle Database 19c")
+        else:
+            self._row = ("ORCL", "orcl", "db1", "HARNESS_APP", "HARNESS_APP", "ORCL", "42", "0")
+
+    def fetchone(self) -> tuple[Any, ...] | None:
+        return self._row
+
+
+def _identity_pair(**failures: Exception) -> tuple[StubConnection, OracleDbConnection]:
+    driver = StubConnection()
+    driver.cursor = lambda: _IdentityCursor(driver, failures)  # type: ignore[method-assign,assignment,return-value]
+    return driver, OracleDbConnection(SPEC, driver)
+
+
+def test_identity_reads_the_serial_number_and_a_non_cdb() -> None:
+    _, connection = _identity_pair()
+    identity = connection.identity()
+    assert (identity.session_id, identity.serial_number) == (42, 4711)
+    assert identity.is_cdb is False
+
+
+@pytest.mark.parametrize("code", ["ORA-00942", "ORA-01031"])
+def test_a_missing_v_session_grant_leaves_the_serial_unknown(code: str) -> None:
+    _, connection = _identity_pair(**{"v$session": DriverError(code, "no access")})
+    assert connection.identity().serial_number is None
+    assert connection.is_broken is False
+
+
+def test_a_session_lost_during_the_serial_probe_fails_the_identity() -> None:
+    """Not a missing grant: the worksheet would open and fail on its first statement."""
+
+    _, connection = _identity_pair(
+        **{"v$session": DriverError("DPY-4011", "the database or network closed the connection")}
+    )
+    with pytest.raises(ConnectionFailedError):
+        connection.identity()
+    assert connection.is_broken is True
+
+
+def test_any_other_serial_probe_failure_is_reported_not_downgraded() -> None:
+    _, connection = _identity_pair(**{"v$session": DriverError("ORA-00600", "internal error")})
+    with pytest.raises(OracleError) as excinfo:
+        connection.identity()
+    assert excinfo.value.oracle_code == "ORA-00600"
+
+
+def test_a_session_lost_during_the_version_probe_fails_the_identity() -> None:
+    _, connection = _identity_pair(
+        **{"product_component_version": DriverError("ORA-03113", "end-of-file")}
+    )
+    with pytest.raises(ConnectionFailedError):
+        connection.identity()
+
+
+def test_an_unreadable_version_view_falls_back_to_the_driver_version() -> None:
+    """BANNER_FULL does not exist before 18c: a gap in the identity, not a failure."""
+
+    _, connection = _identity_pair(
+        **{"product_component_version": DriverError("ORA-00904", "invalid identifier")}
+    )
+    assert connection.identity().serial_number == 4711
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (Decimal("42"), 42),
+        (Decimal("-7"), -7),
+        (Decimal("24000.5"), 24000.5),
+        (Decimal("0.1"), 0.1),
+        # The 19c case: a float would round it to 1234567890.0123458.
+        (Decimal("1234567890.0123456789"), Decimal("1234567890.0123456789")),
+        # Beyond 2**53 an integer loses digits in a JavaScript number.
+        (Decimal("9007199254740993"), Decimal("9007199254740993")),
+    ],
+)
+def test_numbers_stay_exact(value: Decimal, expected: Any) -> None:
+    shaped = oracle_backend._shape(value, 1024)
+    assert shaped == expected
+    assert type(shaped) is type(expected)
+
+
+class _Lob:
+    def __init__(self, content: str | bytes) -> None:
+        self._content = content
+        self.reads: list[tuple[int, int]] = []
+        # oracledb's LOB.type is a DbType, named after the column's type.
+        self.type = SimpleNamespace(
+            name="DB_TYPE_BLOB" if isinstance(content, bytes) else "DB_TYPE_CLOB"
+        )
+
+    def size(self) -> int:
+        return len(self._content)
+
+    def read(self, offset: int, amount: int) -> str | bytes:
+        if amount <= 0:
+            raise DriverError("DPY-2047", "LOB amount must be greater than zero")
+        self.reads.append((offset, amount))
+        return self._content[offset - 1 : offset - 1 + amount]
+
+
+def test_a_zero_preview_budget_reads_nothing() -> None:
+    lob = _Lob("x" * 5000)
+    shaped = oracle_backend._shape(lob, 0)
+    assert shaped == {"kind": "lob", "preview": "", "charLength": 5000, "truncated": True}
+    assert lob.reads == []
+    blob = _Lob(b"\x00" * 300)
+    assert oracle_backend._shape(blob, 0) == {
+        "kind": "lob",
+        "preview": "",
+        "byteLength": 300,
+        "truncated": True,
+    }
+
+
+def test_a_clob_reports_its_length_in_characters_not_bytes() -> None:
+    """The driver counts a CLOB in characters. Named byteLength, 4,000 two-byte
+    characters were reported as 4,000 bytes against 19c."""
+
+    shaped = oracle_backend._shape(_Lob("é" * 4000), 1 << 20)
+    assert shaped["charLength"] == 4000
+    assert "byteLength" not in shaped
+    assert shaped["truncated"] is False
+
+
+def test_a_multibyte_preview_stays_within_the_byte_budget() -> None:
+    shaped = oracle_backend._shape(_Lob("é" * 2000), 1024)
+    assert len(shaped["preview"].encode("utf-8")) <= 1024
+    assert shaped["truncated"] is True
+
+
+def test_a_lob_that_fits_is_not_marked_truncated() -> None:
+    assert oracle_backend._shape(_Lob("short clob"), 1024)["truncated"] is False
+    assert oracle_backend._shape(_Lob(b"\x01\x02"), 1024) == {
+        "kind": "lob",
+        "preview": "0102",
+        "byteLength": 2,
+        "truncated": False,
+    }
 
 
 # -- connection setup --------------------------------------------------------------

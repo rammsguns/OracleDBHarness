@@ -9,4 +9,4 @@
 -- @identifier_parameters: owner, object_name, object_kind
 -- @privileges: ALTER ANY PROCEDURE, or ownership of the object
 -- @returns: none
-ALTER ${object_kind} ${owner}.${object_name} COMPILE
+ALTER ${object_kind} ${owner}.${object_name} ${compile_clause}

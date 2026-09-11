@@ -4,6 +4,12 @@
 -- statement tolerates a missing object, so it is safe to run against a schema that
 -- was never set up, or twice.
 
+--# drop_scratch_ddl_guard
+BEGIN EXECUTE IMMEDIATE 'DROP TABLE scratch_ddl_guard PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
+
+--# drop_scratch_guard
+BEGIN EXECUTE IMMEDIATE 'DROP PROCEDURE scratch_guard'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -4043 THEN RAISE; END IF; END;
+
 --# drop_burn
 BEGIN EXECUTE IMMEDIATE 'DROP PROCEDURE harness_burn'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -4043 THEN RAISE; END IF; END;
 

@@ -101,6 +101,19 @@ def apply_fixtures(connection: OracleConnection) -> list[str]:
     return run_script(connection, qualification_dir() / "01_fixtures.sql")
 
 
+#: The steps that put EMPLOYEE_REPORT back as seeded: a valid spec, an invalid body.
+SEEDED_PACKAGE_STEPS = ("package_spec", "package_body_invalid")
+
+
+def reapply_steps(connection: OracleConnection, names: tuple[str, ...]) -> None:
+    """Run the named steps of 01_fixtures.sql again, to undo a test's changes."""
+
+    steps = {step.name: step for step in parse_script(qualification_dir() / "01_fixtures.sql")}
+    for name in names:
+        step = steps[name]
+        connection.execute(step.sql, {}, classify(step.sql), _SETUP_LIMITS)
+
+
 def drop_fixtures(connection: OracleConnection) -> list[str]:
     return run_script(connection, qualification_dir() / "02_teardown.sql")
 

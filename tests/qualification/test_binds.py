@@ -174,27 +174,38 @@ def test_timestamps_keep_their_time_zone(
     limits: ExecutionLimits,
     evidence: Evidence,
 ) -> None:
-    """TIMESTAMP WITH TIME ZONE must not arrive as a naive local datetime."""
+    """TIMESTAMP WITH TIME ZONE must not arrive as a naive datetime without saying so.
 
-    row = _one(
-        connection,
+    The first run against 19c answered the question: python-oracledb returns the
+    wall-clock time and drops the offset, even when the column is fetched as a string.
+    The harness cannot rewrite the user's SQL to recover it, so a result carrying such
+    a column has to say the offset is missing and how to get it.
+    """
+
+    result = connection.execute(
         "SELECT ts_plain, ts_tz, ts_ltz FROM harness_types WHERE id = 1",
         {},
+        StatementKind.QUERY,
         limits,
     )
-    plain, with_tz, local_tz = row
+    assert result.result_set is not None and result.result_set.rows
+    plain, with_tz, local_tz = result.result_set.rows[0]
+    offset_warning = next((w for w in result.warnings if "TS_TZ" in w), None)
     evidence.note(
         "How do TIMESTAMP columns arrive?",
         f"TIMESTAMP: `{plain!r}`<br>WITH TIME ZONE: `{with_tz!r}`<br>"
-        f"WITH LOCAL TIME ZONE: `{local_tz!r}`",
+        f"WITH LOCAL TIME ZONE: `{local_tz!r}`<br>Warning: `{offset_warning}`",
     )
     assert isinstance(plain, dt.datetime)
     assert plain.microsecond == 789012, f"Sub-second precision was lost: {plain!r}"
     assert isinstance(with_tz, dt.datetime)
-    assert with_tz.tzinfo is not None, (
-        f"TIMESTAMP WITH TIME ZONE arrived without a time zone ({with_tz!r}). The "
-        "offset is gone and the value now means whatever the reader assumes."
-    )
+    if with_tz.tzinfo is None:
+        # The wall-clock time the fixture inserted, at its own -08:00 offset.
+        assert with_tz == dt.datetime(2026, 3, 1, 12, 34, 56, 789012)
+        assert offset_warning is not None, (
+            f"TIMESTAMP WITH TIME ZONE arrived without a time zone ({with_tz!r}) and the "
+            "result does not say so. The value now means whatever the reader assumes."
+        )
 
 
 def test_quoted_identifiers_address_the_object_they_name(

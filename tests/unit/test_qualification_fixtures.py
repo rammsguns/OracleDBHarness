@@ -102,3 +102,18 @@ def test_the_qualification_scripts_are_not_loaded_as_operations() -> None:
         assert "qualification" not in entry.source_path.parts, (
             f"{entry.operation_id} was loaded from the qualification fixtures."
         )
+
+
+def test_a_multi_line_observation_stays_in_one_report_table_row() -> None:
+    """Oracle's error stacks carry newlines, and a newline ends a Markdown table row."""
+
+    from types import SimpleNamespace
+
+    from tests.qualification.evidence import Evidence
+
+    config = SimpleNamespace(dsn="db:1521/S", username="u", schema="S", driver_mode="thin")
+    evidence = Evidence(config=config)  # type: ignore[arg-type]
+    evidence.note("Runtime error", "ORA-20001: probe\nORA-06512: at line 1")
+
+    row = next(line for line in evidence.as_markdown().splitlines() if "Runtime error" in line)
+    assert row == "| Runtime error | ORA-20001: probe<br>ORA-06512: at line 1 |"

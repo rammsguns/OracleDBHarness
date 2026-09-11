@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.conftest import execute, open_worksheet
 
+# These tests compile over the seeded package. Against Oracle that outlives the test.
+pytestmark = pytest.mark.usefixtures("restore_seeded_package")
+
+# Defines every subprogram the seeded specification declares, emit_lines included:
+# Oracle refuses a body that leaves one out (PLS-00323), which the stand-in does not
+# check.
 REPAIRED_BODY = """\
 CREATE OR REPLACE PACKAGE BODY employee_report AS
   FUNCTION headcount(p_department_id IN NUMBER) RETURN NUMBER IS
@@ -18,6 +25,12 @@ CREATE OR REPLACE PACKAGE BODY employee_report AS
   BEGIN
     DBMS_OUTPUT.PUT_LINE('headcount=' || headcount(p_department_id));
   END report_department;
+  PROCEDURE emit_lines(p_count IN NUMBER, p_width IN NUMBER DEFAULT 40) IS
+  BEGIN
+    FOR i IN 1 .. p_count LOOP
+      DBMS_OUTPUT.PUT_LINE(LPAD(TO_CHAR(i), p_width, '.'));
+    END LOOP;
+  END emit_lines;
 END employee_report;
 """
 
@@ -53,7 +66,7 @@ def test_seeded_invalid_package_shows_line_level_errors(
 
     source = detail["panels"]["source"]
     assert source["available"] is True
-    assert len(source["rows"]) == 12
+    assert len(source["rows"]) == 18
 
 
 def test_a_still_broken_body_compiles_with_reported_errors(

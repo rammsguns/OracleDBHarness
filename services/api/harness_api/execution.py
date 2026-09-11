@@ -721,12 +721,17 @@ class ExecutionService:
                     )
                 value = str(parameters[name])
                 if name == "object_kind":
-                    if value.upper() not in COMPILABLE_KINDS:
+                    kind = " ".join(value.upper().split())
+                    if kind not in COMPILABLE_KINDS:
                         raise ValidationError(
                             "object_kind must be one of: " + ", ".join(COMPILABLE_KINDS),
                             detail={"objectKind": value},
                         )
-                    substitutions[name] = value.upper()
+                    # A body is altered through its owner: ALTER PACKAGE x COMPILE BODY.
+                    # ALTER PACKAGE BODY x COMPILE is ORA-00922, found against 19c.
+                    alter_kind, _, body = kind.partition(" ")
+                    substitutions[name] = alter_kind
+                    substitutions["compile_clause"] = "COMPILE BODY" if body else "COMPILE"
                 else:
                     substitutions[name] = quote_identifier(value.upper())
             try:

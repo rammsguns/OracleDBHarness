@@ -12,6 +12,14 @@
 -- It is idempotent. Every DROP tolerates a missing object, and every CREATE is
 -- either OR REPLACE or preceded by its DROP.
 
+-- Objects the API suites create as part of what they test. A run that stopped half
+-- way leaves them behind, and the next CREATE would then fail for that reason alone.
+--# drop_scratch_ddl_guard
+BEGIN EXECUTE IMMEDIATE 'DROP TABLE scratch_ddl_guard PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
+
+--# drop_scratch_guard
+BEGIN EXECUTE IMMEDIATE 'DROP PROCEDURE scratch_guard'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -4043 THEN RAISE; END IF; END;
+
 --# drop_order_lines
 BEGIN EXECUTE IMMEDIATE 'DROP TABLE order_lines PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
 
@@ -128,9 +136,11 @@ CREATE TABLE harness_types (
 INSERT ALL
   INTO harness_types (id, n_integer, n_scaled, n_float, v_ascii, v_unicode, d_date,
                       ts_plain, ts_tz, ts_ltz, iv_day_second, r_raw, nullable_all)
-    VALUES (1, 2147483647, 1234567890.0123456789, 1.7976931348623157E308,
+    -- The d suffix makes the largest double a BINARY_DOUBLE literal. Without it
+    -- Oracle parses a NUMBER, whose range ends near 1E126: ORA-01426.
+    VALUES (1, 2147483647, 1234567890.0123456789, 1.7976931348623157E308d,
             'plain ascii', N'こんにちは — café — مرحبا',
-            DATE '2026-02-29' - 1,
+            DATE '2026-02-28',
             TIMESTAMP '2026-03-01 12:34:56.789012',
             TIMESTAMP '2026-03-01 12:34:56.789012 -08:00',
             TIMESTAMP '2026-03-01 12:34:56.789012',
@@ -157,14 +167,29 @@ CREATE TABLE harness_lobs (
 )
 
 --# lobs_rows
-INSERT INTO harness_lobs (id, label, c_small, c_large, n_large, b_large)
-SELECT 1,
-       'under and over the preview limit',
-       TO_CLOB('short clob'),
-       TO_CLOB(RPAD('x', 32767, 'x')) || TO_CLOB(RPAD('y', 32767, 'y')),
-       TO_NCLOB(RPAD(N'é', 4000, N'é')),
-       UTL_RAW.CAST_TO_RAW(RPAD('z', 20000, 'z'))
-  FROM dual
+-- Built in PL/SQL on purpose. In SQL, RPAD returns at most 4000 bytes and RAW at most
+-- 2000, so the same expressions there would either fail (ORA-06502 from UTL_RAW) or
+-- silently produce a CLOB under the preview limit it exists to exceed. PL/SQL strings
+-- and RAWs go to 32767 bytes, which keeps these lengths exact: 65534 characters,
+-- 4000 national characters, 20000 bytes. Every value is built in a variable: an
+-- expression inside the INSERT is SQL again, limits included.
+DECLARE
+  c_large CLOB;
+  n_large NCLOB;
+  b_large BLOB;
+BEGIN
+  DBMS_LOB.CREATETEMPORARY(c_large, TRUE);
+  DBMS_LOB.WRITEAPPEND(c_large, 32767, RPAD('x', 32767, 'x'));
+  DBMS_LOB.WRITEAPPEND(c_large, 32767, RPAD('y', 32767, 'y'));
+  n_large := TO_NCLOB(RPAD(N'é', 4000, N'é'));
+  DBMS_LOB.CREATETEMPORARY(b_large, TRUE);
+  DBMS_LOB.WRITEAPPEND(b_large, 20000, UTL_RAW.CAST_TO_RAW(RPAD('z', 20000, 'z')));
+  INSERT INTO harness_lobs (id, label, c_small, c_large, n_large, b_large)
+  VALUES (1, 'under and over the preview limit', TO_CLOB('short clob'), c_large, n_large,
+          b_large);
+  DBMS_LOB.FREETEMPORARY(c_large);
+  DBMS_LOB.FREETEMPORARY(b_large);
+END;
 
 --# lobs_empty_row
 INSERT INTO harness_lobs (id, label, c_small, c_large, n_large, b_large)

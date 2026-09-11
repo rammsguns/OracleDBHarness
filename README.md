@@ -11,10 +11,11 @@ console and IDE adapters use the same one.
 ## Status
 
 The foundation and the first vertical slice of [MVP_PLAN.md](MVP_PLAN.md) are
-implemented and tested end to end. **Nothing has run against a real Oracle database.**
-Development uses a local stand-in backend that runs real SQL, binds and transactions
+implemented and tested end to end. The full suite has run against one Oracle 19c
+instance (19.9.1, non-CDB, thin mode) and passes; that run found and fixed a set of
+defects the stand-in could not show. Development uses a local stand-in backend that runs real SQL, binds and transactions
 over SQLite; it is not Oracle, it says so everywhere it appears, and release
-qualification still requires Oracle 19c. See [docs/compatibility.md](docs/compatibility.md).
+qualification needs more than one 19c configuration. See [docs/compatibility.md](docs/compatibility.md).
 
 | Area | State |
 | --- | --- |
@@ -29,7 +30,7 @@ qualification still requires Oracle 19c. See [docs/compatibility.md](docs/compat
 | Execution records and append-only audit | Implemented, tested |
 | Copilot: context policy, streaming, proposals, budgets, one provider adapter | Implemented, tested against a fixture provider |
 | DataForge adapter: contract, bridge, routes, fixtures | Implemented, tested against a stubbed harness; **not integrated with DataForge** |
-| Oracle 19c qualification | **Written, never run.** Fixtures and a backend suite in [oracle/qualification](oracle/qualification/README.md); configuring a target also switches the integration and end-to-end suites onto it. No database has been connected to |
+| Oracle 19c qualification | **Run on one instance, passing.** 19c EE 19.9.1, non-CDB, python-oracledb 4.0.2 thin, 2026-09-11. Not yet: a PDB, thick mode, a second target, a restricted account. Findings and the run record are in [docs/compatibility.md](docs/compatibility.md) |
 | Copilot answer-quality evaluation | **Not started** |
 | Load testing | **Not started** |
 

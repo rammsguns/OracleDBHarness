@@ -51,9 +51,19 @@ export function ResultGrid({
 function renderCell(value: unknown): string {
   if (value === null || value === undefined) return "(null)";
   if (typeof value === "object") {
-    const lob = value as { kind?: string; preview?: string; byteLength?: number };
+    const lob = value as {
+      kind?: string;
+      preview?: string;
+      byteLength?: number;
+      charLength?: number;
+    };
     if (lob.kind === "lob" || lob.kind === "raw") {
-      return `${lob.preview ?? ""}... (${lob.byteLength ?? 0} bytes, preview only)`;
+      // A CLOB is measured in characters, a BLOB or RAW in bytes.
+      const size =
+        lob.charLength !== undefined
+          ? `${lob.charLength} characters`
+          : `${lob.byteLength ?? 0} bytes`;
+      return `${lob.preview ?? ""}... (${size}, preview only)`;
     }
     return JSON.stringify(value);
   }
