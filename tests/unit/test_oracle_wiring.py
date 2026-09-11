@@ -15,11 +15,11 @@ import importlib
 from pathlib import Path
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from harness_api.config import Settings
 from harness_api.db import build_engine, build_session_factory
-from harness_api.models import ConnectionProfile, SecretReference
+from harness_api.models import ConnectionProfile, RunbookDefinition, SecretReference
 from harness_api.seed import DEMO_TARGETS, TargetEndpoint, _resolve_endpoints, seed
 from harness_worker.errors import ConfigurationError
 from tests import oracle_config
@@ -324,14 +324,46 @@ def test_reseeding_an_existing_target_onto_a_new_reference_is_refused(
 
     settings = _seed_settings(tmp_path)
     seed(settings, probe=False)
+    factory = build_session_factory(build_engine(settings))
+    with factory() as db:
+        db.execute(delete(RunbookDefinition))
+        db.commit()
 
     renamed = TargetEndpoint(
         service_name="DEVPDB1",
         secret_name="renamed",  # noqa: S106 - a reference name
         secret_locator="renamed.password",  # noqa: S106 - a file name
     )
-    with pytest.raises(ConfigurationError, match="different credential reference"):
+    with pytest.raises(ConfigurationError, match="secret_name"):
         seed(settings, probe=False, endpoints={"development": renamed})
+
+    # Refused before any seed data was written, in the database or beside it.
+    with factory() as db:
+        names = {secret.name for secret in db.scalars(select(SecretReference))}
+        assert db.scalars(select(RunbookDefinition)).first() is None
+    assert "renamed" not in names
+    assert not (tmp_path / "secrets" / "renamed.password").exists()
+
+
+def test_reseeding_an_existing_target_onto_another_database_is_refused(
+    tmp_path: Path,
+) -> None:
+    """A stand-in seed followed by a qualification seed must not keep the stand-in."""
+
+    settings = _seed_settings(tmp_path)
+    seed(settings, probe=False)
+
+    oracle = TargetEndpoint(host="db1", port=1522, service_name="PDB_A")
+    with pytest.raises(ConfigurationError, match=r"host, port, service_name") as refused:
+        seed(settings, probe=False, endpoints={"development": oracle})
+    assert refused.value.detail["host"] == {"stored": "localhost", "requested": "db1"}
+
+    factory = build_session_factory(build_engine(settings))
+    with factory() as db:
+        profile = db.scalars(
+            select(ConnectionProfile).where(ConnectionProfile.name == "development")
+        ).one()
+    assert (profile.host, profile.service_name) == ("localhost", "DEVPDB1")
 
 
 def test_seeding_twice_with_the_same_endpoints_is_accepted(tmp_path: Path) -> None:
