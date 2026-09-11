@@ -142,7 +142,7 @@ def _refuse_drift(db: Session, resolved: dict[str, TargetEndpoint]) -> None:
     at the old database, or reading the old credential. Updating in place is not
     the answer either. Execution history, audit records and the probed identity
     and capabilities all hang off the profile, and would quietly be attributed to
-    a different database. This runs before anything is written.
+    a different database. ``seed`` calls this before it writes any seed data.
     """
 
     for name, endpoint in resolved.items():
@@ -206,6 +206,14 @@ def seed(
 
     resolved = _resolve_endpoints(endpoints)
 
+    engine = build_engine(settings)
+    initialize_schema(engine)
+    factory = build_session_factory(engine)
+    # First, so that a refused re-seed leaves no seed data behind: no runbook
+    # definitions, no rows, no placeholder password files.
+    with factory() as db:
+        _refuse_drift(db, resolved)
+
     secret_dir = Path(settings.secret_dir)
     secret_dir.mkdir(parents=True, exist_ok=True)
     for endpoint in resolved.values():
@@ -216,16 +224,12 @@ def seed(
             # a real database writes the file itself before calling.
             password_file.write_text("not-a-real-password", encoding="utf-8")
 
-    engine = build_engine(settings)
-    initialize_schema(engine)
-    factory = build_session_factory(engine)
     execution = ExecutionService(settings, factory)
     created: dict[str, list[str]] = {"users": [], "targets": [], "grants": []}
 
     try:
         with factory() as db:
             register_definitions(db, execution)
-            _refuse_drift(db, resolved)
 
             secrets: dict[str, SecretReference] = {}
             for endpoint in resolved.values():

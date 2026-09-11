@@ -15,11 +15,11 @@ import importlib
 from pathlib import Path
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from harness_api.config import Settings
 from harness_api.db import build_engine, build_session_factory
-from harness_api.models import ConnectionProfile, SecretReference
+from harness_api.models import ConnectionProfile, RunbookDefinition, SecretReference
 from harness_api.seed import DEMO_TARGETS, TargetEndpoint, _resolve_endpoints, seed
 from harness_worker.errors import ConfigurationError
 from tests import oracle_config
@@ -324,6 +324,10 @@ def test_reseeding_an_existing_target_onto_a_new_reference_is_refused(
 
     settings = _seed_settings(tmp_path)
     seed(settings, probe=False)
+    factory = build_session_factory(build_engine(settings))
+    with factory() as db:
+        db.execute(delete(RunbookDefinition))
+        db.commit()
 
     renamed = TargetEndpoint(
         service_name="DEVPDB1",
@@ -333,11 +337,12 @@ def test_reseeding_an_existing_target_onto_a_new_reference_is_refused(
     with pytest.raises(ConfigurationError, match="secret_name"):
         seed(settings, probe=False, endpoints={"development": renamed})
 
-    # Refused before anything was written.
-    factory = build_session_factory(build_engine(settings))
+    # Refused before any seed data was written, in the database or beside it.
     with factory() as db:
         names = {secret.name for secret in db.scalars(select(SecretReference))}
+        assert db.scalars(select(RunbookDefinition)).first() is None
     assert "renamed" not in names
+    assert not (tmp_path / "secrets" / "renamed.password").exists()
 
 
 def test_reseeding_an_existing_target_onto_another_database_is_refused(
