@@ -1,7 +1,9 @@
 """Seed a demonstration environment.
 
 This creates the accounts, credential references, targets and grants that the local
-walkthrough and the test suite use. It is safe to run repeatedly.
+walkthrough and the test suite use. It is safe to run repeatedly with the same
+endpoints; it refuses, rather than ignores, endpoints that differ from those already
+stored.
 
 It is a *development* convenience. It refuses to run when the identity mode is not
 the development one, because the accounts it creates would otherwise be real access.
@@ -15,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from harness_api.config import Settings, get_settings
 from harness_api.db import build_engine, build_session_factory, initialize_schema
@@ -131,6 +134,63 @@ def _resolve_endpoints(
     return resolved
 
 
+def _refuse_drift(db: Session, resolved: dict[str, TargetEndpoint]) -> None:
+    """Refuse a re-seed whose endpoints differ from what is already stored.
+
+    The seed never changes an existing target or credential reference, so a
+    difference would otherwise be silently ignored: the target would go on pointing
+    at the old database, or reading the old credential. Updating in place is not
+    the answer either. Execution history, audit records and the probed identity
+    and capabilities all hang off the profile, and would quietly be attributed to
+    a different database. This runs before anything is written.
+    """
+
+    for name, endpoint in resolved.items():
+        secret = db.scalars(
+            select(SecretReference).where(SecretReference.name == endpoint.secret_name)
+        ).first()
+        if secret is not None and (secret.provider, secret.locator) != (
+            "file",
+            endpoint.secret_locator,
+        ):
+            raise ConfigurationError(
+                f"The credential reference {endpoint.secret_name!r} already exists and "
+                "does not point at the requested file. Seed into a fresh metadata "
+                "database.",
+                detail={
+                    "stored": {"provider": secret.provider, "locator": secret.locator},
+                    "requested": {"provider": "file", "locator": endpoint.secret_locator},
+                },
+            )
+
+        profile = db.scalars(
+            select(ConnectionProfile).where(ConnectionProfile.name == name)
+        ).first()
+        if profile is None:
+            continue
+        stored = {
+            "host": profile.host,
+            "port": profile.port,
+            "service_name": profile.service_name,
+            "username": profile.username,
+            "default_schema": profile.default_schema,
+            "secret_name": profile.secret.name,
+        }
+        requested = {field: getattr(endpoint, field) for field in stored}
+        differences = {
+            field: {"stored": stored[field], "requested": requested[field]}
+            for field in stored
+            if stored[field] != requested[field]
+        }
+        if differences:
+            raise ConfigurationError(
+                f"The target {name!r} already exists and points somewhere else "
+                f"({', '.join(differences)}). The seed will not repoint an existing "
+                "target. Seed into a fresh metadata database.",
+                detail=differences,
+            )
+
+
 def seed(
     settings: Settings | None = None,
     *,
@@ -165,6 +225,7 @@ def seed(
     try:
         with factory() as db:
             register_definitions(db, execution)
+            _refuse_drift(db, resolved)
 
             secrets: dict[str, SecretReference] = {}
             for endpoint in resolved.values():
@@ -181,18 +242,6 @@ def seed(
                         description=endpoint.description,
                     )
                     db.add(secret)
-                elif (secret.provider, secret.locator) != ("file", endpoint.secret_locator):
-                    # Reusing the stored reference would quietly read somewhere else:
-                    # another file, or an environment variable.
-                    raise ConfigurationError(
-                        f"The credential reference {endpoint.secret_name!r} already "
-                        "exists and does not point at the requested file. Seed into a "
-                        "fresh metadata database.",
-                        detail={
-                            "stored": {"provider": secret.provider, "locator": secret.locator},
-                            "requested": {"provider": "file", "locator": endpoint.secret_locator},
-                        },
-                    )
                 secrets[endpoint.secret_name] = secret
             db.commit()
 
@@ -228,14 +277,6 @@ def seed(
                     )
                     db.add(profile)
                     created["targets"].append(str(spec["name"]))
-                elif profile.secret_reference_id != secrets[endpoint.secret_name].id:
-                    # An existing profile keeps its reference, so it would go on
-                    # reading the credential it was created with.
-                    raise ConfigurationError(
-                        f"The target {spec['name']!r} already exists and is bound to a "
-                        f"different credential reference than {endpoint.secret_name!r}. "
-                        "Seed into a fresh metadata database.",
-                    )
                 profiles[str(spec["name"])] = profile
             db.commit()
 

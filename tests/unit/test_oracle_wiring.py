@@ -330,8 +330,35 @@ def test_reseeding_an_existing_target_onto_a_new_reference_is_refused(
         secret_name="renamed",  # noqa: S106 - a reference name
         secret_locator="renamed.password",  # noqa: S106 - a file name
     )
-    with pytest.raises(ConfigurationError, match="different credential reference"):
+    with pytest.raises(ConfigurationError, match="secret_name"):
         seed(settings, probe=False, endpoints={"development": renamed})
+
+    # Refused before anything was written.
+    factory = build_session_factory(build_engine(settings))
+    with factory() as db:
+        names = {secret.name for secret in db.scalars(select(SecretReference))}
+    assert "renamed" not in names
+
+
+def test_reseeding_an_existing_target_onto_another_database_is_refused(
+    tmp_path: Path,
+) -> None:
+    """A stand-in seed followed by a qualification seed must not keep the stand-in."""
+
+    settings = _seed_settings(tmp_path)
+    seed(settings, probe=False)
+
+    oracle = TargetEndpoint(host="db1", port=1522, service_name="PDB_A")
+    with pytest.raises(ConfigurationError, match=r"host, port, service_name") as refused:
+        seed(settings, probe=False, endpoints={"development": oracle})
+    assert refused.value.detail["host"] == {"stored": "localhost", "requested": "db1"}
+
+    factory = build_session_factory(build_engine(settings))
+    with factory() as db:
+        profile = db.scalars(
+            select(ConnectionProfile).where(ConnectionProfile.name == "development")
+        ).one()
+    assert (profile.host, profile.service_name) == ("localhost", "DEVPDB1")
 
 
 def test_seeding_twice_with_the_same_endpoints_is_accepted(tmp_path: Path) -> None:
