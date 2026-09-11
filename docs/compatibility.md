@@ -53,7 +53,7 @@ run the existing suites. That was wrong, and worth recording as a trap: the fixt
 environment variable changes nothing and the suite would have gone on passing against
 the stand-in while appearing to qualify Oracle.
 
-The switch is `tests/qualification/config.py`, which reads its own `HARNESS_QUAL_*`
+The switch is `tests/oracle_config.py`, which reads its own `HARNESS_QUAL_*`
 namespace. `oracle/qualification/README.md` has the full procedure; in outline:
 
 1. Provision a 19c instance and an isolated schema on a **non-production** database,

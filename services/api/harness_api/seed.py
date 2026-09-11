@@ -115,6 +115,19 @@ def _resolve_endpoints(
         name = str(spec["name"])
         override = (overrides or {}).get(name)
         resolved[name] = override or TargetEndpoint(service_name=str(spec["service_name"]))
+
+    # Targets may share a credential reference, but only if they mean the same file.
+    # The same name over two files would leave one target authenticating with the
+    # other's password.
+    locators: dict[str, tuple[str, str]] = {}
+    for name, endpoint in resolved.items():
+        seen = locators.setdefault(endpoint.secret_name, (name, endpoint.secret_locator))
+        if seen[1] != endpoint.secret_locator:
+            raise ConfigurationError(
+                f"Targets {seen[0]!r} and {name!r} both use the credential reference "
+                f"{endpoint.secret_name!r} but point it at different files.",
+                detail={seen[0]: seen[1], name: endpoint.secret_locator},
+            )
     return resolved
 
 
@@ -168,6 +181,17 @@ def seed(
                         description=endpoint.description,
                     )
                     db.add(secret)
+                elif secret.locator != endpoint.secret_locator:
+                    # Reusing the stored reference would quietly keep the old file.
+                    raise ConfigurationError(
+                        f"The credential reference {endpoint.secret_name!r} already "
+                        "exists and points at a different file. Seed into a fresh "
+                        "metadata database, or give this endpoint its own secret_name.",
+                        detail={
+                            "stored": secret.locator,
+                            "requested": endpoint.secret_locator,
+                        },
+                    )
                 secrets[endpoint.secret_name] = secret
             db.commit()
 
