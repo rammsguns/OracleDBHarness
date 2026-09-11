@@ -19,7 +19,7 @@ qualification still requires Oracle 19c. See [docs/compatibility.md](docs/compat
 | Area | State |
 | --- | --- |
 | Connections, identity proof, capability discovery | Implemented, tested |
-| Access: OIDC or dev tokens, roles, per-target grants, credential references | Implemented, tested (OIDC against a stubbed provider only) |
+| Access: OIDC or dev tokens, roles, per-target grants, credential references | Implemented, tested; OIDC sign-in qualified against Keycloak only |
 | Schema explorer with paging and object detail | Implemented, tested |
 | SQL worksheet: binds, bounded results, commit/rollback/cancel, session leases | Implemented, tested |
 | PL/SQL workspace: source, compile, line-level errors, DBMS_OUTPUT | Implemented, tested |

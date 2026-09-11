@@ -1,6 +1,6 @@
 # OracleDBHarness MVP plan
 
-Status: implemented through milestone 5; nothing is qualified. The plan is kept as
+Status: implemented through milestone 5; only console sign-in is qualified. The plan is kept as
 it was written and annotated in place, so the difference between what was planned and
 what was built stays visible.
 
@@ -12,8 +12,8 @@ Two words are used throughout, and they mean different things:
 - **Qualified** - verified against the real dependency: Oracle 19c, an OIDC provider, a
   real OracleDataForge installation, a real model provider, or measured load.
 
-**Nothing here is qualified yet.** Every acceptance claim below currently rests on the
-stand-in. [docs/compatibility.md](docs/compatibility.md) records what has and has not
+**Almost nothing here is qualified yet.** Console sign-in has been qualified against
+Keycloak. Every other acceptance claim below still rests on the stand-in. [docs/compatibility.md](docs/compatibility.md) records what has and has not
 actually been run; it is the file to update when that changes, not this one.
 
 ## Product direction
@@ -52,7 +52,7 @@ Success means these workflows are reliable and auditable. Supporting every Oracl
 | Tuning workbench | Explain plan; cached cursor plan when accessible; SQL ID/child cursor selection; current SQL statistics; saved before/after observations | A seeded slow query can be examined and compared under equivalent test conditions; estimated and measured values are clearly distinguished | Implemented. There is no optimizer behind the stand-in, so no real plan has been produced or read |
 | DBA overview | Sessions and blockers, tablespace usage, invalid objects, scheduler job status/failures, connection health | Each panel shows collection time and permission/error state; unavailable data is never displayed as healthy | Implemented. Panels, permission states and collection times are covered; the underlying queries are unqualified |
 | Controlled runbooks | Collect health report, recompile one selected object, gather statistics for one selected table | Mutations show exact target and parameters, require an authorized execution action, and preserve outcome and verification evidence | Implemented. All three runbooks exist with verification evidence; none has run against Oracle |
-| Access and history | OIDC login, application roles, per-target access, credential isolation, execution/audit records | Direct API calls enforce the same permissions as the UI; users cannot access another user's session or restricted results | Implemented. Roles, per-target grants, revocation and audit are covered. The console signs in through the provider with authorization code and PKCE; the flow and RS256 token verification are tested against a stubbed provider, not yet a real one |
+| Access and history | OIDC login, application roles, per-target access, credential isolation, execution/audit records | Direct API calls enforce the same permissions as the UI; users cannot access another user's session or restricted results | Implemented. Roles, per-target grants, revocation and audit are covered. The console signs in through the provider with authorization code and PKCE. Sign-in is qualified against Keycloak 26.3, including key rotation; not yet against a pilot's own provider or in a real browser |
 | IDE copilot | OracleDataForge integration, explicit target selection, explain SQL/PLSQL, diagnose supplied errors, propose changes and test blocks, explain supplied plans | Existing DataForge connection works without credential duplication; selected source and authorized context produce a reviewable answer/diff; database execution remains a separate authorized action | Implemented against a stubbed harness and a fixture provider. Not integrated with a DataForge installation, and no model provider has been called |
 
 Production mutation support, session termination, user/role provisioning, and arbitrary privileged scripts are outside the initial release. Development SQL is still a powerful capability and must use appropriately constrained Oracle accounts.

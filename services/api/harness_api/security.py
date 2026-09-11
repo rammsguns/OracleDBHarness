@@ -109,32 +109,53 @@ class ProviderDocument:
     request would make the provider a per-request dependency.
     """
 
-    def __init__(self, url: str, what: str, ttl_seconds: int = 300) -> None:
+    def __init__(
+        self, url: str, what: str, ttl_seconds: int = 300, refresh_interval_seconds: int = 60
+    ) -> None:
         self._url = url
         self._what = what
         self._ttl = ttl_seconds
+        self._refresh_interval = refresh_interval_seconds
         self._document: dict[str, Any] | None = None
         self._fetched_at = 0.0
+        self._refreshed_at: float | None = None
 
     def get(self) -> dict[str, Any]:
         if self._document is None or (time.monotonic() - self._fetched_at) > self._ttl:
-            try:
-                response = httpx.get(self._url, timeout=5.0)
-                response.raise_for_status()
-                document = response.json()
-            except (httpx.HTTPError, ValueError) as exc:
-                raise IdentityProviderError(
-                    f"Could not fetch the identity provider's {self._what}.",
-                    detail={"url": self._url, "reason": str(exc)},
-                ) from exc
-            if not isinstance(document, dict):
-                raise IdentityProviderError(
-                    f"The identity provider's {self._what} is not a JSON object.",
-                    detail={"url": self._url},
-                )
-            self._document = document
-            self._fetched_at = time.monotonic()
+            self._fetch()
+        assert self._document is not None
         return self._document
+
+    def refresh(self) -> dict[str, Any]:
+        """Fetch again before the copy expires, at most once per refresh interval.
+
+        For when the cached copy is known to be behind - a token signed with a key it
+        does not list. The limit is there because anyone can send such a token.
+        """
+
+        now = time.monotonic()
+        if self._refreshed_at is None or now - self._refreshed_at >= self._refresh_interval:
+            self._refreshed_at = now
+            self._fetch()
+        return self.get()
+
+    def _fetch(self) -> None:
+        try:
+            response = httpx.get(self._url, timeout=5.0)
+            response.raise_for_status()
+            document = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise IdentityProviderError(
+                f"Could not fetch the identity provider's {self._what}.",
+                detail={"url": self._url, "reason": str(exc)},
+            ) from exc
+        if not isinstance(document, dict):
+            raise IdentityProviderError(
+                f"The identity provider's {self._what} is not a JSON object.",
+                detail={"url": self._url},
+            )
+        self._document = document
+        self._fetched_at = time.monotonic()
 
 
 class Authenticator:
@@ -260,9 +281,12 @@ class Authenticator:
             raise AuthenticationError("The token carries no subject claim.")
         user = session.scalars(select(User).where(User.subject == subject)).first()
         if user is None:
+            # Providers' subjects are often opaque (a UUID in Keycloak, a per-application
+            # id in Entra ID), and it is the subject an administrator has to register.
+            # Say it, so the person can pass it on.
             raise AuthenticationError(
                 "This account is authenticated but not registered in the harness. An "
-                "administrator has to add it and grant target access.",
+                f"administrator has to add subject {subject} and grant target access.",
                 detail={"subject": subject},
             )
         if user.disabled:
@@ -329,9 +353,21 @@ class Authenticator:
                     options=REQUIRED_CLAIMS,
                 )
             assert self._jwks is not None
+            keys = self._jwks.get()
+            # A provider that rotates its signing key starts using the new one at once.
+            # Waiting out the cache would refuse every sign-in until it expired.
+            kid = jwt.get_unverified_header(token).get("kid")
+            listed = keys.get("keys")
+            known = (
+                {key.get("kid") for key in listed if isinstance(key, dict)}
+                if isinstance(listed, list)
+                else set()
+            )
+            if kid and kid not in known:
+                keys = self._jwks.refresh()
             return jwt.decode(
                 token,
-                self._jwks.get(),
+                keys,
                 algorithms=["RS256", "ES256"],
                 audience=self._settings.oidc_audience,
                 issuer=self._settings.oidc_issuer,

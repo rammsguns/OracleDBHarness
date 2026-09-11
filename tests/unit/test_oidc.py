@@ -6,8 +6,9 @@ public half as a JWKS, and check both halves of the console's sign-in: the
 configuration the console reads to start an authorization code flow, and the
 verification of the access token it comes back with.
 
-They stub the provider's HTTP endpoints. Qualifying against a real provider is still
-a separate step; see docs/setup.md.
+They stub the provider's HTTP endpoints, so they run everywhere and can shape edge
+cases a real provider will not produce on demand. tests/identity runs the same paths
+against a real Keycloak.
 """
 
 from __future__ import annotations
@@ -61,15 +62,8 @@ def signing_key() -> rsa.RSAPrivateKey:
 def provider(signing_key: rsa.RSAPrivateKey, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """Serve a discovery document and a JWKS; record which URLs were fetched."""
 
-    public_pem = (
-        signing_key.public_key()
-        .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
-        .decode()
-    )
-    public_jwk = jwk.construct(public_pem, "RS256").to_dict()
-    public_jwk.update({"kid": KID, "use": "sig", "alg": "RS256"})
     documents: dict[str, Any] = {
-        JWKS_URL: {"keys": [public_jwk]},
+        JWKS_URL: {"keys": [_public_jwk(signing_key, KID)]},
         DISCOVERY_URL: {
             "issuer": ISSUER,
             "authorization_endpoint": f"{ISSUER}/protocol/openid-connect/auth",
@@ -106,7 +100,20 @@ def _settings(tmp_path: Path, **overrides: Any) -> Settings:
     return Settings(**values)
 
 
-def _token(key: rsa.RSAPrivateKey, *, without: tuple[str, ...] = (), **claims: Any) -> str:
+def _public_jwk(key: rsa.RSAPrivateKey, kid: str) -> dict[str, Any]:
+    public_pem = (
+        key.public_key()
+        .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        .decode()
+    )
+    public = jwk.construct(public_pem, "RS256").to_dict()
+    public.update({"kid": kid, "use": "sig", "alg": "RS256"})
+    return public
+
+
+def _token(
+    key: rsa.RSAPrivateKey, *, kid: str = KID, without: tuple[str, ...] = (), **claims: Any
+) -> str:
     now = int(time.time())
     body = {
         "iss": ISSUER,
@@ -119,7 +126,7 @@ def _token(key: rsa.RSAPrivateKey, *, without: tuple[str, ...] = (), **claims: A
     body.update(claims)
     for name in without:
         del body[name]
-    return jwt.encode(body, _private_pem(key), algorithm="RS256", headers={"kid": KID})
+    return jwt.encode(body, _private_pem(key), algorithm="RS256", headers={"kid": kid})
 
 
 @pytest.fixture
@@ -322,6 +329,38 @@ def test_a_valid_token_for_an_unregistered_subject_is_refused(
     token = _token(signing_key, sub="mallory@example.internal")
     with pytest.raises(AuthenticationError, match="not registered"):
         Authenticator(_settings(tmp_path)).authenticate(db, f"Bearer {token}")
+
+
+def test_a_rotated_signing_key_is_picked_up_before_the_cache_expires(
+    tmp_path: Path, provider: dict[str, Any], signing_key: rsa.RSAPrivateKey, db: Session
+) -> None:
+    authenticator = Authenticator(_settings(tmp_path))
+    authenticator.authenticate(db, f"Bearer {_token(signing_key)}")
+
+    # The provider publishes a new key and signs with it from now on.
+    rotated = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    provider["documents"][JWKS_URL]["keys"].append(_public_jwk(rotated, "rotated"))
+    principal = authenticator.authenticate(db, f"Bearer {_token(rotated, kid='rotated')}")
+
+    assert principal.subject == "alice@example.internal"
+    assert provider["fetched"] == [JWKS_URL, JWKS_URL]
+
+
+def test_unknown_key_ids_cannot_make_the_api_hammer_the_provider(
+    tmp_path: Path, provider: dict[str, Any], signing_key: rsa.RSAPrivateKey, db: Session
+) -> None:
+    authenticator = Authenticator(_settings(tmp_path))
+    authenticator.authenticate(db, f"Bearer {_token(signing_key)}")
+    impostor = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+    for attempt in range(5):
+        with pytest.raises(AuthenticationError):
+            authenticator.authenticate(db, f"Bearer {_token(impostor, kid=f'made-up-{attempt}')}")
+
+    # The first unknown key id is worth one look; the rest wait for the interval.
+    assert provider["fetched"] == [JWKS_URL, JWKS_URL]
+    # Tokens signed with a key it does know are unaffected.
+    authenticator.authenticate(db, f"Bearer {_token(signing_key)}")
 
 
 def test_an_unreachable_key_set_is_not_reported_as_a_bad_token(

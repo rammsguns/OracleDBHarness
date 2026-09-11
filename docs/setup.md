@@ -113,8 +113,14 @@ What to expect:
   screen and says so.
 - Signing out ends the console session, not the provider's.
 
-Qualify this against your provider before the pilot: the tests exercise the flow and
-token verification against a stubbed provider, not a real one.
+Sign-in is qualified against Keycloak (docs/compatibility.md, "Identity providers"),
+not against other providers or your registration. Before the pilot, sign in through
+the console with your provider, using the checklist in tests/identity/README.md.
+
+Providers report the subject (`sub`) as whatever they choose. Keycloak uses a UUID;
+Entra ID uses an id that differs for each application. Register that value, not a
+user name or email. When an unregistered account signs in, the console names its
+subject.
 
 Before the pilot, confirm:
 
