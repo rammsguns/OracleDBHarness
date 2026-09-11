@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import {
   HarnessError,
   api,
@@ -46,8 +46,10 @@ export function App() {
   const [targets, setTargets] = useState<Target[]>([]);
   const [selected, setSelected] = useState<Target | null>(null);
   const [view, setView] = useState<ViewId>("targets");
-  const [copilotOpen, setCopilotOpen] = useState(false);
-  const [copilotSeed, setCopilotSeed] = useState("");
+  // The copilot is opened for one target, usually seeded with that target's source.
+  const [copilot, setCopilot] = useState<{ targetId: string | null; seed: string } | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
   const [signInNotice, setSignInNotice] = useState<string | null>(null);
@@ -99,14 +101,21 @@ export function App() {
     if (me) void refreshTargets();
   }, [me, refreshTargets]);
 
+  const selectedId = selected?.id ?? null;
+  useEffect(() => {
+    // A drawer opened for another target stays closed if the user switches back.
+    setCopilot((current) => (current && current.targetId !== selectedId ? null : current));
+  }, [selectedId]);
+
   if (!me) {
     return <SignIn info={info} notice={signInNotice} onSignedIn={signedIn} />;
   }
 
-  const askCopilot = (seed: string) => {
-    setCopilotSeed(seed);
-    setCopilotOpen(true);
-  };
+  const askCopilot = (seed: string) => setCopilot({ targetId: selectedId, seed });
+  // Checked at render, not left to the effect above: the effect runs after a render,
+  // and that render would show the drawer against the new target with the old
+  // target's source still in it.
+  const copilotHere = copilot?.targetId === selectedId ? copilot : null;
 
   return (
     <div className="app">
@@ -194,25 +203,31 @@ export function App() {
         {view === "targets" && (
           <TargetsView targets={targets} onRefresh={refreshTargets} onSelect={setSelected} />
         )}
-        {view === "schema" && selected && <SchemaView target={selected} onAsk={askCopilot} />}
-        {view === "worksheet" && selected && (
-          <WorksheetView target={selected} onAsk={askCopilot} />
+        {selected && (
+          // Keyed by target, so a switch mounts fresh views: nothing typed or loaded
+          // for one database is left in place to be sent to another, and a response
+          // still in flight lands in the discarded instance rather than this one.
+          <Fragment key={selected.id}>
+            {view === "schema" && <SchemaView target={selected} onAsk={askCopilot} />}
+            {view === "worksheet" && <WorksheetView target={selected} onAsk={askCopilot} />}
+            {view === "plsql" && <PlsqlView target={selected} onAsk={askCopilot} />}
+            {view === "tuning" && <TuningView target={selected} onAsk={askCopilot} />}
+            {view === "dba" && <DbaView target={selected} />}
+            {view === "runbooks" && <RunbooksView target={selected} />}
+          </Fragment>
         )}
-        {view === "plsql" && selected && <PlsqlView target={selected} onAsk={askCopilot} />}
-        {view === "tuning" && selected && <TuningView target={selected} onAsk={askCopilot} />}
-        {view === "dba" && selected && <DbaView target={selected} />}
-        {view === "runbooks" && selected && <RunbooksView target={selected} />}
         {view === "history" && <HistoryView target={selected} />}
         {!selected && view !== "targets" && view !== "history" && (
           <p className="muted">You have no target grants. An administrator has to grant access.</p>
         )}
       </main>
 
-      {copilotOpen && (
+      {copilotHere && (
         <CopilotDrawer
+          key={selectedId ?? "none"}
           target={selected}
-          seed={copilotSeed}
-          onClose={() => setCopilotOpen(false)}
+          seed={copilotHere.seed}
+          onClose={() => setCopilot(null)}
         />
       )}
     </div>

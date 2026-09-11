@@ -106,7 +106,7 @@ def _settings(tmp_path: Path, **overrides: Any) -> Settings:
     return Settings(**values)
 
 
-def _token(key: rsa.RSAPrivateKey, **claims: Any) -> str:
+def _token(key: rsa.RSAPrivateKey, *, without: tuple[str, ...] = (), **claims: Any) -> str:
     now = int(time.time())
     body = {
         "iss": ISSUER,
@@ -117,6 +117,8 @@ def _token(key: rsa.RSAPrivateKey, **claims: Any) -> str:
         "exp": now + 300,
     }
     body.update(claims)
+    for name in without:
+        del body[name]
     return jwt.encode(body, _private_pem(key), algorithm="RS256", headers={"kid": KID})
 
 
@@ -250,6 +252,48 @@ def test_a_token_meant_for_something_else_is_refused(
         Authenticator(_settings(tmp_path)).authenticate(
             db, f"Bearer {_token(signing_key, **claims)}"
         )
+
+
+@pytest.mark.parametrize(
+    "missing",
+    [
+        pytest.param(("aud",), id="audience"),
+        pytest.param(("exp",), id="expiry"),
+        pytest.param(("iss",), id="issuer"),
+        pytest.param(("sub",), id="subject"),
+        # The reported reproduction: correctly signed, carrying only iss and sub.
+        pytest.param(("aud", "exp", "iat", "name"), id="issuer-and-subject-only"),
+    ],
+)
+def test_a_token_missing_a_required_claim_is_refused(
+    tmp_path: Path,
+    provider: dict[str, Any],
+    signing_key: rsa.RSAPrivateKey,
+    db: Session,
+    missing: tuple[str, ...],
+) -> None:
+    token = _token(signing_key, without=missing)
+    with pytest.raises(AuthenticationError, match="not valid") as raised:
+        Authenticator(_settings(tmp_path)).authenticate(db, f"Bearer {token}")
+    assert missing[0] in raised.value.detail["reason"]
+
+
+@pytest.mark.parametrize("missing", ["aud", "exp"])
+def test_a_development_token_missing_a_required_claim_is_refused(
+    tmp_path: Path, db: Session, missing: str
+) -> None:
+    settings = _settings(tmp_path, auth_mode="dev", dev_token_secret="test-secret")
+    now = int(time.time())
+    body = {
+        "iss": "oracledbharness-dev",
+        "aud": "oracledbharness",
+        "sub": "alice@example.internal",
+        "exp": now + 300,
+    }
+    del body[missing]
+    token = jwt.encode(body, "test-secret", algorithm="HS256")
+    with pytest.raises(AuthenticationError, match="not valid"):
+        Authenticator(settings).authenticate(db, f"Bearer {token}")
 
 
 def test_a_token_signed_by_another_key_is_refused(

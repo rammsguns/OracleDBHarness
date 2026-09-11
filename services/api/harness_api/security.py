@@ -38,6 +38,16 @@ from harness_worker.errors import (
 
 TOKEN_PREFIX_LENGTH = 8
 
+# python-jose checks aud and exp only when the token carries them: a signed token
+# with no audience passes for any API, and one with no expiry never lapses. Every
+# claim the harness relies on is required, not merely checked if present.
+REQUIRED_CLAIMS = {
+    "require_aud": True,
+    "require_exp": True,
+    "require_iss": True,
+    "require_sub": True,
+}
+
 
 @dataclass
 class Principal:
@@ -304,6 +314,7 @@ class Authenticator:
                     self._settings.dev_token_secret,
                     algorithms=["HS256"],
                     audience=self._settings.oidc_audience,
+                    options=REQUIRED_CLAIMS,
                 )
             assert self._jwks is not None
             return jwt.decode(
@@ -312,6 +323,7 @@ class Authenticator:
                 algorithms=["RS256", "ES256"],
                 audience=self._settings.oidc_audience,
                 issuer=self._settings.oidc_issuer,
+                options=REQUIRED_CLAIMS,
             )
         except JWTError as exc:
             raise AuthenticationError(
