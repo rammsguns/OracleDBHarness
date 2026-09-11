@@ -115,6 +115,19 @@ def _resolve_endpoints(
         name = str(spec["name"])
         override = (overrides or {}).get(name)
         resolved[name] = override or TargetEndpoint(service_name=str(spec["service_name"]))
+
+    # Targets may share a credential reference, but only if they mean the same file.
+    # The same name over two files would leave one target authenticating with the
+    # other's password.
+    locators: dict[str, tuple[str, str]] = {}
+    for name, endpoint in resolved.items():
+        seen = locators.setdefault(endpoint.secret_name, (name, endpoint.secret_locator))
+        if seen[1] != endpoint.secret_locator:
+            raise ConfigurationError(
+                f"Targets {seen[0]!r} and {name!r} both use the credential reference "
+                f"{endpoint.secret_name!r} but point it at different files.",
+                detail={seen[0]: seen[1], name: endpoint.secret_locator},
+            )
     return resolved
 
 
@@ -168,6 +181,18 @@ def seed(
                         description=endpoint.description,
                     )
                     db.add(secret)
+                elif (secret.provider, secret.locator) != ("file", endpoint.secret_locator):
+                    # Reusing the stored reference would quietly read somewhere else:
+                    # another file, or an environment variable.
+                    raise ConfigurationError(
+                        f"The credential reference {endpoint.secret_name!r} already "
+                        "exists and does not point at the requested file. Seed into a "
+                        "fresh metadata database.",
+                        detail={
+                            "stored": {"provider": secret.provider, "locator": secret.locator},
+                            "requested": {"provider": "file", "locator": endpoint.secret_locator},
+                        },
+                    )
                 secrets[endpoint.secret_name] = secret
             db.commit()
 
@@ -203,6 +228,14 @@ def seed(
                     )
                     db.add(profile)
                     created["targets"].append(str(spec["name"]))
+                elif profile.secret_reference_id != secrets[endpoint.secret_name].id:
+                    # An existing profile keeps its reference, so it would go on
+                    # reading the credential it was created with.
+                    raise ConfigurationError(
+                        f"The target {spec['name']!r} already exists and is bound to a "
+                        f"different credential reference than {endpoint.secret_name!r}. "
+                        "Seed into a fresh metadata database.",
+                    )
                 profiles[str(spec["name"])] = profile
             db.commit()
 

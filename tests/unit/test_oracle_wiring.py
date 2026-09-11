@@ -244,6 +244,102 @@ def test_an_unoverridden_target_keeps_its_default() -> None:
     assert resolved["production"].service_name == "PRODPDB1"
 
 
+def test_one_credential_reference_over_two_files_is_refused() -> None:
+    """Keeping the first file would give the second target the first's password."""
+
+    with pytest.raises(ConfigurationError, match="different files"):
+        _resolve_endpoints(
+            {
+                "development": TargetEndpoint(service_name="PDB_A"),
+                "test": TargetEndpoint(
+                    service_name="PDB_B",
+                    secret_locator="second.password",  # noqa: S106 - a file name
+                ),
+            }
+        )
+
+
+def test_targets_may_share_a_credential_reference_that_means_one_file() -> None:
+    shared = TargetEndpoint(host="db1", service_name="PDB_A")
+    resolved = _resolve_endpoints({"development": shared, "production": shared})
+    assert resolved["production"].secret_locator == resolved["development"].secret_locator
+
+
+def _seed_settings(tmp_path: Path) -> Settings:
+    # The autouse workspace fixture has already made these.
+    (tmp_path / "secrets").mkdir(exist_ok=True)
+    (tmp_path / "fake").mkdir(exist_ok=True)
+    return Settings(
+        env="development",
+        metadata_url=f"sqlite+pysqlite:///{(tmp_path / 'metadata.sqlite3').as_posix()}",
+        oracle_backend="fake",
+        oracle_fake_data_dir=str(tmp_path / "fake"),
+        secret_dir=str(tmp_path / "secrets"),
+        auth_mode="dev",
+        dev_token_secret="test-secret",
+    )
+
+
+def test_reseeding_a_stored_credential_reference_onto_another_file_is_refused(
+    tmp_path: Path,
+) -> None:
+    """The stored reference would win, and the new file would never be read."""
+
+    settings = _seed_settings(tmp_path)
+    seed(settings, probe=False)
+
+    moved = TargetEndpoint(
+        service_name="PDB_A",
+        secret_locator="moved.password",  # noqa: S106 - a file name
+    )
+    with pytest.raises(ConfigurationError, match="does not point at the requested file"):
+        seed(
+            settings,
+            probe=False,
+            endpoints={"development": moved, "test": moved, "production": moved},
+        )
+
+
+def test_reseeding_over_a_stored_reference_on_another_provider_is_refused(
+    tmp_path: Path,
+) -> None:
+    """Same name and locator, but read from the environment rather than the file."""
+
+    settings = _seed_settings(tmp_path)
+    seed(settings, probe=False)
+    factory = build_session_factory(build_engine(settings))
+    with factory() as db:
+        for secret in db.scalars(select(SecretReference)):
+            secret.provider = "env"
+        db.commit()
+
+    with pytest.raises(ConfigurationError, match="does not point at the requested file"):
+        seed(settings, probe=False)
+
+
+def test_reseeding_an_existing_target_onto_a_new_reference_is_refused(
+    tmp_path: Path,
+) -> None:
+    """A new secret_name would be created but never bound to the existing profile."""
+
+    settings = _seed_settings(tmp_path)
+    seed(settings, probe=False)
+
+    renamed = TargetEndpoint(
+        service_name="DEVPDB1",
+        secret_name="renamed",  # noqa: S106 - a reference name
+        secret_locator="renamed.password",  # noqa: S106 - a file name
+    )
+    with pytest.raises(ConfigurationError, match="different credential reference"):
+        seed(settings, probe=False, endpoints={"development": renamed})
+
+
+def test_seeding_twice_with_the_same_endpoints_is_accepted(tmp_path: Path) -> None:
+    settings = _seed_settings(tmp_path)
+    seed(settings, probe=False)
+    assert seed(settings, probe=False)["targets"] == []
+
+
 def test_seeding_against_overridden_endpoints_keeps_their_credentials_apart(
     tmp_path: Path,
 ) -> None:
@@ -253,18 +349,7 @@ def test_seeding_against_overridden_endpoints_keeps_their_credentials_apart(
     password, which is exactly the credential mixing the isolation criteria forbid.
     """
 
-    # The autouse workspace fixture has already made these.
-    (tmp_path / "secrets").mkdir(exist_ok=True)
-    (tmp_path / "fake").mkdir(exist_ok=True)
-    settings = Settings(
-        env="development",
-        metadata_url=f"sqlite+pysqlite:///{(tmp_path / 'metadata.sqlite3').as_posix()}",
-        oracle_backend="fake",
-        oracle_fake_data_dir=str(tmp_path / "fake"),
-        secret_dir=str(tmp_path / "secrets"),
-        auth_mode="dev",
-        dev_token_secret="test-secret",
-    )
+    settings = _seed_settings(tmp_path)
     (tmp_path / "secrets" / "second.password").write_text("second-password", encoding="utf-8")
 
     seed(
