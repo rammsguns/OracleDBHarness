@@ -7,6 +7,7 @@
  */
 
 import { HarnessClient, HarnessError } from "@contracts";
+import type { OidcSignInConfig } from "./oidc";
 import type {
   ApplyCheckResult,
   ContextAttachment,
@@ -62,22 +63,40 @@ export interface Me {
   }>;
 }
 
-export async function signInWithDevToken(
-  subject: string,
-  roles: string[],
-): Promise<{ me: Me; warning: string }> {
-  const issued = await client.post<{ accessToken: string; warning: string }>(
-    "/api/v1/auth/dev-token",
-    { subject, roles },
-  );
-  setToken(issued.accessToken);
+/**
+ * Adopt an access token, keeping it only if the harness accepts it.
+ *
+ * An identity provider can authenticate someone the harness has not registered; the
+ * token is dropped again rather than left in place for every later call to fail on.
+ */
+export async function signInWithAccessToken(token: string): Promise<Me> {
+  setToken(token);
   try {
-    const me = await client.get<Me>("/api/v1/auth/me");
-    return { me, warning: issued.warning };
+    return await client.get<Me>("/api/v1/auth/me");
   } catch (error) {
     setToken(null);
     throw error;
   }
+}
+
+export async function signInWithDevToken(
+  subject: string,
+  roles: string[],
+): Promise<{ me: Me; warning: string; expiresIn: number }> {
+  const issued = await client.post<{
+    accessToken: string;
+    expiresInSeconds: number;
+    warning: string;
+  }>("/api/v1/auth/dev-token", { subject, roles });
+  return {
+    me: await signInWithAccessToken(issued.accessToken),
+    warning: issued.warning,
+    expiresIn: issued.expiresInSeconds,
+  };
+}
+
+export function oidcSignInConfig(): Promise<OidcSignInConfig> {
+  return client.get<OidcSignInConfig>("/api/v1/auth/oidc");
 }
 
 export interface ObjectPage {

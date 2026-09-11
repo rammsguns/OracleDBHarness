@@ -52,7 +52,7 @@ Success means these workflows are reliable and auditable. Supporting every Oracl
 | Tuning workbench | Explain plan; cached cursor plan when accessible; SQL ID/child cursor selection; current SQL statistics; saved before/after observations | A seeded slow query can be examined and compared under equivalent test conditions; estimated and measured values are clearly distinguished | Implemented. There is no optimizer behind the stand-in, so no real plan has been produced or read |
 | DBA overview | Sessions and blockers, tablespace usage, invalid objects, scheduler job status/failures, connection health | Each panel shows collection time and permission/error state; unavailable data is never displayed as healthy | Implemented. Panels, permission states and collection times are covered; the underlying queries are unqualified |
 | Controlled runbooks | Collect health report, recompile one selected object, gather statistics for one selected table | Mutations show exact target and parameters, require an authorized execution action, and preserve outcome and verification evidence | Implemented. All three runbooks exist with verification evidence; none has run against Oracle |
-| Access and history | OIDC login, application roles, per-target access, credential isolation, execution/audit records | Direct API calls enforce the same permissions as the UI; users cannot access another user's session or restricted results | Implemented. Roles, per-target grants, revocation and audit are covered. The OIDC path is written against JWKS but only the development signer has been exercised |
+| Access and history | OIDC login, application roles, per-target access, credential isolation, execution/audit records | Direct API calls enforce the same permissions as the UI; users cannot access another user's session or restricted results | Implemented. Roles, per-target grants, revocation and audit are covered. The console signs in through the provider with authorization code and PKCE; the flow and RS256 token verification are tested against a stubbed provider, not yet a real one |
 | IDE copilot | OracleDataForge integration, explicit target selection, explain SQL/PLSQL, diagnose supplied errors, propose changes and test blocks, explain supplied plans | Existing DataForge connection works without credential duplication; selected source and authorized context produce a reviewable answer/diff; database execution remains a separate authorized action | Implemented against a stubbed harness and a fixture provider. Not integrated with a DataForge installation, and no model provider has been called |
 
 Production mutation support, session termination, user/role provisioning, and arbitrary privileged scripts are outside the initial release. Development SQL is still a powerful capability and must use appropriately constrained Oracle accounts.
@@ -175,9 +175,11 @@ fixtures and their teardown.
 
 Core records: ConnectionProfile, SecretReference, TargetCapability, UserTargetGrant, WorksheetSession, SavedScript, Execution, AuditEvent, RunbookDefinition, DiagnosticObservation, CopilotRequest, and ProposedEdit. AI proposals reference the target, document version and context provenance. No database passwords belong in these records.
 
-All of these exist. The metadata schema is created by `initialize_schema`, which has no
-migration history: a real migration tool is a prerequisite for the pilot upgrading
-anything in place, and is not yet written.
+All of these exist. The metadata schema is created and upgraded by `initialize_schema`,
+which applies registered migration steps in one transaction and refuses to start
+against a store it cannot bring to the expected version (see docs/operations.md,
+"Upgrading"). The PostgreSQL upgrade path has a test but has not been run against
+PostgreSQL yet.
 
 ## Delivery sequence
 

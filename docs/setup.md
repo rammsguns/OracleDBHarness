@@ -78,10 +78,49 @@ The console is on `127.0.0.1:8080` and proxies `/api` to the API container, so t
 share an origin and no CORS configuration is needed. Both ports are bound to loopback;
 put your own TLS terminator in front.
 
+### Signing in through your identity provider
+
+The console signs people in with the OIDC authorization code flow and PKCE, as a
+public client. Register it with your provider as:
+
+- **Client type:** public (a single-page application). It has no client secret; the
+  console could not keep one.
+- **Redirect URI:** `https://<console origin>/auth/callback` - for example
+  `http://127.0.0.1:8080/auth/callback` before a TLS terminator is in front.
+- **Grant:** authorization code, with PKCE required (`S256`).
+- **Web origin / CORS:** the console origin. The browser redeems the code at the
+  token endpoint directly, so the provider must allow that origin there.
+- **Access token audience:** `oracledbharness` (`HARNESS_OIDC_AUDIENCE`). The API
+  verifies the access token's `iss`, `aud`, signature and expiry against
+  `HARNESS_OIDC_ISSUER` and `HARNESS_OIDC_JWKS_URL`. Keycloak needs an audience
+  mapper; Entra ID needs the API's scope in `HARNESS_OIDC_SCOPES`; Auth0 needs
+  `HARNESS_OIDC_REQUEST_AUDIENCE=true`.
+
+Set `HARNESS_OIDC_CLIENT_ID`. The authorization and token endpoints are read from the
+issuer's discovery document, whose `issuer` must equal `HARNESS_OIDC_ISSUER` exactly;
+set `HARNESS_OIDC_AUTHORIZATION_ENDPOINT` and `HARNESS_OIDC_TOKEN_ENDPOINT` to skip
+discovery.
+
+Signing in proves who someone is; it does not give them anything. The account has to
+exist in the harness (`POST /api/v1/admin/users`) with its roles and target grants, and
+roles in the token are ignored.
+
+What to expect:
+
+- The access token lives in the tab's memory only. A reload means signing in again,
+  which the provider's own session usually turns into a single redirect.
+- There is no refresh. When the token expires the console returns to the sign-in
+  screen and says so.
+- Signing out ends the console session, not the provider's.
+
+Qualify this against your provider before the pilot: the tests exercise the flow and
+token verification against a stubbed provider, not a real one.
+
 Before the pilot, confirm:
 
-- `HARNESS_AUTH_MODE=oidc` with a real issuer. The development mode refuses to start
-  outside `HARNESS_ENV=development` unless you explicitly override it.
+- `HARNESS_AUTH_MODE=oidc` with a real issuer, and `HARNESS_OIDC_CLIENT_ID` set. The
+  development mode refuses to start outside `HARNESS_ENV=development` unless you
+  explicitly override it.
 - `HARNESS_ALLOWED_ENDPOINTS` is set. An empty allowlist lets an operator register any
   reachable database.
 - `HARNESS_ORACLE_BACKEND=oracledb`.

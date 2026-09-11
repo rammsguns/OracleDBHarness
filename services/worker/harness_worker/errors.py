@@ -126,6 +126,13 @@ class OracleError(HarnessError):
         return payload
 
 
+class IdentityProviderError(HarnessError):
+    """The OIDC provider could not be reached or answered with something unusable."""
+
+    code = "identity_provider_unavailable"
+    http_status = 502
+
+
 class ProviderError(HarnessError):
     """The configured AI provider failed. Database workflows must stay usable."""
 

@@ -45,6 +45,17 @@ class DevTokenResponse(Schema):
     warning: str = ""
 
 
+class OidcSignInConfig(Schema):
+    """The console's side of an authorization code flow with PKCE. Nothing secret."""
+
+    issuer: str
+    client_id: str = Field(alias="clientId")
+    authorization_endpoint: str = Field(alias="authorizationEndpoint")
+    token_endpoint: str = Field(alias="tokenEndpoint")
+    scopes: list[str]
+    audience: str | None = None
+
+
 class MeResponse(Schema):
     subject: str
     display_name: str = Field(alias="displayName")
