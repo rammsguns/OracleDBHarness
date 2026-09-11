@@ -173,6 +173,18 @@ def test_a_discovery_document_for_another_issuer_is_refused(
         Authenticator(_settings(tmp_path)).console_sign_in()
 
 
+@pytest.mark.parametrize("value", [["https://idp.internal/token"], 443])
+def test_a_discovery_endpoint_that_is_not_a_string_is_the_providers_fault(
+    tmp_path: Path, provider: dict[str, Any], value: Any
+) -> None:
+    provider["documents"][DISCOVERY_URL]["token_endpoint"] = value
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        response = client.get("/api/v1/auth/oidc")
+    # 502 with a reason, not a 500 from response validation.
+    assert response.status_code == 502, response.text
+    assert response.json()["error"]["code"] == "identity_provider_unavailable"
+
+
 def test_an_unreachable_provider_is_reported_as_such(
     tmp_path: Path, provider: dict[str, Any]
 ) -> None:

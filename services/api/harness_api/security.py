@@ -218,6 +218,18 @@ class Authenticator:
                 )
             authorization = authorization or discovered.get("authorization_endpoint", "")
             token = token or discovered.get("token_endpoint", "")
+            # Provider JSON is input: an endpoint that is not a string would pass a
+            # truthiness check and fail later, in response validation, as a 500.
+            if not (isinstance(authorization, str) and isinstance(token, str)):
+                raise IdentityProviderError(
+                    "The identity provider's discovery document gives an authorization "
+                    "or token endpoint that is not a URL string. Set "
+                    "HARNESS_OIDC_AUTHORIZATION_ENDPOINT and HARNESS_OIDC_TOKEN_ENDPOINT.",
+                    detail={
+                        "authorizationEndpoint": repr(authorization),
+                        "tokenEndpoint": repr(token),
+                    },
+                )
             if not (authorization and token):
                 raise IdentityProviderError(
                     "The identity provider's discovery document has no authorization "

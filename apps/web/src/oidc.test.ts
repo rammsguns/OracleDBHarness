@@ -21,7 +21,7 @@ const config: OidcSignInConfig = {
 
 const ORIGIN = "https://harness.example.internal";
 
-function tokenResponse(body: Record<string, unknown>, status = 200): Response {
+function tokenResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json" },
@@ -180,6 +180,20 @@ describe("completing a sign-in", () => {
     await expect(
       completeSignIn(config, `?code=c1&state=${state}`, sessionStorage, fetchImpl),
     ).rejects.toThrow(/no access token/);
+  });
+
+  it.each([
+    ["null", null, 200, /no access token/],
+    ["an array", ["at_123"], 200, /no access token/],
+    ["a number", 42, 200, /no access token/],
+    ["null, refused", null, 400, /refused the code exchange: HTTP 400/],
+  ])("reports a token response of %s as a sign-in error", async (_, body, status, message) => {
+    const { state } = await start();
+    const fetchImpl = vi.fn().mockResolvedValue(tokenResponse(body, status));
+    const attempt = completeSignIn(config, `?code=c1&state=${state}`, sessionStorage, fetchImpl);
+    // A SignInError, which the console shows, not a TypeError from reading a field.
+    await expect(attempt).rejects.toThrow(SignInError);
+    await expect(attempt).rejects.toThrow(message);
   });
 
   it("explains a token endpoint the browser could not reach", async () => {

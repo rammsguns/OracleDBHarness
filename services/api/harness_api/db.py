@@ -8,12 +8,12 @@ only work on one of them belongs in a migration rather than here.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from sqlalchemy import Connection, Engine, create_engine, inspect, select, update
+from sqlalchemy import Connection, Engine, Inspector, Table, create_engine, inspect, select, update
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -162,8 +162,18 @@ def initialize_schema(engine: Engine) -> str:
 
 
 def _recorded_version(engine: Engine) -> str | None:
-    if not inspect(engine).has_table(SchemaVersion.__tablename__):
+    inspector = inspect(engine)
+    if not inspector.has_table(SchemaVersion.__tablename__):
         return None
+    # Reading the row selects every mapped column, so check this table before the
+    # others: a missing one would otherwise surface as a raw database error.
+    missing = _missing_columns(inspector, [Base.metadata.tables[SchemaVersion.__tablename__]])
+    if missing:
+        raise ConfigurationError(
+            "The metadata store's schema_version table is missing columns, so its "
+            "version cannot be read. It was altered by hand or by an unreleased build.",
+            detail={"missingColumns": missing},
+        )
     with Session(engine) as session:
         row = session.scalars(select(SchemaVersion).limit(1)).first()
         return None if row is None else row.version
@@ -232,14 +242,18 @@ def _upgrade(engine: Engine, recorded: str) -> None:
         )
 
 
-def _refuse_missing_columns(engine: Engine) -> None:
-    inspector = inspect(engine)
+def _missing_columns(inspector: Inspector, tables: Iterable[Table]) -> list[str]:
     missing: list[str] = []
-    for table in Base.metadata.sorted_tables:
+    for table in tables:
         present = {column["name"] for column in inspector.get_columns(table.name)}
         missing.extend(
             f"{table.name}.{column.name}" for column in table.columns if column.name not in present
         )
+    return missing
+
+
+def _refuse_missing_columns(engine: Engine) -> None:
+    missing = _missing_columns(inspect(engine), Base.metadata.sorted_tables)
     if missing:
         raise ConfigurationError(
             f"The metadata store claims schema version {SCHEMA_VERSION} but is missing "

@@ -109,6 +109,18 @@ def test_a_current_version_missing_a_column_is_refused(engine: Engine) -> None:
     assert refused.value.detail["missingColumns"] == ["executions.request_digest"]
 
 
+def test_a_schema_version_table_missing_a_column_is_refused_by_name(engine: Engine) -> None:
+    # The version is read before the general column check, so this table is the one
+    # place a missing column would otherwise escape as a raw database error.
+    initialize_schema(engine)
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE schema_version DROP COLUMN note"))
+
+    with pytest.raises(ConfigurationError, match="version cannot be read") as refused:
+        initialize_schema(engine)
+    assert refused.value.detail["missingColumns"] == ["schema_version.note"]
+
+
 def test_a_version_2_store_is_upgraded_in_place(engine: Engine) -> None:
     _previous_release(engine)
 

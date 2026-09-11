@@ -44,6 +44,10 @@ services:
       HARNESS_OIDC_CLIENT_ID: ${HARNESS_OIDC_CLIENT_ID:?set the console's OIDC client ID}
       HARNESS_OIDC_SCOPES: ${HARNESS_OIDC_SCOPES:-openid profile email}
       HARNESS_OIDC_REQUEST_AUDIENCE: ${HARNESS_OIDC_REQUEST_AUDIENCE:-false}
+      # Empty means "read it from the issuer's discovery document". Set both to skip
+      # discovery.
+      HARNESS_OIDC_AUTHORIZATION_ENDPOINT: ${HARNESS_OIDC_AUTHORIZATION_ENDPOINT:-}
+      HARNESS_OIDC_TOKEN_ENDPOINT: ${HARNESS_OIDC_TOKEN_ENDPOINT:-}
       HARNESS_ORACLE_BACKEND: oracledb
       HARNESS_ORACLE_DRIVER_MODE: thin
       # Restrict which endpoints an operator may register. Never leave this empty in

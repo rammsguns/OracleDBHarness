@@ -165,7 +165,12 @@ export async function completeSignIn(
     );
   }
 
-  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  // JSON can be null, an array or a scalar; only an object has fields to read.
+  const parsed: unknown = await response.json().catch(() => null);
+  const body: Record<string, unknown> =
+    parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
   if (!response.ok) {
     const reason = body.error_description || body.error || `HTTP ${response.status}`;
     throw new SignInError(`The identity provider refused the code exchange: ${String(reason)}.`);
