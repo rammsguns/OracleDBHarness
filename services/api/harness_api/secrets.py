@@ -41,7 +41,9 @@ class SecretResolver:
 
     def _read_file(self, locator: str) -> str:
         candidate = (self._root / locator).resolve()
-        if not str(candidate).startswith(str(self._root)):
+        # Containment is a path relationship, not a string prefix: "/run/secrets" is a
+        # prefix of "/run/secrets-other/key", which is outside the directory.
+        if candidate == self._root or not candidate.is_relative_to(self._root):
             raise ConfigurationError(
                 "A secret locator tried to read outside the configured secret directory.",
                 detail={"locator": locator},

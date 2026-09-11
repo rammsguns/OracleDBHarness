@@ -29,9 +29,24 @@ from sqlalchemy.orm import Session
 
 from harness_api.config import Settings
 from harness_api.models import AppRole, IntegrationInstance, User, utcnow
-from harness_worker.errors import AuthenticationError, ConfigurationError
+from harness_worker.errors import (
+    AuthenticationError,
+    ConfigurationError,
+    IdentityProviderError,
+    PolicyError,
+)
 
 TOKEN_PREFIX_LENGTH = 8
+
+# python-jose checks aud and exp only when the token carries them: a signed token
+# with no audience passes for any API, and one with no expiry never lapses. Every
+# claim the harness relies on is required, not merely checked if present.
+REQUIRED_CLAIMS = {
+    "require_aud": True,
+    "require_exp": True,
+    "require_iss": True,
+    "require_sub": True,
+}
 
 
 @dataclass
@@ -87,34 +102,77 @@ def generate_integration_token() -> tuple[str, str, str]:
     return token, token[:TOKEN_PREFIX_LENGTH], hash_token(token)
 
 
-class JwksCache:
-    """Small JWKS cache so every request does not fetch the key set."""
+class ProviderDocument:
+    """One of the identity provider's published JSON documents, cached.
 
-    def __init__(self, url: str, ttl_seconds: int = 300) -> None:
+    The key set and the discovery document change rarely; fetching them on every
+    request would make the provider a per-request dependency.
+    """
+
+    def __init__(
+        self, url: str, what: str, ttl_seconds: int = 300, refresh_interval_seconds: int = 60
+    ) -> None:
         self._url = url
+        self._what = what
         self._ttl = ttl_seconds
-        self._keys: dict[str, Any] | None = None
+        self._refresh_interval = refresh_interval_seconds
+        self._document: dict[str, Any] | None = None
         self._fetched_at = 0.0
+        self._refreshed_at: float | None = None
 
-    def keys(self) -> dict[str, Any]:
-        if self._keys is None or (time.monotonic() - self._fetched_at) > self._ttl:
+    def get(self) -> dict[str, Any]:
+        if self._document is None or (time.monotonic() - self._fetched_at) > self._ttl:
+            self._fetch()
+        assert self._document is not None
+        return self._document
+
+    def refresh(self) -> dict[str, Any]:
+        """Fetch again before the copy expires, at most once per refresh interval.
+
+        For when the cached copy is known to be behind - a token signed with a key it
+        does not list. The limit is there because anyone can send such a token.
+        """
+
+        now = time.monotonic()
+        if self._refreshed_at is None or now - self._refreshed_at >= self._refresh_interval:
+            self._refreshed_at = now
+            self._fetch()
+        return self.get()
+
+    def _fetch(self) -> None:
+        try:
             response = httpx.get(self._url, timeout=5.0)
             response.raise_for_status()
-            self._keys = response.json()
-            self._fetched_at = time.monotonic()
-        return self._keys
+            document = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise IdentityProviderError(
+                f"Could not fetch the identity provider's {self._what}.",
+                detail={"url": self._url, "reason": str(exc)},
+            ) from exc
+        if not isinstance(document, dict):
+            raise IdentityProviderError(
+                f"The identity provider's {self._what} is not a JSON object.",
+                detail={"url": self._url},
+            )
+        self._document = document
+        self._fetched_at = time.monotonic()
 
 
 class Authenticator:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._jwks: JwksCache | None = None
+        self._jwks: ProviderDocument | None = None
+        self._discovery: ProviderDocument | None = None
         if settings.auth_mode == "oidc":
             if not settings.oidc_jwks_url or not settings.oidc_issuer:
                 raise ConfigurationError(
                     "HARNESS_AUTH_MODE=oidc requires HARNESS_OIDC_ISSUER and HARNESS_OIDC_JWKS_URL."
                 )
-            self._jwks = JwksCache(settings.oidc_jwks_url)
+            self._jwks = ProviderDocument(settings.oidc_jwks_url, "signing keys")
+            self._discovery = ProviderDocument(
+                settings.oidc_issuer.rstrip("/") + "/.well-known/openid-configuration",
+                "discovery document",
+            )
         elif settings.env != "development" and not settings.allow_dev_auth_outside_development:
             raise ConfigurationError(
                 "HARNESS_AUTH_MODE=dev issues locally signed tokens and is refused "
@@ -141,6 +199,73 @@ class Authenticator:
         }
         return jwt.encode(claims, self._settings.dev_token_secret, algorithm="HS256")
 
+    # -- console sign-in -----------------------------------------------------------
+
+    def console_sign_in(self) -> dict[str, Any]:
+        """What the console needs to run an authorization code flow with PKCE.
+
+        Nothing here is secret. The console is a public client, so the answer is the
+        same for everyone and is served without authentication.
+        """
+
+        settings = self._settings
+        if settings.auth_mode != "oidc":
+            raise PolicyError(
+                "This deployment uses the development identity mode. Sign in with a "
+                "development token."
+            )
+        if not settings.oidc_client_id:
+            raise ConfigurationError(
+                "HARNESS_OIDC_CLIENT_ID is not set, so the console cannot sign anyone in. "
+                "Register the console with the identity provider as a public client "
+                "and set its client ID."
+            )
+        authorization = settings.oidc_authorization_endpoint
+        token = settings.oidc_token_endpoint
+        if not (authorization and token):
+            assert self._discovery is not None
+            discovered = self._discovery.get()
+            # A token's iss is checked against the configured issuer, so a provider
+            # that describes itself differently would issue tokens this API refuses.
+            if discovered.get("issuer") != settings.oidc_issuer:
+                raise IdentityProviderError(
+                    "The identity provider's discovery document names a different "
+                    "issuer from HARNESS_OIDC_ISSUER. They must match exactly, "
+                    "including any trailing slash.",
+                    detail={
+                        "configuredIssuer": settings.oidc_issuer,
+                        "discoveredIssuer": discovered.get("issuer"),
+                    },
+                )
+            authorization = authorization or discovered.get("authorization_endpoint", "")
+            token = token or discovered.get("token_endpoint", "")
+            # Provider JSON is input: an endpoint that is not a string would pass a
+            # truthiness check and fail later, in response validation, as a 500.
+            if not (isinstance(authorization, str) and isinstance(token, str)):
+                raise IdentityProviderError(
+                    "The identity provider's discovery document gives an authorization "
+                    "or token endpoint that is not a URL string. Set "
+                    "HARNESS_OIDC_AUTHORIZATION_ENDPOINT and HARNESS_OIDC_TOKEN_ENDPOINT.",
+                    detail={
+                        "authorizationEndpoint": repr(authorization),
+                        "tokenEndpoint": repr(token),
+                    },
+                )
+            if not (authorization and token):
+                raise IdentityProviderError(
+                    "The identity provider's discovery document has no authorization "
+                    "or token endpoint. Set HARNESS_OIDC_AUTHORIZATION_ENDPOINT and "
+                    "HARNESS_OIDC_TOKEN_ENDPOINT."
+                )
+        return {
+            "issuer": settings.oidc_issuer,
+            "clientId": settings.oidc_client_id,
+            "authorizationEndpoint": authorization,
+            "tokenEndpoint": token,
+            "scopes": settings.oidc_scopes.split(),
+            "audience": settings.oidc_audience if settings.oidc_request_audience else None,
+        }
+
     # -- verification --------------------------------------------------------------
 
     def authenticate(self, session: Session, authorization: str | None) -> Principal:
@@ -156,9 +281,12 @@ class Authenticator:
             raise AuthenticationError("The token carries no subject claim.")
         user = session.scalars(select(User).where(User.subject == subject)).first()
         if user is None:
+            # Providers' subjects are often opaque (a UUID in Keycloak, a per-application
+            # id in Entra ID), and it is the subject an administrator has to register.
+            # Say it, so the person can pass it on.
             raise AuthenticationError(
                 "This account is authenticated but not registered in the harness. An "
-                "administrator has to add it and grant target access.",
+                f"administrator has to add subject {subject} and grant target access.",
                 detail={"subject": subject},
             )
         if user.disabled:
@@ -222,14 +350,28 @@ class Authenticator:
                     self._settings.dev_token_secret,
                     algorithms=["HS256"],
                     audience=self._settings.oidc_audience,
+                    options=REQUIRED_CLAIMS,
                 )
             assert self._jwks is not None
+            keys = self._jwks.get()
+            # A provider that rotates its signing key starts using the new one at once.
+            # Waiting out the cache would refuse every sign-in until it expired.
+            kid = jwt.get_unverified_header(token).get("kid")
+            listed = keys.get("keys")
+            known = (
+                {key.get("kid") for key in listed if isinstance(key, dict)}
+                if isinstance(listed, list)
+                else set()
+            )
+            if kid and kid not in known:
+                keys = self._jwks.refresh()
             return jwt.decode(
                 token,
-                self._jwks.keys(),
+                keys,
                 algorithms=["RS256", "ES256"],
                 audience=self._settings.oidc_audience,
                 issuer=self._settings.oidc_issuer,
+                options=REQUIRED_CLAIMS,
             )
         except JWTError as exc:
             raise AuthenticationError(

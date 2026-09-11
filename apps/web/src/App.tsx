@@ -1,6 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
-import { HarnessError, api, setToken, signInWithDevToken } from "./api";
+import { Fragment, useCallback, useEffect, useState } from "react";
+import {
+  HarnessError,
+  api,
+  oidcSignInConfig,
+  setToken,
+  signInWithAccessToken,
+  signInWithDevToken,
+} from "./api";
 import type { Me, SystemInfo, Target } from "./api";
+import { SignInError, authorizationUrl, completeSignIn, isCallback } from "./oidc";
 import { CopilotDrawer } from "./views/CopilotDrawer";
 import { DbaView } from "./views/DbaView";
 import { HistoryView } from "./views/HistoryView";
@@ -38,13 +46,44 @@ export function App() {
   const [targets, setTargets] = useState<Target[]>([]);
   const [selected, setSelected] = useState<Target | null>(null);
   const [view, setView] = useState<ViewId>("targets");
-  const [copilotOpen, setCopilotOpen] = useState(false);
-  const [copilotSeed, setCopilotSeed] = useState("");
+  // The copilot is opened for one target, usually seeded with that target's source.
+  const [copilot, setCopilot] = useState<{ targetId: string | null; seed: string } | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
+  const [expiresAt, setExpiresAt] = useState<number | null>(null);
+  const [signInNotice, setSignInNotice] = useState<string | null>(null);
 
   useEffect(() => {
     api.systemInfo().then(setInfo).catch(() => setInfo(null));
   }, []);
+
+  const signedIn = useCallback((next: Me, expiresIn: number | null) => {
+    setSignInNotice(null);
+    setExpiresAt(expiresIn === null ? null : Date.now() + expiresIn * 1000);
+    setMe(next);
+  }, []);
+
+  const signOut = useCallback((notice: string | null) => {
+    setToken(null);
+    setMe(null);
+    setExpiresAt(null);
+    setTargets([]);
+    setSelected(null);
+    setSignInNotice(notice);
+  }, []);
+
+  useEffect(() => {
+    // Every call would start failing with authentication_required at this point.
+    // Returning to the sign-in screen says why instead.
+    if (expiresAt === null) return;
+    const timer = window.setTimeout(
+      () => signOut("Your session expired. Sign in again to continue."),
+      // setTimeout fires at once for anything past 2^31 - 1 ms.
+      Math.min(Math.max(0, expiresAt - Date.now()), 2 ** 31 - 1),
+    );
+    return () => window.clearTimeout(timer);
+  }, [expiresAt, signOut]);
 
   const refreshTargets = useCallback(async () => {
     try {
@@ -62,14 +101,21 @@ export function App() {
     if (me) void refreshTargets();
   }, [me, refreshTargets]);
 
+  const selectedId = selected?.id ?? null;
+  useEffect(() => {
+    // A drawer opened for another target stays closed if the user switches back.
+    setCopilot((current) => (current && current.targetId !== selectedId ? null : current));
+  }, [selectedId]);
+
   if (!me) {
-    return <SignIn info={info} onSignedIn={setMe} />;
+    return <SignIn info={info} notice={signInNotice} onSignedIn={signedIn} />;
   }
 
-  const askCopilot = (seed: string) => {
-    setCopilotSeed(seed);
-    setCopilotOpen(true);
-  };
+  const askCopilot = (seed: string) => setCopilot({ targetId: selectedId, seed });
+  // Checked at render, not left to the effect above: the effect runs after a render,
+  // and that render would show the drawer against the new target with the old
+  // target's source still in it.
+  const copilotHere = copilot?.targetId === selectedId ? copilot : null;
 
   return (
     <div className="app">
@@ -100,12 +146,14 @@ export function App() {
           </p>
         )}
         <button
-          onClick={() => {
-            setToken(null);
-            setMe(null);
-            setTargets([]);
-            setSelected(null);
-          }}
+          onClick={() =>
+            signOut(
+              info?.authMode === "oidc"
+                ? "Signed out of the console. You are still signed in to the identity " +
+                    "provider, so signing in again may not ask for your password."
+                : null,
+            )
+          }
         >
           Sign out
         </button>
@@ -155,44 +203,91 @@ export function App() {
         {view === "targets" && (
           <TargetsView targets={targets} onRefresh={refreshTargets} onSelect={setSelected} />
         )}
-        {view === "schema" && selected && <SchemaView target={selected} onAsk={askCopilot} />}
-        {view === "worksheet" && selected && (
-          <WorksheetView target={selected} onAsk={askCopilot} />
+        {selected && (
+          // Keyed by target, so a switch mounts fresh views: nothing typed or loaded
+          // for one database is left in place to be sent to another, and a response
+          // still in flight lands in the discarded instance rather than this one.
+          <Fragment key={selected.id}>
+            {view === "schema" && <SchemaView target={selected} onAsk={askCopilot} />}
+            {view === "worksheet" && <WorksheetView target={selected} onAsk={askCopilot} />}
+            {view === "plsql" && <PlsqlView target={selected} onAsk={askCopilot} />}
+            {view === "tuning" && <TuningView target={selected} onAsk={askCopilot} />}
+            {view === "dba" && <DbaView target={selected} />}
+            {view === "runbooks" && <RunbooksView target={selected} />}
+          </Fragment>
         )}
-        {view === "plsql" && selected && <PlsqlView target={selected} onAsk={askCopilot} />}
-        {view === "tuning" && selected && <TuningView target={selected} onAsk={askCopilot} />}
-        {view === "dba" && selected && <DbaView target={selected} />}
-        {view === "runbooks" && selected && <RunbooksView target={selected} />}
         {view === "history" && <HistoryView target={selected} />}
         {!selected && view !== "targets" && view !== "history" && (
           <p className="muted">You have no target grants. An administrator has to grant access.</p>
         )}
       </main>
 
-      {copilotOpen && (
+      {copilotHere && (
         <CopilotDrawer
+          key={selectedId ?? "none"}
           target={selected}
-          seed={copilotSeed}
-          onClose={() => setCopilotOpen(false)}
+          seed={copilotHere.seed}
+          onClose={() => setCopilot(null)}
         />
       )}
     </div>
   );
 }
 
+function describe(cause: unknown): string {
+  return cause instanceof HarnessError || cause instanceof SignInError
+    ? cause.message
+    : String(cause);
+}
+
 function SignIn({
   info,
+  notice,
   onSignedIn,
 }: {
   info: SystemInfo | null;
-  onSignedIn: (me: Me) => void;
+  notice: string | null;
+  onSignedIn: (me: Me, expiresIn: number | null) => void;
 }) {
   const [subject, setSubject] = useState("dev@example.internal");
   const [roles, setRoles] = useState("developer");
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const [busy, setBusy] = useState(() => isCallback());
 
   const devMode = info?.authMode === "dev";
+  const oidcMode = info?.authMode === "oidc";
+
+  useEffect(() => {
+    if (!isCallback()) return;
+    const search = window.location.search;
+    // Redeemed or not, the code has no business staying in the address bar or
+    // history. Doing it before the first await is also what keeps the single-use
+    // code from being redeemed twice when StrictMode runs this effect again.
+    window.history.replaceState(null, "", "/");
+    void (async () => {
+      try {
+        const config = await oidcSignInConfig();
+        const tokens = await completeSignIn(config, search);
+        onSignedIn(await signInWithAccessToken(tokens.accessToken), tokens.expiresIn);
+      } catch (cause) {
+        setError(describe(cause));
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }, [onSignedIn]);
+
+  const startProviderSignIn = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      window.location.assign(await authorizationUrl(await oidcSignInConfig()));
+    } catch (cause) {
+      setError(describe(cause));
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="signin card">
@@ -206,7 +301,16 @@ function SignIn({
         <p className="meta">Contacting the harness...</p>
       )}
 
-      {devMode ? (
+      {notice && <div className="notice">{notice}</div>}
+
+      {oidcMode ? (
+        <div className="stack">
+          <p>This deployment signs you in through its identity provider.</p>
+          <button className="primary" disabled={busy} onClick={startProviderSignIn}>
+            {busy ? "Signing in..." : "Sign in with your identity provider"}
+          </button>
+        </div>
+      ) : devMode ? (
         <form
           className="stack"
           onSubmit={async (event) => {
@@ -218,9 +322,9 @@ function SignIn({
                 roles.split(",").map((role) => role.trim()).filter(Boolean),
               );
               setWarning(result.warning);
-              onSignedIn(result.me);
+              onSignedIn(result.me, result.expiresIn);
             } catch (cause) {
-              setError(cause instanceof HarnessError ? cause.message : String(cause));
+              setError(describe(cause));
             }
           }}
         >
@@ -241,10 +345,7 @@ function SignIn({
           </button>
         </form>
       ) : (
-        <p>
-          This deployment authenticates through its identity provider. Sign in there and
-          return with an access token.
-        </p>
+        info && <p>This deployment reports an identity mode the console does not know.</p>
       )}
 
       {warning && <div className="notice warn">{warning}</div>}

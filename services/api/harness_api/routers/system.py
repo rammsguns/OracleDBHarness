@@ -8,7 +8,13 @@ from sqlalchemy import select
 from harness_api import __version__
 from harness_api.deps import CurrentUser, Db, State
 from harness_api.models import ConnectionProfile, UserTargetGrant
-from harness_api.schemas import DevTokenRequest, DevTokenResponse, MeResponse, SystemInfo
+from harness_api.schemas import (
+    DevTokenRequest,
+    DevTokenResponse,
+    MeResponse,
+    OidcSignInConfig,
+    SystemInfo,
+)
 from harness_worker.errors import PolicyError
 
 router = APIRouter(tags=["system"])
@@ -57,6 +63,18 @@ def dev_token(payload: DevTokenRequest, state: State) -> DevTokenResponse:
             "you are. Use it for development only."
         ),
     )
+
+
+@router.get("/api/v1/auth/oidc", response_model=OidcSignInConfig)
+def oidc_sign_in(state: State) -> OidcSignInConfig:
+    """Where the console sends a person to sign in. OIDC identity mode only.
+
+    The console exchanges the authorization code itself, with PKCE, as a public
+    client. The API never sees the code or holds a client secret; it verifies the
+    resulting access token like any other.
+    """
+
+    return OidcSignInConfig.model_validate(state.authenticator.console_sign_in())
 
 
 @router.get("/api/v1/auth/me", response_model=MeResponse)

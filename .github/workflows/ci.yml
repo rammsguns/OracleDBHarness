@@ -59,6 +59,33 @@ jobs:
       - run: npm --prefix integrations/dataforge run typecheck
       - run: npm --prefix integrations/dataforge test
 
-  # Everything above runs against the local stand-in backend. It proves the harness
+  identity:
+    name: Sign-in against Keycloak
+    # A real identity provider, configured as docs/setup.md registers the console.
+    # Qualifies the provider-facing code against Keycloak; a pilot's own provider
+    # still has to be checked with its own registration. See tests/identity/README.md.
+    runs-on: ubuntu-latest
+    env:
+      HARNESS_TEST_OIDC_ISSUER: http://127.0.0.1:8180/realms/engineering
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose -f tests/identity/keycloak/compose.yaml up -d --wait
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: API verification
+        run: uv run pytest tests/identity -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm --prefix apps/web install --no-audit --no-fund
+      - name: Console sign-in code
+        run: npm --prefix apps/web test -- src/oidc.keycloak.test.ts
+      - name: Keycloak log
+        if: failure()
+        run: docker compose -f tests/identity/keycloak/compose.yaml logs
+
+  # Every job above uses the local stand-in Oracle backend. That proves the harness
   # code works; it proves nothing about Oracle. Qualification against Oracle 19c is a
   # separate, manual run - see docs/compatibility.md.

@@ -35,6 +35,16 @@ class Settings(BaseSettings):
     oidc_issuer: str = ""
     oidc_audience: str = "oracledbharness"
     oidc_jwks_url: str = ""
+    # The console signs in as a public client (authorization code with PKCE). It has
+    # no client secret: anything shipped to a browser is readable by its user.
+    oidc_client_id: str = ""
+    oidc_scopes: str = "openid profile email"
+    # Leave both empty to take them from the issuer's discovery document.
+    oidc_authorization_endpoint: str = ""
+    oidc_token_endpoint: str = ""
+    # Some providers (Auth0, for one) only issue a JWT access token for an API when
+    # the authorization request names its audience. Others reject the parameter.
+    oidc_request_audience: bool = False
     # This is the placeholder value, not a credential: startup_warnings() reports it.
     dev_token_secret: str = "change-me-in-any-shared-environment"  # noqa: S105
 
@@ -109,6 +119,11 @@ class Settings(BaseSettings):
             warnings.append(
                 "HARNESS_AUTH_MODE=dev issues local tokens and is not an identity "
                 f"provider. This deployment reports HARNESS_ENV={self.env}."
+            )
+        if self.auth_mode == "oidc" and not self.oidc_client_id:
+            warnings.append(
+                "HARNESS_OIDC_CLIENT_ID is empty, so the console cannot sign anyone in. "
+                "Register the console with the identity provider as a public client."
             )
         if not self.endpoint_allowlist:
             warnings.append(

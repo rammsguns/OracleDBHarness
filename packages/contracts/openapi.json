@@ -990,6 +990,55 @@
         "title": "ObservationIn",
         "type": "object"
       },
+      "OidcSignInConfig": {
+        "additionalProperties": false,
+        "description": "The console's side of an authorization code flow with PKCE. Nothing secret.",
+        "properties": {
+          "audience": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audience"
+          },
+          "authorizationEndpoint": {
+            "title": "Authorizationendpoint",
+            "type": "string"
+          },
+          "clientId": {
+            "title": "Clientid",
+            "type": "string"
+          },
+          "issuer": {
+            "title": "Issuer",
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes",
+            "type": "array"
+          },
+          "tokenEndpoint": {
+            "title": "Tokenendpoint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "issuer",
+          "clientId",
+          "authorizationEndpoint",
+          "tokenEndpoint",
+          "scopes"
+        ],
+        "title": "OidcSignInConfig",
+        "type": "object"
+      },
       "OpenSessionRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2198,6 +2247,28 @@
           }
         },
         "summary": "Me",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/auth/oidc": {
+      "get": {
+        "description": "Where the console sends a person to sign in. OIDC identity mode only.\n\nThe console exchanges the authorization code itself, with PKCE, as a public\nclient. The API never sees the code or holds a client secret; it verifies the\nresulting access token like any other.",
+        "operationId": "oidc_sign_in_api_v1_auth_oidc_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OidcSignInConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Oidc Sign In",
         "tags": [
           "system"
         ]

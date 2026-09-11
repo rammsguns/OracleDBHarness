@@ -17,6 +17,7 @@ branch on it; so should you.
 | `execution_timeout` | 504 | The statement passed its budget and did not stop | The session was discarded |
 | `outcome_unknown` | 502 | **A write may or may not have been applied** | Verify in the database. Do not retry blindly |
 | `provider_failure` | 502 | The model provider failed | Database workflows are unaffected |
+| `identity_provider_unavailable` | 502 | The OIDC provider's discovery document or signing keys could not be fetched, or its discovery document names a different issuer | Check `HARNESS_OIDC_ISSUER` and `HARNESS_OIDC_JWKS_URL` from inside the API container |
 | `oracle_error` | 400 | Oracle raised an error; `oracleCode` carries the ORA/PLS code | As for the ORA code |
 
 `outcome_unknown` is the one that matters most. It appears when a connection breaks
@@ -109,34 +110,38 @@ database when the process goes away, which rolls back uncommitted work.
 
 1. Back up the metadata store.
 2. Read `docs/compatibility.md` for anything newly qualified.
-3. Deploy; the API creates missing tables and records the schema version at startup.
+3. Deploy. At startup the API brings the store to the schema version it expects,
+   or refuses to start and says why.
 4. Check `GET /api/v1/system/info` for new warnings.
 
-There is no migration tool yet. Before a schema change that is not additive, one has to
-exist; `initialize_schema` deliberately refuses to guess about drift rather than
-altering tables underneath you.
+`initialize_schema` in `services/api/harness_api/db.py` reads the recorded version and:
 
-Schema version 2 narrows the uniqueness of `executions.dedup_key` from the key alone to
-`(user_id, dedup_key)`, so one user's idempotency key cannot collide with another's. A
-store created before that still carries the old constraint, and `initialize_schema` will
-not alter it. On an existing PostgreSQL store, run this once:
+| Store | What happens |
+| --- | --- |
+| Empty | Tables are created and the current version recorded |
+| At the expected version | Missing tables are created; existing ones are never altered |
+| Older, with a registered path | Every step runs in one transaction, then the version is recorded. A step that fails rolls the whole upgrade back |
+| Older, no path | Startup is refused before anything changes |
+| Newer than the build | Startup is refused. A store is never downgraded; run the build that upgraded it |
+| Tables present but no version | Startup is refused: there is no telling which build created them |
 
-```sql
-ALTER TABLE executions DROP CONSTRAINT uq_executions_dedup_key;
-ALTER TABLE executions ADD CONSTRAINT uq_executions_actor_dedup_key UNIQUE (user_id, dedup_key);
-UPDATE schema_version SET version = '2';
-```
+After any of the accepted cases, startup also refuses a store that is missing a column
+the models expect, naming it. That is what a hand-edited store, or one an unreleased
+build touched, looks like; it would otherwise start and then fail mid-request.
 
-Schema version 3 adds an exact request digest for worksheet idempotency. After the
-version 2 migration, run this on an existing PostgreSQL or SQLite store before
-starting the updated API:
+The registered steps:
 
-```sql
-ALTER TABLE executions ADD COLUMN request_digest VARCHAR(64);
-UPDATE schema_version SET version = '3';
-```
+| From | To | Change | Stores |
+| --- | --- | --- | --- |
+| 1 | 2 | `executions.dedup_key` is unique per `(user_id, dedup_key)` rather than globally, so one user's idempotency key cannot collide with another's | PostgreSQL. SQLite cannot swap a table constraint in place; remove a version 1 development store and let the API create a new one |
+| 2 | 3 | Adds `executions.request_digest` for exact idempotency checks | PostgreSQL and SQLite |
 
-The digest covers prepared SQL (including literals), named bind values and types,
+To test an upgrade against PostgreSQL, point `HARNESS_TEST_POSTGRES_URL` at an empty,
+disposable database and run
+`uv run --with "psycopg[binary]" pytest tests/unit/test_metadata_schema.py`. The
+PostgreSQL case is skipped without it.
+
+Version 3's digest covers prepared SQL (including literals), named bind values and types,
 and effective execution limits. Bind ordering does not matter. Raw SQL and bind
 values are not retained by this mechanism. Reusing a key with different inputs is
 rejected. Old executions have no digest and cannot be verified as identical retries;

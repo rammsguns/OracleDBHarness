@@ -57,6 +57,10 @@ export function CopilotDrawer({
 
   const targetReference = target ? `harness:${target.id}:${target.defaultSchema}` : "harness:none";
 
+  // Closing the drawer, or switching target, ends the request rather than leaving it
+  // streaming into a panel nobody can see.
+  useEffect(() => () => abort.current?.abort(), []);
+
   const attachments = () => {
     const list: ContextAttachment[] = [];
     if (selection.trim()) {

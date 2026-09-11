@@ -13,6 +13,7 @@ claim. Where something has not been tested, it says so.
 | Oracle backend | Local stand-in (SQLite) | Full test suite |
 | Copilot provider | Fixture provider | Copilot test suite |
 | Protocol | 1.0 | Contract tests, adapter tests |
+| Identity provider | Keycloak 26.3, local container | `tests/identity` and `apps/web/src/oidc.keycloak.test.ts`, in CI. See [Identity providers](#identity-providers) |
 
 ## What has not been tested
 
@@ -24,7 +25,8 @@ claim. Where something has not been tested, it says so.
 | python-oracledb thick mode | Not exercised. Needs Oracle Client libraries and a separate worker (ADR-0002). |
 | TCPS and wallets | Not exercised. `ConnectionSpec` carries the fields; the path is untested. |
 | PostgreSQL as the metadata store | The schema is portable SQLAlchemy and the container is configured, but the suite runs on SQLite. |
-| OIDC | The verification path is written against JWKS; only the development signer has been exercised. |
+| OIDC providers other than Keycloak | Entra ID, Okta and Auth0 are documented in docs/setup.md but have not been signed in against. Nor has the pilot's own provider registration. |
+| Sign-in in a real browser | The console's sign-in code has run against Keycloak under Node, and the token endpoint's CORS answer has been checked, but no browser has completed the redirect. |
 | A real model provider | The Anthropic adapter is written against the current Messages API; no call has been made. |
 | OracleDataForge | Not integrated. See `integrations/dataforge/COMPATIBILITY.md`. |
 | Load | The pilot target is ten concurrent users across three databases. Not measured. |
@@ -44,6 +46,34 @@ time-zone handling - are untested.
 
 Where the stand-in cannot honour something it raises an error naming itself, so a
 passing test never quietly stands in for Oracle behaviour.
+
+## Identity providers
+
+Console sign-in is qualified against Keycloak 26.3, running locally with the realm in
+`tests/identity/keycloak/realm.json`. That realm registers the console the way
+docs/setup.md tells an operator to. Nothing in the run is stubbed:
+
+| Checked | How |
+| --- | --- |
+| Discovery gives the console its endpoints, and the issuer matches exactly | `Authenticator.console_sign_in()` against the realm |
+| The provider refuses the console an authorization request without PKCE | Request with no `code_challenge` |
+| The token endpoint allows the console's origin, and no other | `Access-Control-Allow-Origin` on the code exchange |
+| The console's own `authorizationUrl` and `completeSignIn` complete a sign-in | `oidc.keycloak.test.ts`, under Node against the realm |
+| An intercepted code cannot be redeemed twice | Replayed exchange, refused by the provider |
+| The API accepts the access token for a registered account, and says which subject to register otherwise | `/api/v1/auth/me` before and after registering |
+| Tokens the realm issued to another application, and ID tokens, are refused | Audience check |
+| A running API follows a signing-key rotation | New key added through Keycloak's admin API mid-run |
+
+The run found one defect, now fixed. The API cached the provider's key set for five
+minutes, and a token signed with a key from after the cache was filled was refused.
+After a rotation, every sign-in would have failed until the cache expired. A token
+naming a key the cache does not list now causes one fetch, at most once a minute.
+
+It did not cover a real browser completing the redirect, providers other than
+Keycloak, or a pilot's own registration. The suite drives Keycloak's login form and
+admin API, so it does not carry over to another provider as it stands. Check a
+pilot's registration by signing in through the console; tests/identity/README.md
+has the checklist.
 
 ## Qualifying against Oracle 19c
 
