@@ -132,7 +132,7 @@ def test_a_recompile_that_leaves_the_object_invalid_is_not_verified(
     assert verification["requirement"] == (
         "The named object is VALID in the dictionary after the recompile."
     )
-    assert "HARNESS_APP.EMPLOYEE_REPORT is INVALID" in verification["note"]
+    assert "HARNESS_APP.EMPLOYEE_REPORT (PACKAGE BODY) is INVALID" in verification["note"]
     statuses = {row[3] for row in verification["rows"]}
     assert "INVALID" in statuses
 
@@ -187,9 +187,7 @@ def test_gather_statistics_verification_shows_the_recorded_values(
     ).json()
     assert body["outcome"] == "succeeded"
     assert body["verification"]["verified"] is True
-    assert body["verification"]["requirement"] == (
-        "The named table has a recorded row count and collection time after the gather."
-    )
+    assert "recorded optimizer statistics" in body["verification"]["requirement"]
     rows = body["verification"]["rows"]
     # 4,000 rows in the stand-in, 400,000 in the Oracle fixture.
     assert rows[0][2] in (4000, 400000)
@@ -285,3 +283,51 @@ def test_a_panel_that_failed_without_raising_still_degrades_the_report(
     assert [s["operationId"] for s in failed] == ["dba.blocking"]
     assert failed[0]["error"]["code"] == "statement_timeout"
     assert failed[0]["state"] == "failed"
+
+
+def test_a_verification_query_that_failed_without_raising_is_not_read_as_empty(
+    client: TestClient, dba, targets, monkeypatch
+) -> None:
+    """A query that could not run is not a query that found nothing.
+
+    Both arrive here with no rows. Only one of them means the dictionary had nothing
+    to say about the object, and the other carries the reason it could not answer.
+    """
+
+    from harness_worker.types import ExecutionState
+
+    harness = client.app.state.harness  # type: ignore[attr-defined]
+    collected = harness.execution.run_catalog_operation
+
+    def settle_the_verification_as_failed(*args, **kwargs):
+        result = collected(*args, **kwargs)
+        if result.entry.operation_id == "schema.object_status":
+            result.outcome.state = ExecutionState.FAILED
+            result.outcome.result_set = None
+            result.outcome.error = {
+                "code": "statement_timeout",
+                "message": "The statement exceeded its execution budget.",
+            }
+        return result
+
+    monkeypatch.setattr(
+        harness.execution, "run_catalog_operation", settle_the_verification_as_failed
+    )
+
+    body = client.post(
+        "/api/v1/runbooks/runbook.recompile_object/run",
+        headers=dba,
+        json={
+            "profileId": targets["development"]["id"],
+            "parameters": RECOMPILE_PARAMS,
+            "confirm": True,
+        },
+    ).json()
+
+    assert body["outcome"] == "unverified"
+    verification = body["verification"]
+    assert verification["observed"] is False
+    assert verification["verified"] is False
+    assert verification["error"]["code"] == "statement_timeout"
+    assert "did not complete" in verification["note"]
+    assert "returned no rows" not in verification["note"]

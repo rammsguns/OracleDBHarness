@@ -101,6 +101,7 @@ def _recompiled_object_is_valid(evidence: VerificationEvidence) -> str:
 
     owner = str(evidence.parameters.get("owner") or "").upper()
     name = str(evidence.parameters.get("object_name") or "").upper()
+    kind = " ".join(str(evidence.parameters.get("object_kind") or "").upper().split())
     positions = evidence.requested("object_name")
     statuses = evidence.column("status")
     if positions is None or statuses is None:
@@ -108,14 +109,21 @@ def _recompiled_object_is_valid(evidence: VerificationEvidence) -> str:
             "The verification query did not return the owner, object name and status "
             "columns this check reads, so the recompile could not be confirmed."
         )
+    named = f"{owner}.{name}" + (f" ({kind})" if kind else "")
+    # A package specification and its body share a name. The runbook compiles one of
+    # them, so the verdict is about that one; the other is still shown in the
+    # evidence, where a reader can see it.
+    types = evidence.column("object_type")
+    if kind and types is not None:
+        positions = [at for at in positions if str(types[at]).upper() == kind]
     if not positions:
-        return f"The dictionary has no object {owner}.{name}, so the recompile is unconfirmed."
+        return f"The dictionary has no object {named}, so the recompile is unconfirmed."
     invalid = sorted(
         {str(statuses[at]).upper() for at in positions if str(statuses[at]).upper() != "VALID"}
     )
     if invalid:
         return (
-            f"{owner}.{name} is {', '.join(invalid)} after the recompile, not VALID. The "
+            f"{named} is {', '.join(invalid)} after the recompile, not VALID. The "
             "statement ran; the object is still not usable."
         )
     return ""
@@ -246,7 +254,9 @@ RUNBOOKS: tuple[RunbookSpec, ...] = (
         verification_parameters=("owner", "table_name"),
         verification_rule=VerificationRule(
             requirement=(
-                "The named table has a recorded row count and collection time after the gather."
+                "The named table has recorded optimizer statistics: a row count and a "
+                "collection time. How recent they are is not asserted, because the "
+                "collection time is kept on the database's own clock."
             ),
             check=_statistics_were_recorded,
         ),
@@ -448,12 +458,11 @@ class RunbookService:
                 spec.verification_operation_id,
                 verification_params,
             )
-            rows = verification.outcome.result_set.rows if verification.outcome.result_set else []
-            columns = (
-                [c.name for c in verification.outcome.result_set.columns]
-                if verification.outcome.result_set
-                else []
-            )
+            outcome = verification.outcome
+            result_set = outcome.result_set
+            rows = result_set.rows if result_set else []
+            columns = [c.name for c in result_set.columns] if result_set else []
+            collected = outcome.state.value == "succeeded"
             rule = spec.verification_rule
             run.verification = {
                 "operationId": spec.verification_operation_id,
@@ -461,13 +470,22 @@ class RunbookService:
                 "requirement": rule.requirement if rule else "",
                 "columns": columns,
                 "rows": rows,
-                "observed": bool(rows),
+                "observed": collected and bool(rows),
                 "verified": False,
             }
             # "observed" is that the query answered at all. "verified" is that the
             # answer says the change took effect, which is a different question: a
             # recompile that leaves an object INVALID returns a row saying so.
-            if not rows:
+            if not collected:
+                # A verification query that timed out or failed comes back as a settled
+                # outcome carrying its error, not as an exception. Reporting that as
+                # "no rows" would make a query that could not run look like a query
+                # that found nothing.
+                run.verification["error"] = outcome.error
+                shortfall = (
+                    "The verification query did not complete, so the change could not be confirmed."
+                )
+            elif not rows:
                 shortfall = (
                     "The verification query returned no rows, so the change could not be confirmed."
                 )

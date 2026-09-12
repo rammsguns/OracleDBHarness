@@ -65,7 +65,7 @@ def test_a_body_left_invalid_fails_the_recompile_rule() -> None:
         ["HARNESS_APP", "EMPLOYEE_REPORT", "PACKAGE BODY", "INVALID", "2026-09-11"],
     ]
     shortfall = _recompiled_object_is_valid(_objects(rows))
-    assert "HARNESS_APP.EMPLOYEE_REPORT is INVALID" in shortfall
+    assert "HARNESS_APP.EMPLOYEE_REPORT (PACKAGE BODY) is INVALID" in shortfall
     assert "not VALID" in shortfall
 
 
@@ -73,7 +73,35 @@ def test_another_object_being_valid_is_not_evidence() -> None:
     """The row has to be about the object the runbook was asked to recompile."""
 
     rows = [["HARNESS_APP", "ORDER_REPORT", "PACKAGE BODY", "VALID", "2026-09-11"]]
-    assert "no object HARNESS_APP.EMPLOYEE_REPORT" in _recompiled_object_is_valid(_objects(rows))
+    shortfall = _recompiled_object_is_valid(_objects(rows))
+    assert "no object HARNESS_APP.EMPLOYEE_REPORT (PACKAGE BODY)" in shortfall
+
+
+def test_the_check_is_scoped_to_the_kind_that_was_compiled() -> None:
+    """A specification and its body share a name; the runbook compiles one of them.
+
+    Recompiling the specification is verified by the specification being VALID. The
+    body is a real problem and stays in the evidence, but it is not what this run was
+    asked to change, so it does not decide this run's verdict.
+    """
+
+    rows = [
+        ["HARNESS_APP", "EMPLOYEE_REPORT", "PACKAGE", "VALID", "2026-09-11"],
+        ["HARNESS_APP", "EMPLOYEE_REPORT", "PACKAGE BODY", "INVALID", "2026-09-11"],
+    ]
+    spec_run = dict(RECOMPILE, object_kind="PACKAGE")
+    assert _recompiled_object_is_valid(_objects(rows, spec_run)) == ""
+
+    body_run = dict(RECOMPILE, object_kind="package body")
+    assert "INVALID" in _recompiled_object_is_valid(_objects(rows, body_run))
+
+
+def test_a_kind_the_dictionary_does_not_hold_is_unconfirmed() -> None:
+    """Recompiling a body no row describes is not verified by the specification."""
+
+    rows = [["HARNESS_APP", "EMPLOYEE_REPORT", "PACKAGE", "VALID", "2026-09-11"]]
+    shortfall = _recompiled_object_is_valid(_objects(rows))
+    assert "no object HARNESS_APP.EMPLOYEE_REPORT (PACKAGE BODY)" in shortfall
 
 
 def test_the_recompile_rule_says_so_when_the_status_column_is_missing() -> None:

@@ -67,7 +67,7 @@ function previewOf(
   };
 }
 
-function runOf(): RunbookRun {
+function runOf(overrides: Partial<RunbookRun> = {}): RunbookRun {
   return {
     runbook: gatherStats,
     startedAt: "2026-01-01T00:00:00+00:00",
@@ -75,8 +75,12 @@ function runOf(): RunbookRun {
     outcome: "succeeded",
     steps: [],
     verification: {},
+    ...overrides,
   };
 }
+
+const REQUIREMENT =
+  "The named table has recorded optimizer statistics: a row count and a collection time.";
 
 const confirmButton = () => screen.getByRole("button", { name: /confirm and run/i });
 
@@ -223,5 +227,60 @@ describe("a run in flight", () => {
     });
     expect(screen.getByText(/ran with/i).textContent).toContain("EMPLOYEES");
     expect(screen.getByLabelText(/table/i).hasAttribute("disabled")).toBe(false);
+  });
+});
+
+
+describe("the evidence a run is judged on", () => {
+  it("shows what the run had to establish, not only what came back", async () => {
+    // A reader who cannot see the requirement cannot tell a verified run from a run
+    // whose evidence was merely collected.
+    runRunbook.mockResolvedValueOnce(
+      runOf({
+        verification: {
+          operationId: "schema.table_statistics",
+          collectedAt: "2026-01-01T00:00:01+00:00",
+          requirement: REQUIREMENT,
+          columns: ["OWNER", "TABLE_NAME", "NUM_ROWS", "LAST_ANALYZED"],
+          rows: [["HR", "EMPLOYEES", 4000, "2026-01-01 00:00:01"]],
+          observed: true,
+          verified: true,
+        },
+      }),
+    );
+
+    await selectRunbook();
+    await previewAsShown();
+    fireEvent.click(confirmButton());
+
+    await screen.findByText(/ran with/i);
+    expect(screen.getByText(new RegExp(`Requires: ${REQUIREMENT}`))).toBeTruthy();
+  });
+
+  it("says why a run is unverified, alongside the evidence that fell short", async () => {
+    runRunbook.mockResolvedValueOnce(
+      runOf({
+        outcome: "unverified",
+        verification: {
+          operationId: "schema.table_statistics",
+          collectedAt: "2026-01-01T00:00:01+00:00",
+          requirement: REQUIREMENT,
+          columns: ["OWNER", "TABLE_NAME", "NUM_ROWS", "LAST_ANALYZED"],
+          rows: [["HR", "EMPLOYEES", null, null]],
+          observed: true,
+          verified: false,
+          note: "HR.EMPLOYEES still has no recorded statistics.",
+        },
+      }),
+    );
+
+    await selectRunbook();
+    await previewAsShown();
+    fireEvent.click(confirmButton());
+
+    await screen.findByText(/ran with/i);
+    expect(screen.getByText("unverified")).toBeTruthy();
+    expect(screen.getByText(/still has no recorded statistics/)).toBeTruthy();
+    expect(screen.getByText(new RegExp(`Requires: ${REQUIREMENT}`))).toBeTruthy();
   });
 });
