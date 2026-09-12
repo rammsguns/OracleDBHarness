@@ -189,15 +189,22 @@ counts_for() {
   # the check standing behind the words "no data loss", so it has to mean every table or
   # else claim less. A table present in one database and absent from the other shows up as
   # a differing line.
-  local db="$1" table
-  while read -r table; do
-    if [[ -n "$table" ]]; then
-      printf '%s=%s\n' "$table" "$(psql_store "$db" "SELECT count(*) FROM \"${table}\";")"
-    fi
-  done < <(psql_store "$db" "
+  #
+  # The list is captured before the counting starts, deliberately. Counting inside a
+  # `while read` fed by the listing would put `docker compose exec` in the loop body with
+  # the listing still on stdin, and exec forwards stdin: the first count would swallow the
+  # remaining table names and the comparison would silently cover only one table. Table
+  # names cannot contain whitespace here, so splitting the captured list is safe.
+  local db="$1" table tables
+  tables="$(psql_store "$db" "
     SELECT table_name FROM information_schema.tables
      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
-     ORDER BY table_name;")
+     ORDER BY table_name;")"
+  [[ -n "$tables" ]] || fail "no tables found in ${db}: the store is empty or unreachable"
+  for table in $tables; do
+    printf '%s=%s\n' "$table" \
+      "$(psql_store "$db" "SELECT count(*) FROM \"${table}\";" < /dev/null)"
+  done
 }
 
 say "recording an interrupted execution, so the restore is not of a tidy store"
@@ -273,6 +280,12 @@ say "the dump holds no secret values, only references to them"
 # -- 5. bring the deployment up on the restored copy -----------------------------------
 
 say "recreating the API against the restored database"
+# Expect an ERROR line from the new process saying the previous runtime "was still
+# heartbeating when this process claimed the metadata store". That is correct and not a
+# problem here: the dump was taken from a live deployment, so the restored copy records a
+# runtime whose last heartbeat is seconds old. The process it describes was replaced by this
+# recreate. In a real incident the same line means two API processes are running, which is
+# worth acting on -- see docs/operations.md.
 START_CUTOVER=$SECONDS
 HARNESS_METADATA_URL="postgresql+psycopg://harness@metadata:5432/${RESTORED_DB}" \
   docker compose up -d --no-build --force-recreate api
