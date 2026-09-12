@@ -85,6 +85,17 @@ def _columns(engine: Engine, table: str) -> set[str]:
     return {column["name"] for column in inspect(engine).get_columns(table)}
 
 
+def _execution_count(engine: Engine) -> int:
+    """Count executions without going through the models.
+
+    Needed wherever the store is deliberately at an older shape than the models describe:
+    an ORM query names every mapped column, including the ones that version does not have.
+    """
+
+    with engine.connect() as connection:
+        return int(connection.execute(text("SELECT count(*) FROM executions")).scalar_one())
+
+
 def test_an_empty_store_is_created_at_the_current_version(engine: Engine) -> None:
     assert initialize_schema(engine) == SCHEMA_VERSION
     assert _version(engine) == SCHEMA_VERSION
@@ -366,8 +377,10 @@ def test_a_failing_migration_leaves_a_postgresql_store_at_its_old_version(
 
         assert _version(engine) == "3"
         assert "owner_id" not in _columns(engine, "executions")
-        with Session(engine) as session:
-            assert len(session.scalars(select(Execution)).all()) == 2
+        # Counted with SQL, not through the ORM: the models name owner_id and this store,
+        # correctly, does not have it. Selecting through them here would fail for the very
+        # reason the rollback succeeded.
+        assert _execution_count(engine) == 2
 
 
 @requires_postgres

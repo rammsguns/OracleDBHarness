@@ -132,9 +132,8 @@ def test_the_store_survives_a_clean_restart(pg_settings: Settings) -> None:
         administrator = auth(client, "admin@example.internal", ["administrator"])
 
         assert _development_target(client, headers) == profile_id
-        assert [s["name"] for s in client.get("/api/v1/scripts", headers=headers).json()] == [
-            "headcount"
-        ]
+        scripts = client.get("/api/v1/scripts", headers=headers).json()["scripts"]
+        assert [script["name"] for script in scripts] == ["headcount"]
         history = client.get("/api/v1/executions", headers=headers).json()
         assert {row["state"] for row in history} == {"succeeded"}
         assert len(history) == 2, "both the read and the write should still be recorded"

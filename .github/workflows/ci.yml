@@ -121,11 +121,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      # The drill prints the compose logs itself when it fails, before it tears the stack
+      # down. A log-collecting step here would run after that and find nothing.
       - name: Install, back up, restore
         run: deploy/backup-restore-drill.sh
-      - name: Compose logs
-        if: failure()
-        run: docker compose -f deploy/compose.yaml logs
 
   # Every job above uses the local stand-in Oracle backend. That proves the harness
   # code works; it proves nothing about Oracle. Qualification against Oracle 19c is a

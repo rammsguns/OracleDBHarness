@@ -35,6 +35,9 @@ cd "$(dirname "$0")"
 WORK="$(mktemp -d)"
 DUMP="$WORK/harness-metadata.sql"
 RESTORED_DB=harness_restored
+# Files this run creates, and removes again at the end. The drill writes throwaway
+# credentials, so it must neither overwrite nor leave behind anything of an operator's.
+WROTE=()
 
 say() { printf '\n== %s\n' "$*"; }
 fail() { printf '\nFAILED: %s\n' "$*" >&2; exit 1; }
@@ -58,6 +61,13 @@ wait_for_healthy_api() {
 
 cleanup() {
   local status=$?
+  # Before anything is removed. `docker compose down` takes the containers with it, so a
+  # log-collecting step afterwards would find nothing left to read: whatever explains a
+  # failure has to be captured here, while it still exists.
+  if [[ $status -ne 0 ]]; then
+    say "the drill failed; compose logs follow"
+    docker compose logs --no-color --timestamps || true
+  fi
   if [[ "$KEEP" == yes ]]; then
     say "leaving the stack running (--keep); metadata dump is at $DUMP"
     return $status
@@ -66,6 +76,9 @@ cleanup() {
   # -v removes the metadata volume: this is a drill, and leaving a half-restored store
   # behind would make the next run start from something other than nothing.
   docker compose down -v --remove-orphans >/dev/null 2>&1 || true
+  if [[ ${#WROTE[@]} -gt 0 ]]; then
+    rm -f "${WROTE[@]}"
+  fi
   rm -rf "$WORK"
   return $status
 }
@@ -73,10 +86,28 @@ trap cleanup EXIT
 
 # -- 1. install, exactly as docs/setup.md describes ------------------------------------
 
+say "checking this checkout has nothing of its own to lose"
+# The drill writes throwaway credentials and a throwaway .env. Doing that over an operator's
+# real ones would leave the deployment's PostgreSQL, Oracle and provider credentials replaced
+# with rubbish, and they would not find out until the next real start. Refuse instead.
+EXISTING=()
+for candidate in .env secrets/postgres_password secrets/oracle_app.password \
+                 secrets/provider_api_key; do
+  if [[ -e "$candidate" ]]; then
+    EXISTING+=("deploy/$candidate")
+  fi
+done
+if [[ ${#EXISTING[@]} -gt 0 ]]; then
+  printf '\nThese exist already, and this drill would overwrite them with throwaway values:\n' >&2
+  printf '  %s\n' "${EXISTING[@]}" >&2
+  fail "move them aside, or run the drill on a fresh checkout"
+fi
+
 say "creating the secret files (deploy/secrets/README.md)"
 printf '%s' 'drill-postgres-password' > secrets/postgres_password
 printf '%s' 'drill-oracle-password'   > secrets/oracle_app.password
 printf '%s' 'drill-provider-key'      > secrets/provider_api_key
+WROTE+=(secrets/postgres_password secrets/oracle_app.password secrets/provider_api_key)
 # 700 on the directory, 644 on the files, for the reason deploy/secrets/README.md gives: the
 # API runs as uid 10001 and reads the mounted secret itself, so a mode that only the
 # operator can read stops it starting. The directory is what keeps other host users out.
@@ -85,6 +116,7 @@ chmod 644 secrets/postgres_password secrets/oracle_app.password secrets/provider
 
 say "writing deploy/.env"
 cp .env.example .env
+WROTE+=(.env)
 # A placeholder issuer. The API never contacts it in this drill; see the header.
 {
   # The seeded demonstration profiles point at localhost:1521, so allow that and nothing
@@ -101,7 +133,6 @@ INSTALL_SECONDS=$((SECONDS - START_INSTALL))
 
 say "waiting for the API to report healthy"
 if ! wait_for_healthy_api; then
-  docker compose logs api
   fail "the API never became healthy"
 fi
 echo "API healthy after ${INSTALL_SECONDS}s of build and start"
@@ -130,24 +161,43 @@ say "seeding profiles, users and grants"
 # --no-probe: no Oracle target is reachable from this drill, and a failed probe is not what
 # is being tested.
 #
-# HARNESS_SECRET_DIR is redirected for this one command because the seed writes a
-# placeholder password file for any target credential that does not exist yet, and
-# /run/secrets is mounted read-only. The placeholders are worthless by design; the point of
-# running the seed at all is that it writes profiles, users, grants and runbook definitions
-# through the application's own code path into the real store, rather than by hand. Nothing
-# in this drill resolves a credential, so where they land does not matter.
-docker compose exec -T -e HARNESS_SECRET_DIR=/tmp/drill-secrets api   python -m harness_api.seed --no-probe
+# Two environment overrides, for this one command only. The running API sees neither.
+#
+# HARNESS_AUTH_MODE=dev because the seed refuses to run under any other mode: it creates
+# demonstration accounts, and in a pilot those come from the identity provider through the
+# admin API instead. A drill wants the demonstration accounts; the API beside it goes on
+# using OIDC exactly as deployed.
+#
+# HARNESS_SECRET_DIR because the seed writes a placeholder password file for any target
+# credential that does not exist yet, and /run/secrets is mounted read-only. The placeholders
+# are worthless by design; the point of running the seed is that it writes profiles, users,
+# grants and runbook definitions through the application's own code path into the real store
+# rather than by hand. Nothing in this drill resolves a credential, so where they land does
+# not matter.
+docker compose exec -T \
+  -e HARNESS_AUTH_MODE=dev \
+  -e HARNESS_SECRET_DIR=/tmp/drill-secrets \
+  api python -m harness_api.seed --no-probe
 
 psql_store() {  # psql against the live store, quiet and tuple-only
   docker compose exec -T metadata psql -U harness -d "${1}" -At -c "${2}"
 }
 
 counts_for() {
-  local db="$1"
-  for table in connection_profiles users user_target_grants secret_references \
-               executions audit_events schema_version; do
-    printf '%s=%s\n' "$table" "$(psql_store "$db" "SELECT count(*) FROM ${table};")"
-  done
+  # Every table the store actually holds, read from the catalogue rather than from a list
+  # kept here. A hardcoded list quietly stops covering whatever is added next, and this is
+  # the check standing behind the words "no data loss", so it has to mean every table or
+  # else claim less. A table present in one database and absent from the other shows up as
+  # a differing line.
+  local db="$1" table
+  while read -r table; do
+    if [[ -n "$table" ]]; then
+      printf '%s=%s\n' "$table" "$(psql_store "$db" "SELECT count(*) FROM \"${table}\";")"
+    fi
+  done < <(psql_store "$db" "
+    SELECT table_name FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+     ORDER BY table_name;")
 }
 
 say "recording an interrupted execution, so the restore is not of a tidy store"
@@ -201,7 +251,7 @@ if [[ "$BEFORE" != "$AFTER" ]]; then
   printf 'before:\n%s\nafter:\n%s\n' "$BEFORE" "$AFTER" >&2
   fail "the restored store does not hold what the original did"
 fi
-say "no data loss: every table matches row for row"
+say "no data loss: every table in the store matches row for row"
 
 say "the restored store's own contents, not just its row counts"
 psql_store "$RESTORED_DB" \
@@ -227,7 +277,6 @@ START_CUTOVER=$SECONDS
 HARNESS_METADATA_URL="postgresql+psycopg://harness@metadata:5432/${RESTORED_DB}" \
   docker compose up -d --no-build --force-recreate api
 if ! wait_for_healthy_api; then
-  docker compose logs api
   fail "the API did not come up on the restored store"
 fi
 CUTOVER_SECONDS=$((SECONDS - START_CUTOVER))
