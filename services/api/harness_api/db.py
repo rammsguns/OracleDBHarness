@@ -8,6 +8,7 @@ only work on one of them belongs in a migration rather than here.
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -75,7 +76,23 @@ def _read_password_file(path: str) -> str:
         )
     # A trailing newline from `echo` or a Kubernetes secret is not part of the
     # password; anything else, including inner whitespace, is preserved.
-    return candidate.read_text(encoding="utf-8").rstrip("\r\n")
+    try:
+        return candidate.read_text(encoding="utf-8").rstrip("\r\n")
+    except PermissionError as exc:
+        # The file is there and this process may not read it. Almost always a mounted
+        # secret whose mode only its creator can read, met by a container that runs as
+        # an unprivileged user: the API is uid 10001, which is not the operator who
+        # wrote the file. Worth naming, because the bare PermissionError points at a
+        # path and leaves the reader to work out that Compose preserved the host's mode
+        # -- and because the database container in the same deployment is unaffected,
+        # its entrypoint reading the same file as root before dropping privileges.
+        raise ConfigurationError(
+            "The metadata password file exists but this process cannot read it. A "
+            "mounted secret keeps the mode it has on the host, and the API does not run "
+            "as root: make the file readable by others and restrict its directory "
+            "instead. See deploy/secrets/README.md.",
+            detail={"path": path, "uid": getattr(os, "getuid", lambda: None)()},
+        ) from exc
 
 
 def build_session_factory(engine: Engine) -> sessionmaker[Session]:

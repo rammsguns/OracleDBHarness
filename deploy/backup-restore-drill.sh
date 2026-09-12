@@ -77,13 +77,19 @@ say "creating the secret files (deploy/secrets/README.md)"
 printf '%s' 'drill-postgres-password' > secrets/postgres_password
 printf '%s' 'drill-oracle-password'   > secrets/oracle_app.password
 printf '%s' 'drill-provider-key'      > secrets/provider_api_key
-chmod 600 secrets/postgres_password secrets/oracle_app.password secrets/provider_api_key
+# 700 on the directory, 644 on the files, for the reason deploy/secrets/README.md gives: the
+# API runs as uid 10001 and reads the mounted secret itself, so a mode that only the
+# operator can read stops it starting. The directory is what keeps other host users out.
+chmod 700 secrets
+chmod 644 secrets/postgres_password secrets/oracle_app.password secrets/provider_api_key
 
 say "writing deploy/.env"
 cp .env.example .env
 # A placeholder issuer. The API never contacts it in this drill; see the header.
 {
-  echo "HARNESS_ALLOWED_ENDPOINTS=oracle-dev.internal:1521"
+  # The seeded demonstration profiles point at localhost:1521, so allow that and nothing
+  # else: an install whose allowlist contradicts its own profiles is not a clean install.
+  echo "HARNESS_ALLOWED_ENDPOINTS=localhost:1521"
   echo "HARNESS_OIDC_ISSUER=https://login.invalid/realms/drill"
   echo "HARNESS_OIDC_JWKS_URL=https://login.invalid/realms/drill/protocol/openid-connect/certs"
 } >> .env
