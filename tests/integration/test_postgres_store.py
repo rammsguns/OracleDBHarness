@@ -23,10 +23,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
 
 from harness_api.app import create_app
 from harness_api.config import Settings
-from harness_api.db import build_session_factory
+from harness_api.db import SCHEMA_VERSION, build_engine, build_session_factory
 from harness_api.models import (
     AuditEvent,
     ConnectionProfile,
@@ -58,9 +59,7 @@ def pg_settings(tmp_path: Path) -> Iterator[Settings]:
         yield settings
 
 
-def _factory(settings: Settings) -> object:
-    from harness_api.db import build_engine
-
+def _factory(settings: Settings) -> sessionmaker[Session]:
     return build_session_factory(build_engine(settings))
 
 
@@ -83,7 +82,7 @@ def _a_seeded_user_and_target(settings: Settings) -> tuple[str, str]:
     """
 
     factory = _factory(settings)
-    with factory() as db:  # type: ignore[operator]
+    with factory() as db:
         user_id = db.scalars(select(User.id).order_by(User.subject)).first()
         profile_id = db.scalars(
             select(ConnectionProfile.id).order_by(ConnectionProfile.name)
@@ -146,10 +145,10 @@ def test_the_store_survives_a_clean_restart(pg_settings: Settings) -> None:
         assert "nothing interrupted" in report["summary"]
 
         info = client.get("/api/v1/system/info", headers=headers).json()
-        assert info["metadataSchemaVersion"] == "4"
+        assert info["metadataSchemaVersion"] == SCHEMA_VERSION
 
     factory = _factory(pg_settings)
-    with factory() as db:  # type: ignore[operator]
+    with factory() as db:
         assert db.scalars(select(ConnectionProfile)).all()
         assert db.scalars(select(UserTargetGrant)).all()
         assert db.scalars(select(SavedScript)).all()
@@ -171,7 +170,7 @@ def test_an_interrupted_write_is_reconciled_on_postgresql(pg_settings: Settings)
 
     user_id, profile_id = _a_seeded_user_and_target(pg_settings)
     factory = _factory(pg_settings)
-    with factory() as db:  # type: ignore[operator]
+    with factory() as db:
         db.add(
             Execution(
                 id="exe_interrupted_on_pg",
@@ -211,7 +210,7 @@ def test_an_interrupted_write_is_reconciled_on_postgresql(pg_settings: Settings)
     assert report["needsVerification"] == 1
     assert [item["id"] for item in report["outstanding"]] == ["exe_interrupted_on_pg"]
 
-    with factory() as db:  # type: ignore[operator]
+    with factory() as db:
         rows = {row.id: row for row in db.scalars(select(Execution)).all()}
         assert rows["exe_interrupted_on_pg"].state == ExecutionState.OUTCOME_UNKNOWN.value
         # A JSON column round trip on the pilot store, not just on SQLite.
@@ -232,7 +231,7 @@ def test_an_interrupted_commit_is_found_by_the_json_query_on_postgresql(
 
     user_id, profile_id = _a_seeded_user_and_target(pg_settings)
     factory = _factory(pg_settings)
-    with factory() as db:  # type: ignore[operator]
+    with factory() as db:
         db.add(
             WorksheetSessionRecord(
                 id="ws_commit_on_pg",

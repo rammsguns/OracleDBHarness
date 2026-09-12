@@ -283,8 +283,9 @@ def test_an_upgrade_keeps_the_records_the_store_already_held() -> None:
             profile = session.scalars(select(ConnectionProfile)).one()
             assert profile.name == "development"
             assert profile.worksheets_enabled is True
-            user = session.scalars(select(User)).one()
-            assert user.roles == ["developer"]
+            # Two users were seeded, so name the one whose roles are being checked.
+            user = session.get(User, "usr_1")
+            assert user is not None and user.roles == ["developer"]
             grant = session.scalars(select(UserTargetGrant)).one()
             assert grant.permissions == ["read", "worksheet"]
             executions = session.scalars(select(Execution).order_by(Execution.id)).all()
@@ -310,8 +311,10 @@ def test_an_idempotency_key_is_scoped_to_the_actor_after_the_upgrade() -> None:
 
     with postgres.empty_store() as engine:
         _version_1_store(engine)
-        _seed_representative_records(engine)
         initialize_schema(engine)
+        # After the upgrade, so these go in through the current models: what is under test
+        # is the constraint the migration installed, not how old rows were written.
+        _seed_current_users_and_target(engine)
 
         # The same key, two different actors: allowed now, refused before the upgrade.
         with Session(engine) as session:
@@ -330,7 +333,7 @@ def test_an_idempotency_key_is_scoped_to_the_actor_after_the_upgrade() -> None:
             session.add(_execution("exe_e", user_id="usr_1", dedup_key=None))
             session.commit()
         with Session(engine) as session:
-            assert len(session.scalars(select(Execution)).all()) == 6
+            assert len(session.scalars(select(Execution)).all()) == 4
 
 
 @requires_postgres
@@ -409,6 +412,8 @@ def _version_1_store(engine: Engine) -> None:
 
 
 def _execution(execution_id: str, *, user_id: str, dedup_key: str | None) -> Execution:
+    """An execution row for the *current* schema, inserted through the ORM."""
+
     return Execution(
         id=execution_id,
         user_id=user_id,
@@ -422,8 +427,8 @@ def _execution(execution_id: str, *, user_id: str, dedup_key: str | None) -> Exe
     )
 
 
-def _seed_representative_records(engine: Engine) -> None:
-    """One of each record an upgrade has to carry across, with its relationships intact."""
+def _seed_current_users_and_target(engine: Engine) -> None:
+    """The users and target an execution's foreign keys need, at the current schema."""
 
     with Session(engine) as session:
         session.add(SecretReference(id="sec_1", name="oracle-app", locator="oracle_app.password"))
@@ -441,28 +446,75 @@ def _seed_representative_records(engine: Engine) -> None:
         )
         session.add(User(id="usr_1", subject="dev@example.internal", roles=["developer"]))
         session.add(User(id="usr_2", subject="dba@example.internal", roles=["dba"]))
-        session.add(
-            UserTargetGrant(
-                id="grt_1",
-                user_id="usr_1",
-                profile_id="tgt_1",
-                permissions=["read", "worksheet"],
-            )
-        )
-        session.add(_execution("exe_one", user_id="usr_1", dedup_key="nightly-refresh"))
-        failed = _execution("exe_two", user_id="usr_2", dedup_key=None)
-        failed.state = "failed"
-        failed.error_code = "oracle_error"
-        session.add(failed)
-        session.add(
-            AuditEvent(
-                id="aud_1",
-                actor_id="usr_1",
-                actor_subject="dev@example.internal",
-                profile_id="tgt_1",
-                operation_id="worksheet.execute",
-                execution_id="exe_one",
-                outcome="succeeded",
-            )
-        )
         session.commit()
+
+
+def _seed_representative_records(engine: Engine) -> None:
+    """One of each record an upgrade has to carry across, with its relationships intact.
+
+    Written with explicit SQL, naming only the columns that existed at schema version 1,
+    because that is the whole point: these are rows an *older* build left behind. Inserting
+    them through today's ORM would name today's columns -- ``request_digest``, ``owner_id``,
+    ``dispatched_at`` -- and fail against the very store shape under test. A model mapped
+    over a table it does not match is exactly the situation the upgrade exists to resolve.
+    """
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO secret_references (id, name, provider, locator, description,"
+                " created_at) VALUES"
+                " ('sec_1', 'oracle-app', 'file', 'oracle_app.password', '', now())"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO connection_profiles (id, name, environment, host, port,"
+                " service_name, username, default_schema, protocol, wallet_dir,"
+                " secret_reference_id, worksheets_enabled, mutating_runbooks_enabled, notes,"
+                " created_at) VALUES"
+                " ('tgt_1', 'development', 'development', 'oracle.internal', 1521, 'DEV',"
+                " 'harness_app', 'HARNESS_APP', 'tcp', '', 'sec_1', true, false, '', now())"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO users (id, subject, display_name, email, roles, disabled,"
+                " created_at) VALUES"
+                " ('usr_1', 'dev@example.internal', 'Dev', '', '[\"developer\"]', false, now()),"
+                " ('usr_2', 'dba@example.internal', 'Dba', '', '[\"dba\"]', false, now())"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO user_target_grants (id, user_id, profile_id, permissions,"
+                " granted_by, created_at) VALUES"
+                " ('grt_1', 'usr_1', 'tgt_1', '[\"read\", \"worksheet\"]', '', now())"
+            )
+        )
+        # The version 1 execution columns, and only those.
+        for execution_id, user_id, state, dedup_key, error_code in (
+            ("exe_one", "usr_1", "succeeded", "'nightly-refresh'", ""),
+            ("exe_two", "usr_2", "failed", "NULL", "oracle_error"),
+        ):
+            connection.execute(
+                text(
+                    "INSERT INTO executions (id, user_id, profile_id, operation_id,"
+                    " statement_kind, risk_class, statement_fingerprint, bind_names,"
+                    " limits_json, policy_decision, policy_reason, state, truncated,"
+                    " error_code, error_message, verification_json, dedup_key, started_at)"
+                    f" VALUES ('{execution_id}', '{user_id}', 'tgt_1', 'worksheet.execute',"
+                    " 'query', 'read', repeat('f', 64), '[]', '{}', 'allowed', '',"
+                    f" '{state}', false, '{error_code}', '', '{{}}', {dedup_key}, now())"
+                )
+            )
+        connection.execute(
+            text(
+                "INSERT INTO audit_events (id, created_at, actor_id, actor_subject,"
+                " profile_id, operation_id, execution_id, risk_class, policy_decision,"
+                " outcome, statement_fingerprint, affected_counts, detail) VALUES"
+                " ('aud_1', now(), 'usr_1', 'dev@example.internal', 'tgt_1',"
+                " 'worksheet.execute', 'exe_one', 'read', 'allowed', 'succeeded',"
+                " repeat('f', 64), '{}', '{}')"
+            )
+        )
