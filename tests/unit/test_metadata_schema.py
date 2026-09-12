@@ -7,17 +7,29 @@ the expected version through a registered migration or refuse, and say why.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
 from sqlalchemy import Connection, Engine, create_engine, inspect, select, text, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from harness_api import db as metadata
 from harness_api.db import SCHEMA_VERSION, Migration, initialize_schema
-from harness_api.models import Base, SchemaVersion, StoreOwner
+from harness_api.models import (
+    AuditEvent,
+    Base,
+    ConnectionProfile,
+    Execution,
+    SchemaVersion,
+    SecretReference,
+    StoreOwner,
+    User,
+    UserTargetGrant,
+)
 from harness_worker.errors import ConfigurationError
+from tests import postgres
+from tests.postgres import requires_postgres
 
 
 @pytest.fixture
@@ -224,44 +236,233 @@ def test_a_gap_in_the_migration_chain_is_refused_before_any_step_runs(
 
 
 # -- PostgreSQL, the pilot store ------------------------------------------------------
+#
+# The checks above run on SQLite and prove the migration machinery. They cannot prove the
+# migrations themselves: the version 1 to 2 step swaps a table constraint, which SQLite
+# refuses outright, so on SQLite that step is only ever tested by its refusal. These run
+# against a real disposable database. See tests/postgres.py.
 
-POSTGRES_URL = os.environ.get("HARNESS_TEST_POSTGRES_URL", "")
 
-
-@pytest.mark.skipif(
-    not POSTGRES_URL,
-    reason="Set HARNESS_TEST_POSTGRES_URL to an empty, disposable PostgreSQL database.",
-)
+@requires_postgres
 def test_a_version_1_postgresql_store_is_upgraded_in_place() -> None:
-    pytest.importorskip("psycopg")
-    engine = create_engine(POSTGRES_URL)
-    Base.metadata.drop_all(engine)
-    try:
-        # The store as version 1 left it: a global dedup_key constraint, no digest.
-        _store_as_of(engine, "2")
-        with engine.begin() as connection:
-            connection.execute(
-                text("ALTER TABLE executions DROP CONSTRAINT uq_executions_actor_dedup_key")
-            )
-            connection.execute(
-                text(
-                    "ALTER TABLE executions ADD CONSTRAINT uq_executions_dedup_key "
-                    "UNIQUE (dedup_key)"
-                )
-            )
-        _stamp(engine, "1")
+    with postgres.empty_store() as engine:
+        _version_1_store(engine)
 
         assert initialize_schema(engine) == SCHEMA_VERSION
         assert _version(engine) == SCHEMA_VERSION
         assert "request_digest" in _columns(engine, "executions")
         assert {"owner_id", "dispatched_at"} <= _columns(engine, "executions")
         assert {"owner_id", "commit_requested_at"} <= _columns(engine, "worksheet_sessions")
+        assert {"execution_runtimes", "store_owner"} <= set(inspect(engine).get_table_names())
         constraints = {
             item["name"]: item["column_names"]
             for item in inspect(engine).get_unique_constraints("executions")
         }
         assert constraints.get("uq_executions_actor_dedup_key") == ["user_id", "dedup_key"]
         assert "uq_executions_dedup_key" not in constraints
-    finally:
-        Base.metadata.drop_all(engine)
-        engine.dispose()
+        with Session(engine) as session:
+            assert session.scalars(select(StoreOwner)).one().runtime_id == ""
+
+
+@requires_postgres
+def test_an_upgrade_keeps_the_records_the_store_already_held() -> None:
+    """A migration that loses history is not an upgrade.
+
+    The steps are ALTER TABLE, so nothing should touch a row -- which is exactly the kind
+    of assumption worth asserting once against the real engine, because a step that
+    rebuilt a table to change a constraint would pass every other check in this file.
+    """
+
+    with postgres.empty_store() as engine:
+        _version_1_store(engine)
+        _seed_representative_records(engine)
+
+        initialize_schema(engine)
+
+        with Session(engine) as session:
+            profile = session.scalars(select(ConnectionProfile)).one()
+            assert profile.name == "development"
+            assert profile.worksheets_enabled is True
+            user = session.scalars(select(User)).one()
+            assert user.roles == ["developer"]
+            grant = session.scalars(select(UserTargetGrant)).one()
+            assert grant.permissions == ["read", "worksheet"]
+            executions = session.scalars(select(Execution).order_by(Execution.id)).all()
+            assert [row.id for row in executions] == ["exe_one", "exe_two"]
+            assert [row.state for row in executions] == ["succeeded", "failed"]
+            # Carried over untouched, and the columns the upgrade added are empty rather
+            # than invented. Reconciliation reads that as "cannot be established".
+            assert [row.owner_id for row in executions] == ["", ""]
+            assert [row.dispatched_at for row in executions] == [None, None]
+            assert session.scalars(select(AuditEvent)).one().operation_id == "worksheet.execute"
+
+
+@requires_postgres
+def test_an_idempotency_key_is_scoped_to_the_actor_after_the_upgrade() -> None:
+    """The point of the version 1 to 2 step, checked by what the constraint now permits.
+
+    Under version 1 the key was globally unique, so one user's choice of key locked every
+    other user out of it -- and a lookup by key alone could hand one user another's
+    execution record. The upgrade makes it unique per actor. Asserting the constraint's
+    name is not the same as asserting its behaviour, so this inserts the rows that each
+    case turns on.
+    """
+
+    with postgres.empty_store() as engine:
+        _version_1_store(engine)
+        _seed_representative_records(engine)
+        initialize_schema(engine)
+
+        # The same key, two different actors: allowed now, refused before the upgrade.
+        with Session(engine) as session:
+            session.add(_execution("exe_a", user_id="usr_1", dedup_key="nightly-refresh"))
+            session.add(_execution("exe_b", user_id="usr_2", dedup_key="nightly-refresh"))
+            session.commit()
+
+        # The same key twice for one actor is still refused: that is what deduplication is.
+        with Session(engine) as session, pytest.raises(IntegrityError):
+            session.add(_execution("exe_c", user_id="usr_1", dedup_key="nightly-refresh"))
+            session.commit()
+
+        # A NULL key is not a value, so any number of executions may have none.
+        with Session(engine) as session:
+            session.add(_execution("exe_d", user_id="usr_1", dedup_key=None))
+            session.add(_execution("exe_e", user_id="usr_1", dedup_key=None))
+            session.commit()
+        with Session(engine) as session:
+            assert len(session.scalars(select(Execution)).all()) == 6
+
+
+@requires_postgres
+def test_a_failing_migration_leaves_a_postgresql_store_at_its_old_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole upgrade path is one transaction, and PostgreSQL rolls DDL back.
+
+    The SQLite version of this check needs an explicit BEGIN to stop the driver
+    autocommitting each statement, so it proves the harness works around pysqlite rather
+    than that the guarantee holds on the pilot store.
+    """
+
+    with postgres.empty_store() as engine:
+        _store_as_of(engine, "3")
+        _seed_representative_records(engine)
+
+        def half_done(connection: Connection) -> None:
+            connection.exec_driver_sql(
+                "ALTER TABLE executions ADD COLUMN owner_id VARCHAR(40) DEFAULT '' NOT NULL"
+            )
+            raise RuntimeError("the second half of this step failed")
+
+        monkeypatch.setitem(
+            metadata.MIGRATIONS, "3", Migration(SCHEMA_VERSION, "fails halfway", half_done)
+        )
+
+        with pytest.raises(RuntimeError):
+            initialize_schema(engine)
+
+        assert _version(engine) == "3"
+        assert "owner_id" not in _columns(engine, "executions")
+        with Session(engine) as session:
+            assert len(session.scalars(select(Execution)).all()) == 2
+
+
+@requires_postgres
+def test_a_newer_postgresql_store_is_refused_rather_than_downgraded() -> None:
+    with postgres.initialized_store() as engine:
+        newer = str(int(SCHEMA_VERSION) + 1)
+        _stamp(engine, newer)
+
+        with pytest.raises(ConfigurationError, match="newer than this build"):
+            initialize_schema(engine)
+        assert _version(engine) == newer
+
+
+@requires_postgres
+def test_a_postgresql_store_missing_a_column_is_refused() -> None:
+    """The guard that stops a hand-edited store serving requests and failing mid-flight."""
+
+    with postgres.initialized_store() as engine:
+        with engine.begin() as connection:
+            connection.exec_driver_sql("ALTER TABLE executions DROP COLUMN dispatched_at")
+
+        with pytest.raises(ConfigurationError, match="missing columns") as refused:
+            initialize_schema(engine)
+        assert refused.value.detail["missingColumns"] == ["executions.dispatched_at"]
+
+
+# -- shared fixtures for the PostgreSQL checks ----------------------------------------
+
+
+def _version_1_store(engine: Engine) -> None:
+    """The store as the first release left it: a global dedup_key constraint, no digest."""
+
+    _store_as_of(engine, "2")
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "ALTER TABLE executions DROP CONSTRAINT uq_executions_actor_dedup_key"
+        )
+        connection.exec_driver_sql(
+            "ALTER TABLE executions ADD CONSTRAINT uq_executions_dedup_key UNIQUE (dedup_key)"
+        )
+    _stamp(engine, "1")
+
+
+def _execution(execution_id: str, *, user_id: str, dedup_key: str | None) -> Execution:
+    return Execution(
+        id=execution_id,
+        user_id=user_id,
+        profile_id="tgt_1",
+        operation_id="worksheet.execute",
+        statement_kind="query",
+        risk_class="read",
+        statement_fingerprint="f" * 64,
+        state="succeeded",
+        dedup_key=dedup_key,
+    )
+
+
+def _seed_representative_records(engine: Engine) -> None:
+    """One of each record an upgrade has to carry across, with its relationships intact."""
+
+    with Session(engine) as session:
+        session.add(SecretReference(id="sec_1", name="oracle-app", locator="oracle_app.password"))
+        session.add(
+            ConnectionProfile(
+                id="tgt_1",
+                name="development",
+                host="oracle.internal",
+                port=1521,
+                service_name="DEV",
+                username="harness_app",
+                secret_reference_id="sec_1",
+                worksheets_enabled=True,
+            )
+        )
+        session.add(User(id="usr_1", subject="dev@example.internal", roles=["developer"]))
+        session.add(User(id="usr_2", subject="dba@example.internal", roles=["dba"]))
+        session.add(
+            UserTargetGrant(
+                id="grt_1",
+                user_id="usr_1",
+                profile_id="tgt_1",
+                permissions=["read", "worksheet"],
+            )
+        )
+        session.add(_execution("exe_one", user_id="usr_1", dedup_key="nightly-refresh"))
+        failed = _execution("exe_two", user_id="usr_2", dedup_key=None)
+        failed.state = "failed"
+        failed.error_code = "oracle_error"
+        session.add(failed)
+        session.add(
+            AuditEvent(
+                id="aud_1",
+                actor_id="usr_1",
+                actor_subject="dev@example.internal",
+                profile_id="tgt_1",
+                operation_id="worksheet.execute",
+                execution_id="exe_one",
+                outcome="succeeded",
+            )
+        )
+        session.commit()

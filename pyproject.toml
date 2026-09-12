@@ -12,6 +12,10 @@ dependencies = [
 # The Oracle driver is not installed by default: the whole default test suite runs
 # against the stand-in and does not need it. The qualification suite does.
 oracle = ["harness-worker[oracle]"]
+# PostgreSQL is the pilot metadata store. SQLite is enough for the default suite, so
+# the driver is an extra; CI installs it to run the store's own checks against a
+# disposable database. See tests/unit/test_metadata_schema.py.
+postgres = ["harness-api[postgres]"]
 
 [tool.uv.workspace]
 members = ["services/api", "services/worker"]

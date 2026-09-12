@@ -29,7 +29,7 @@ a complete code audit.
 | ID | Priority | Finding and evidence | Required result |
 | --- | --- | --- | --- |
 | NP-01 | **Done, stand-in only** | Implemented in `services/api/harness_api/recovery.py`, run from `build_state` before the execution service exists. Covered by `tests/unit/test_restart_recovery.py` (23 checks) and `tests/integration/test_restart.py` (8), including a statement held in flight while its process is abandoned. | Met against the stand-in: never-dispatched work resolves to `cancelled`, interrupted reads to `failed`, interrupted writes to `outcome_unknown` with `verificationRequired`, stale worksheet records closed, nothing redispatched. The equivalent run on Oracle is still owed (step 2). |
-| NP-02 | P1 | Unchanged: the PostgreSQL migration test is still opt-in and absent from `.github/workflows/ci.yml`. Installation and backup restoration still have no recorded evidence. Schema version 4 added a migration step, so the untested path is now longer, not shorter. | Exercise PostgreSQL migration and API persistence in CI using a disposable database; demonstrate clean Compose installation, upgrade and restore. |
+| NP-02 | **Done in CI, pending a first green run** | The `python` job runs against a `postgres:16-alpine` service container, and `HARNESS_REQUIRE_POSTGRES` turns a missing database into a failed job rather than a silent skip of the only checks that cover the pilot store. A new `deployment` job runs `deploy/backup-restore-drill.sh`: clean install, seed, dump, restore into a fresh database, cut the API over. | Met for migration, persistence, installation and restore, on every build. Upgrade *from a released version* is still only covered synthetically — no earlier build's store exists to upgrade. |
 | NP-03 | P1 | One Oracle 19.9 non-CDB/thin instance has passed; restricted grants, a PDB and independent target isolation remain unqualified. The recorded run substituted `SELECT_CATALOG_ROLE` for seven direct SYS-view grants. | Run the reviewed grants with appropriate DBA support and qualify restricted/developer accounts, a second database and a PDB; record exact versions and skipped checks. |
 | NP-04 | P1 | `tests/copilot/README.md` suggests environment variables switch the suite to a real provider, but `tests/conftest.py` explicitly sets `copilot_provider="fake"`. | Create a separate opt-in provider evaluation path that verifies the actual provider/model and rejects fixture results as qualification evidence. Run the DBA-reviewed case set. |
 | NP-05 | P1 | DataForge adapter tests use a stub; no real DataForge commit, proxy streaming path or setup time has been qualified. See `integrations/dataforge/COMPATIBILITY.md`. | Integrate a pinned DataForge revision and pass its published release gates, including unchanged execution/transaction behavior. |
@@ -103,8 +103,26 @@ deployment half is untouched.** What landed:
   keeps its `outcome_unknown` state after a human verification; the finding is recorded
   beside it.
 
-Still owed in this step: the same restart run against Oracle, PostgreSQL migration and
-restart-persistence coverage in CI, and a clean Compose install, upgrade and restore.
+**Status of the deployment half: done, and now continuous rather than a one-off.**
+
+- The `python` CI job gets a `postgres:16-alpine` service container, matching the major
+  version `deploy/compose.yaml` runs, and installs the new `postgres` extra. Nine checks
+  that previously only ever skipped now run: the v1-to-current migration with
+  representative records, that an upgrade loses nothing, actor-scoped idempotency as a
+  *behaviour* rather than a constraint name, migration-failure rollback, version and
+  missing-column refusals, reconciliation over aware timestamps, the outstanding-commit
+  JSON query, and the concurrent store claim.
+- A missing database now fails the job. A skipped store check is indistinguishable from a
+  passing one in a summary line, and these exist precisely because SQLite cannot stand in.
+- `deploy/backup-restore-drill.sh` performs the install-and-restore drill and prints its
+  timings; the `deployment` job runs it on a clean runner every build. It restores a store
+  that deliberately contains an execution left in flight, so the restore also proves the
+  API reconciles restored work instead of falling over on it.
+- `HARNESS_METADATA_URL` became overridable in `deploy/compose.yaml`, because a restore does
+  not always land in a database of the same name.
+
+Still owed in this step: the same restart run against **Oracle**, and an upgrade from an
+actually released store rather than one synthesised by stripping columns back out.
 
 - Define persisted state transitions for process death before dispatch, during a
   read, during DML/PLSQL and during commit. A persisted `queued` state alone must
@@ -213,6 +231,20 @@ All run locally, outside the filesystem sandbox, against the local stand-in back
   test reads the affected row back to prove the write was not replayed. The interrupted
   record is `outcome_unknown` with `verificationRequired`, and the abandoned worker's late
   completion does not overwrite it.
+
+### 2026-09-12, PostgreSQL and deployment coverage
+
+- 424 passed, 66 skipped locally. The nine new PostgreSQL checks skip here and run in CI;
+  `HARNESS_REQUIRE_POSTGRES` was verified to fail collection when the database is absent.
+- Docker is unavailable on the development machine used for this change: Docker Desktop's
+  backend service cannot be started without elevation, and WSL has no passwordless sudo.
+  The PostgreSQL checks and the Compose drill were therefore written here and first executed
+  on CI, which is a real PostgreSQL and a genuinely clean host. Two defects were found by
+  inspection before that run: `executions.user_id` and `worksheet_sessions.user_id` are
+  foreign keys that SQLite does not enforce and PostgreSQL does, so every planted test row
+  had to name a real user; and the demonstration seed writes placeholder password files,
+  which fails against the read-only `/run/secrets` mount.
+- Lint, format and types clean.
 
 ### Not validated
 

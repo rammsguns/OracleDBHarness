@@ -13,12 +13,36 @@ jobs:
   python:
     name: API and worker
     runs-on: ubuntu-latest
+    # The pilot metadata store, same major version as deploy/compose.yaml runs. The
+    # default suite is happy on SQLite, but the migrations, the store-ownership claim and
+    # the JSON and timestamptz round trips take a different path here and are only really
+    # tested against this. See tests/postgres.py.
+    services:
+      metadata:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: harness
+          # A throwaway container on the runner's loopback, reachable by nothing else.
+          POSTGRES_PASSWORD: ci-only-not-a-secret
+          POSTGRES_DB: harness_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U harness -d harness_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      HARNESS_TEST_POSTGRES_URL: postgresql+psycopg://harness:ci-only-not-a-secret@127.0.0.1:5432/harness_test
+      # Turns a missing database into a failed job rather than a quiet skip of the only
+      # checks that cover the pilot store. See tests/postgres.py.
+      HARNESS_REQUIRE_POSTGRES: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - run: uv sync --frozen
+      - run: uv sync --frozen --extra postgres
       - name: Lint
         run: uv run ruff check .
       - name: Format
@@ -86,6 +110,27 @@ jobs:
         if: failure()
         run: docker compose -f tests/identity/keycloak/compose.yaml logs
 
+  deployment:
+    name: Compose install and restore
+    # A clean runner is the closest thing to the clean host an operator installs onto, and
+    # a restore that is only described is not a restore that works. The drill installs the
+    # pilot deployment from nothing, seeds it, dumps the metadata store, restores it into a
+    # fresh database and brings the API up on the restored copy. See
+    # deploy/backup-restore-drill.sh for what it deliberately does not cover.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install, back up, restore
+        run: deploy/backup-restore-drill.sh
+      - name: Compose logs
+        if: failure()
+        run: docker compose -f deploy/compose.yaml logs
+
   # Every job above uses the local stand-in Oracle backend. That proves the harness
   # code works; it proves nothing about Oracle. Qualification against Oracle 19c is a
   # separate, manual run - see docs/compatibility.md.
+  #
+  # The metadata store is the exception: "API and worker" runs the store's own checks
+  # against a real PostgreSQL service container, and "Compose install and restore"
+  # installs the deployment and practises a restore on every run.
