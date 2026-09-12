@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
+
+from tests.integration.test_plsql import REPAIRED_BODY
 
 RECOMPILE_PARAMS = {
     "owner": "HARNESS_APP",
@@ -98,7 +101,16 @@ def test_a_mutating_runbook_needs_an_explicit_confirmation(
     assert response.json()["error"]["detail"]["requiresConfirmation"] is True
 
 
-def test_recompile_records_verification_evidence(client: TestClient, dba, targets) -> None:
+def test_a_recompile_that_leaves_the_object_invalid_is_not_verified(
+    client: TestClient, dba, targets
+) -> None:
+    """The statement succeeding is not the same as the object being usable.
+
+    ALTER PACKAGE ... COMPILE over broken source is a statement Oracle accepts; the
+    body stays INVALID. The evidence has always shown that. What the runbook now does
+    is read it: the run is reported as unverified rather than succeeded.
+    """
+
     body = client.post(
         "/api/v1/runbooks/runbook.recompile_object/run",
         headers=dba,
@@ -109,14 +121,45 @@ def test_recompile_records_verification_evidence(client: TestClient, dba, target
         },
     ).json()
     assert body["steps"][0]["state"] == "succeeded"
+    assert body["outcome"] == "unverified"
+
     verification = body["verification"]
     assert verification["operationId"] == "schema.object_status"
-    assert verification["observed"] is True
     assert verification["collectedAt"]
-    # The seeded body is genuinely broken, so recompiling it leaves it INVALID and
-    # the evidence says so rather than reporting a clean success.
+    # The query answered, so the evidence was observed; what it says falls short.
+    assert verification["observed"] is True
+    assert verification["verified"] is False
+    assert verification["requirement"] == (
+        "The named object is VALID in the dictionary after the recompile."
+    )
+    assert "HARNESS_APP.EMPLOYEE_REPORT is INVALID" in verification["note"]
     statuses = {row[3] for row in verification["rows"]}
     assert "INVALID" in statuses
+
+
+@pytest.mark.usefixtures("restore_seeded_package")
+def test_a_recompile_that_makes_the_object_valid_is_verified(
+    client: TestClient, developer, dba, targets
+) -> None:
+    """The other side of the same check: a real repair reports a verified success."""
+
+    profile_id = targets["development"]["id"]
+    compiled = client.post(
+        "/api/v1/plsql/compile",
+        headers=developer,
+        json={"profileId": profile_id, "source": REPAIRED_BODY},
+    ).json()
+    assert compiled["compiled"] is True, compiled
+
+    body = client.post(
+        "/api/v1/runbooks/runbook.recompile_object/run",
+        headers=dba,
+        json={"profileId": profile_id, "parameters": RECOMPILE_PARAMS, "confirm": True},
+    ).json()
+    assert body["outcome"] == "succeeded"
+    assert body["verification"]["verified"] is True
+    assert "note" not in body["verification"]
+    assert {row[3] for row in body["verification"]["rows"]} == {"VALID"}
 
 
 def test_gather_statistics_verification_shows_the_recorded_values(
@@ -143,6 +186,10 @@ def test_gather_statistics_verification_shows_the_recorded_values(
         },
     ).json()
     assert body["outcome"] == "succeeded"
+    assert body["verification"]["verified"] is True
+    assert body["verification"]["requirement"] == (
+        "The named table has a recorded row count and collection time after the gather."
+    )
     rows = body["verification"]["rows"]
     # 4,000 rows in the stand-in, 400,000 in the Oracle fixture.
     assert rows[0][2] in (4000, 400000)
@@ -196,3 +243,45 @@ def test_a_developer_cannot_run_a_mutating_runbook(client: TestClient, developer
         },
     )
     assert response.status_code == 403
+
+
+def test_a_panel_that_failed_without_raising_still_degrades_the_report(
+    client: TestClient, dba, targets, monkeypatch
+) -> None:
+    """A diagnostic can come back as a settled failure rather than an exception.
+
+    The engine turns a timeout, a cancellation or a driver error into an outcome
+    whose state is not ``succeeded`` and returns it; only the errors raised before a
+    statement runs arrive as exceptions. The report has to treat both the same way,
+    or a panel reads as unavailable while the report says the collection succeeded.
+    """
+
+    from harness_worker.types import ExecutionState
+
+    harness = client.app.state.harness  # type: ignore[attr-defined]
+    collected = harness.execution.run_catalog_operation
+
+    def settle_blocking_as_failed(*args, **kwargs):
+        result = collected(*args, **kwargs)
+        if result.entry.operation_id == "dba.blocking":
+            result.outcome.state = ExecutionState.FAILED
+            result.outcome.result_set = None
+            result.outcome.error = {
+                "code": "statement_timeout",
+                "message": "The statement exceeded its execution budget.",
+            }
+        return result
+
+    monkeypatch.setattr(harness.execution, "run_catalog_operation", settle_blocking_as_failed)
+
+    body = client.post(
+        "/api/v1/runbooks/runbook.health_report/run",
+        headers=dba,
+        json={"profileId": targets["development"]["id"]},
+    ).json()
+
+    assert body["outcome"] == "degraded"
+    failed = [s for s in body["steps"] if not s["available"]]
+    assert [s["operationId"] for s in failed] == ["dba.blocking"]
+    assert failed[0]["error"]["code"] == "statement_timeout"
+    assert failed[0]["state"] == "failed"

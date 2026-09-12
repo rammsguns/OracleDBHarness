@@ -96,7 +96,11 @@ def list_audit(
 
 
 @router.get("/copilot/history")
-def copilot_history(principal: CurrentUser, db: Db, limit: int = 50) -> dict[str, Any]:
+def copilot_history(
+    principal: CurrentUser,
+    db: Db,
+    limit: int = Query(default=50, ge=1, le=500),
+) -> dict[str, Any]:
     """Copilot requests made by this actor.
 
     This covers copilot requests only. It is not a record of every database

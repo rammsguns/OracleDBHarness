@@ -44,6 +44,8 @@ const gatherStats: RunbookSpec = {
   ],
   steps: ["gather"],
   verificationOperationId: "schema.table_statistics",
+  verificationRequirement:
+    "The named table has a recorded row count and collection time after the gather.",
 };
 
 const development = makeTarget({ id: "prf_dev", name: "development" });

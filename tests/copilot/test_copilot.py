@@ -476,6 +476,27 @@ def test_copilot_history_records_the_request_without_the_prompt(
     assert "recorded by that IDE" in body["note"]
 
 
+def test_copilot_history_bounds_its_limit(client: TestClient, developer) -> None:
+    """The limit is bounded, as it is on the execution and audit history.
+
+    An unbounded limit is not only a large page: SQLite reads ``LIMIT -1`` as no
+    limit at all, so a negative value returned every row this actor had ever asked
+    for.
+    """
+
+    for rejected in (-1, 0, 501):
+        response = client.get(
+            "/api/v1/copilot/history", headers=developer, params={"limit": rejected}
+        )
+        assert response.status_code == 422, rejected
+
+    for accepted in (1, 500):
+        response = client.get(
+            "/api/v1/copilot/history", headers=developer, params={"limit": accepted}
+        )
+        assert response.status_code == 200, accepted
+
+
 @pytest.mark.parametrize("stop_after", ["start", "delta", "done", "task_cancel"])
 async def test_closing_a_stream_preserves_the_correct_terminal_state(
     client: TestClient,

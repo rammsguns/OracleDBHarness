@@ -257,6 +257,8 @@ def test_workflow_5_dba_overview_and_a_reviewed_maintenance_action(
     ).json()
     assert run["outcome"] == "succeeded"
     assert run["verification"]["observed"] is True
+    # The evidence is read, not just collected: the table now carries statistics.
+    assert run["verification"]["verified"] is True
     # 4,000 rows in the stand-in, 400,000 in the Oracle fixture.
     assert run["verification"]["rows"][0][2] in (4000, 400000)
 

@@ -227,6 +227,8 @@ function RunResult({
     columns?: string[];
     rows?: unknown[][];
     observed?: boolean;
+    verified?: boolean;
+    requirement?: string;
     note?: string;
     error?: { code: string; message: string };
   };
@@ -278,6 +280,9 @@ function RunResult({
       {verification.operationId && (
         <>
           <h4>Verification</h4>
+          {verification.requirement && (
+            <p className="meta">Requires: {verification.requirement}</p>
+          )}
           <p className="meta">
             {verification.operationId} -{" "}
             {verification.collectedAt
