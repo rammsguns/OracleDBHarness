@@ -171,6 +171,30 @@ and copilot records. It holds no database password and no result rows.
 docker compose exec metadata pg_dump -U harness harness > harness-metadata.sql
 ```
 
-Restoring is `psql` into an empty database followed by starting the API, which creates
-anything missing and records the schema version. Practise this before the pilot: one of
-the release criteria is demonstrating a restore, not just a dump.
+Restoring is `psql` into an empty database followed by starting the API against it:
+
+```bash
+docker compose exec -T metadata psql -U harness -d postgres -c 'CREATE DATABASE harness_restored'
+docker compose exec -T metadata psql -U harness -d harness_restored < harness-metadata.sql
+HARNESS_METADATA_URL=postgresql+psycopg://harness@metadata:5432/harness_restored   docker compose up -d --force-recreate api
+```
+
+The API brings the restored store to the schema version it expects, and reconciles any work
+that was in flight when the dump was taken — a restored store is a restarted deployment as
+far as `docs/operations.md` is concerned, so check
+`GET /api/v1/admin/reconciliation` afterwards.
+
+Do not take this on trust. `deploy/backup-restore-drill.sh` performs the whole drill —
+clean install, seed, dump, restore into a fresh database, cut the API over, and check that
+nothing was lost — and prints its timings. It runs on every CI build as the
+"Compose install and restore" job, and you can run it yourself:
+
+```bash
+deploy/backup-restore-drill.sh          # tears the stack down afterwards
+deploy/backup-restore-drill.sh --keep   # leaves it running to poke at
+```
+
+It is a drill, not a rehearsal of your pilot: it uses throwaway secrets, a placeholder
+OIDC issuer and no Oracle target, because what it is testing is the metadata store's
+continuity. Identity belongs to the sign-in setup above, and the dump deliberately
+contains no password — only the secret *references*, which the drill asserts.

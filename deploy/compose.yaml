@@ -33,7 +33,11 @@ services:
       HARNESS_LOG_LEVEL: INFO
       # No password here: the API reads the same mounted secret PostgreSQL does, so
       # there is one password rather than a file for the store and a literal here.
-      HARNESS_METADATA_URL: postgresql+psycopg://harness@metadata:5432/harness
+      #
+      # Overridable because a restore does not always land in a database of the same
+      # name: point this at the restored database and recreate the API to bring the
+      # deployment up on it. See deploy/backup-restore-drill.sh.
+      HARNESS_METADATA_URL: ${HARNESS_METADATA_URL:-postgresql+psycopg://harness@metadata:5432/harness}
       HARNESS_METADATA_PASSWORD_FILE: /run/secrets/postgres_password
       HARNESS_AUTH_MODE: oidc
       HARNESS_OIDC_ISSUER: ${HARNESS_OIDC_ISSUER:?set your identity provider issuer}

@@ -933,6 +933,9 @@ dependencies = [
 oracle = [
     { name = "harness-worker", extra = ["oracle"] },
 ]
+postgres = [
+    { name = "harness-api", extra = ["postgres"] },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -946,10 +949,11 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "harness-api", editable = "services/api" },
+    { name = "harness-api", extras = ["postgres"], marker = "extra == 'postgres'", editable = "services/api" },
     { name = "harness-worker", editable = "services/worker" },
     { name = "harness-worker", extras = ["oracle"], marker = "extra == 'oracle'", editable = "services/worker" },
 ]
-provides-extras = ["oracle"]
+provides-extras = ["oracle", "postgres"]
 
 [package.metadata.requires-dev]
 dev = [
