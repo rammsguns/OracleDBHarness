@@ -151,6 +151,12 @@ HARNESS_COPILOT_API_KEY_REF=provider-api-key
 `HARNESS_COPILOT_API_KEY_REF` names a registered `SecretReference`, not a key. Register
 it the same way as a database credential.
 
+Each provider call is bounded by `HARNESS_COPILOT_MAX_OUTPUT_TOKENS` (default 8000;
+thinking counts against it), `HARNESS_COPILOT_REQUEST_TIMEOUT_SECONDS` (600) and
+`HARNESS_COPILOT_PROVIDER_MAX_RETRIES` (2). A retried attempt can be billed as well as
+the one that answers, so lower the retries if spend per request has to be predictable.
+The provider package is the `copilot` extra: `uv sync --extra copilot`.
+
 With `HARNESS_COPILOT_PROVIDER=fake` the harness answers with fixtures and calls no
 provider. Everything says so - the capabilities endpoint, the stream's `start` event
 and the console banner - so a demonstration is never mistaken for a model.

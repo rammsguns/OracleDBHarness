@@ -125,6 +125,9 @@ class CopilotService:
                 self._settings.copilot_provider,
                 api_key=api_key,
                 model=self._settings.copilot_model,
+                max_output_tokens=self._settings.copilot_max_output_tokens,
+                timeout_seconds=self._settings.copilot_request_timeout_seconds,
+                max_retries=self._settings.copilot_provider_max_retries,
             )
         return self._provider
 
