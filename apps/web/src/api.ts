@@ -140,6 +140,8 @@ export interface RunbookSpec {
   parameters: Array<{ name: string; label: string; required: boolean; example: string }>;
   steps: string[];
   verificationOperationId: string;
+  /** What that verification query has to show before the run counts as verified. */
+  verificationRequirement: string;
 }
 
 export interface RunbookRun {
