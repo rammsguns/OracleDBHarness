@@ -4,6 +4,14 @@ Status: implemented through milestone 5; console sign-in and one Oracle 19c inst
 it was written and annotated in place, so the difference between what was planned and
 what was built stays visible.
 
+The active next-phase backlog and delivery gates are in
+[NEXT_PHASE_PLAN.md](NEXT_PHASE_PLAN.md). The milestone table below preserves the
+original schedule and historical status annotations. Those annotations predate the
+2026-09-11 Oracle run: statements there that no Oracle environment was obtained or
+no Oracle workflow was demonstrated are superseded by [docs/compatibility.md](docs/compatibility.md).
+Developer and DBA workflows now have passing evidence on one 19c instance;
+multi-target isolation, restricted grants and the real DataForge workflow remain open.
+
 Two words are used throughout, and they mean different things:
 
 - **Implemented** - the code exists and the automated suite covers it. That suite runs
@@ -200,10 +208,10 @@ Critical dependency: get a representative Oracle 19c test database and reviewed 
 
 ## First implementation backlog
 
-Item 3 is the one that was never done, and items 1, 4, 5 and 7 are only as
-trustworthy as the stand-in they were built against.
+The first Oracle run completed item 3 and qualified parts of items 1, 4, 5 and 7
+on one configuration. Remaining pilot qualification work is in NEXT_PHASE_PLAN.md.
 
-1. Record target versions, environments, authentication and network requirements. **Not done** - there is no target to record.
+1. Record target versions, environments, authentication and network requirements. Partly done: one Oracle 19.9 non-CDB/thin configuration is recorded in docs/compatibility.md; the representative pilot matrix remains open.
 2. Create project skeleton, CI, formatting and configuration validation. Done.
 3. Provision an isolated Oracle test schema with sample data, a package, invalid object, blocking scenario and slow-query fixture. Done against one 19c instance: `oracle/qualification/` builds the fixtures and tears them down on each run, mirroring what `harness_worker.backend.fake` seeds. The blocking scenario is created live by the qualification suite rather than seeded.
 4. Implement connection identity and capability probe with secret references. Implemented; qualified on one 19c instance.
@@ -213,7 +221,7 @@ trustworthy as the stand-in they were built against.
 8. Add schema navigation and one usable SQL worksheet screen. Implemented.
 9. Prototype DataForge selection -> authenticated backend bridge -> harness answer -> reviewed editor diff, using a fixture before connecting a model provider; prove a capabilities handshake without exporting database credentials. Implemented, and the fixture stage is exactly where it still is.
 
-This first vertical slice must work before broadening the dashboard or adding advanced automation. It works against the stand-in. It has not been shown to work against Oracle, which is what the item was for.
+This first vertical slice must work before broadening the dashboard or adding advanced automation. It works against the stand-in and one recorded Oracle 19c configuration. Broader qualification remains open.
 
 ## Validation and release criteria
 

@@ -33,13 +33,11 @@ Two bars, and they are different in kind:
 
 ## Running it against a real provider
 
-```bash
-HARNESS_COPILOT_ENABLED=true \
-HARNESS_COPILOT_PROVIDER=anthropic \
-HARNESS_COPILOT_MODEL=claude-opus-5 \
-HARNESS_COPILOT_API_KEY_REF=provider-api-key \
-uv run pytest tests/copilot
-```
+There is no real-provider evaluation runner yet. `tests/conftest.py` explicitly
+sets `copilot_provider="fake"`, so setting `HARNESS_COPILOT_PROVIDER` and running
+`uv run pytest tests/copilot` still exercises canned answers. It must not be
+recorded as provider qualification. The separate opt-in runner and case set are
+planned as NP-04 in [NEXT_PHASE_PLAN.md](../../NEXT_PHASE_PLAN.md).
 
 Two of the tests assert on fixture answer text (`test_an_answer_is_grounded...` and
 `test_embedded_instructions_are_reported_not_followed`) and will not hold against a
@@ -47,7 +45,7 @@ real model, which words things differently. That is expected: they are checking 
 fixture, not the model. Everything else - authorisation, context policy, streaming,
 budgets, staleness - is provider-independent and must still pass.
 
-This costs money and is not part of the default suite.
+A future real-provider run costs money and must remain outside the default suite.
 
 ## Recording results
 

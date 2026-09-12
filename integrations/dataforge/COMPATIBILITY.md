@@ -16,7 +16,7 @@ Nothing in this table is a certification. It records what has actually been run.
 | Component | Status |
 | --- | --- |
 | OracleDataForge | **Not integrated.** No DataForge commit has been run against this adapter. The inspected commit in `ORACLEDATAFORGE_INTEGRATION.md` is the first test candidate, not a baseline. |
-| Oracle 19c | Not used by the integration path, which never opens a database connection, but the harness itself is unqualified against 19c. See `docs/compatibility.md`. |
+| Oracle 19c | Not exercised through a real DataForge integration. The harness itself has passing evidence on one 19.9 non-CDB/thin instance; see `docs/compatibility.md`. |
 | A real model provider | The harness ships an Anthropic adapter. The tests here run against a stubbed harness and the fixture provider; no provider call has been made. |
 | Streaming through a proxy | Untested. Compression and buffering proxies are the usual cause of a stream arriving all at once; the routes set `X-Accel-Buffering: no`, which is not sufficient on its own. |
 | Ten-minute setup target | Not measured. It is a target for the pilot, not a claim. |
