@@ -39,6 +39,7 @@ from harness_api.policy import (
     PolicyDecision,
     PolicyEngine,
 )
+from harness_api.recovery import heartbeat, new_runtime_id, owns_store, record_clean_stop
 from harness_api.secrets import SecretResolver
 from harness_api.security import Principal
 from harness_worker.backend import ConnectionSpec, create_backend
@@ -50,6 +51,7 @@ from harness_worker.errors import (
     NotFoundError,
     OutcomeUnknownError,
     PolicyError,
+    RuntimeSupersededError,
     ValidationError,
 )
 from harness_worker.sessions import SessionRegistry, WorksheetSession
@@ -63,6 +65,7 @@ from harness_worker.statement import (
     quote_identifier,
 )
 from harness_worker.types import (
+    TERMINAL_STATES,
     BindParameter,
     Capability,
     ExecutionLimits,
@@ -113,9 +116,22 @@ class ExecutionService:
         session_factory: sessionmaker[Session],
         *,
         catalog: QueryCatalog | None = None,
+        runtime_id: str | None = None,
     ) -> None:
         self._settings = settings
         self._sessions_factory = session_factory
+        # Stamped on every execution and worksheet record this process owns, so a later
+        # process can tell its own interrupted work from work it must not touch.
+        #
+        # A ``runtime_id`` passed in is one the caller claimed in the store, which makes
+        # this service the store's execution owner: it heartbeats, and it stops
+        # dispatching if that claim is ever taken from it. Without one -- seeding, a
+        # one-off script, a fixture -- the service still stamps its records, so a later
+        # startup can reconcile them, but it holds no claim and fences nothing. Only
+        # ``build_state`` claims, which is what keeps one deployment to one owner.
+        self._owns_store = runtime_id is not None
+        self._runtime_id = runtime_id or new_runtime_id()
+        self._superseded = False
         self._catalog = catalog or load_catalog(_catalog_root(settings))
         self._backend = create_backend(
             settings.oracle_backend,
@@ -139,13 +155,42 @@ class ExecutionService:
 
     def shutdown(self) -> None:
         self._reaper_stop.set()
-        self._registry.shutdown()
+        closed = self._registry.shutdown()
         self._engine.shutdown()
         self._backend.shutdown()
+        # Close the records too, not only the connections. A stopping process is the last
+        # thing that knows these sessions ended cleanly; leaving the records open would
+        # make the next startup reconcile them as interrupted, and a restart that always
+        # reports work makes the restart that really found some impossible to notice.
+        self._close_session_records(closed, "service shutdown")
+        if self._owns_store:
+            record_clean_stop(self._sessions_factory, self._runtime_id)
+
+    def _close_session_records(self, session_ids: list[str], reason: str) -> None:
+        if not session_ids:
+            return
+        with self._sessions_factory() as db:
+            for session_id in session_ids:
+                record = db.get(WorksheetSessionRecord, session_id)
+                if record is not None and record.closed_at is None:
+                    record.closed_at = utcnow()
+                    record.close_reason = reason
+            db.commit()
+
+    @property
+    def runtime_id(self) -> str:
+        return self._runtime_id
+
+    @property
+    def superseded(self) -> bool:
+        """True once another execution service has claimed the metadata store."""
+
+        return self._superseded
 
     def _reap_loop(self) -> None:
         while not self._reaper_stop.wait(15.0):
             try:
+                self._record_heartbeat()
                 closed = self._registry.reap_expired()
             except Exception:  # noqa: BLE001 - the reaper must not die
                 log.exception("Session reaper failed")
@@ -157,6 +202,63 @@ class ExecutionService:
                         record.closed_at = utcnow()
                         record.close_reason = "idle timeout"
                         db.commit()
+
+    def _record_heartbeat(self) -> None:
+        """Renew this runtime's claim on the store, and notice if it has been lost.
+
+        Losing the claim means another process has already reconciled this one's
+        in-flight work, recording writes as uncertain and statements it had not yet
+        dispatched as never dispatched. Continuing to dispatch after that would make
+        those records wrong, so the flag latches and every later dispatch is refused.
+        """
+
+        if self._superseded or not self._owns_store:
+            return
+        if heartbeat(self._sessions_factory, self._runtime_id):
+            return
+        self._superseded = True
+        log.error(
+            "recovery: runtime %s no longer owns the metadata store; another execution "
+            "service has claimed it and reconciled this process's interrupted work. "
+            "Refusing all further dispatch. Stop this process.",
+            self._runtime_id,
+        )
+        reason = "this execution service no longer owns the metadata store"
+        # Most of these records were already closed by the runtime that superseded this
+        # one; this catches any session opened in the gap between that reconciliation and
+        # this heartbeat, and leaves the earlier reason in place where there is one.
+        self._close_session_records(self._registry.shutdown(reason=reason), reason)
+
+    def _require_store_ownership(self, operation_id: str, **detail: object) -> None:
+        """Refuse an operation that could change the database if this process has lost the store.
+
+        Checked against the store, not against the flag a heartbeat latches. The flag is
+        up to one heartbeat interval stale, and that interval is exactly the dangerous
+        window: another process has claimed the store and recorded this process's sessions
+        as closed and its in-flight writes as uncertain, while this process still believes
+        it owns everything. A commit issued in that window would make a transaction durable
+        after the record saying so had already been written.
+
+        The cost is one read of a single row, and it is only paid by operations that can
+        change the database durably -- writes and commits, not reads. A read served by a
+        superseded process cannot corrupt anything, and its record was resolved to
+        ``failed``, which is what a read that never returned is.
+
+        A service holding no claim -- seeding, a one-off script, a fixture -- is exempt.
+        Nothing has reconciled its work, because nothing knows it is running.
+        """
+
+        if not self._owns_store:
+            return
+        if not self._superseded and owns_store(self._sessions_factory, self._runtime_id):
+            return
+        self._superseded = True
+        raise RuntimeSupersededError(
+            "This execution service no longer owns the metadata store: another one has "
+            "claimed it and has already reconciled this process's work. Nothing was sent "
+            "to the database. Use the service that owns the store.",
+            detail={"runtimeId": self._runtime_id, "operationId": operation_id, **detail},
+        )
 
     @property
     def catalog(self) -> QueryCatalog:
@@ -274,6 +376,7 @@ class ExecutionService:
             target_major_version=identity.major_version if identity else None,
             operation_id="worksheet.open",
         )
+        self._require_store_ownership("worksheet.open", profileId=profile.id)
         spec = self.connection_spec(profile, grant)
         session = self._registry.open(
             actor_id=principal.user_id or principal.subject,
@@ -286,6 +389,7 @@ class ExecutionService:
                 user_id=principal.user_id or "",
                 profile_id=profile.id,
                 oracle_session_id=session.identity.session_id,
+                owner_id=self._runtime_id,
             )
         )
         self._audit(
@@ -313,6 +417,29 @@ class ExecutionService:
         if record and record.closed_at is None:
             record.closed_at = utcnow()
             record.close_reason = reason
+
+    def _mark_commit_requested(self, db: Session, session_id: str) -> None:
+        """Record that a COMMIT is about to be issued on this session, and commit that.
+
+        The write has to be durable before the COMMIT is attempted, which is why this
+        commits its own unit of work rather than joining the caller's.
+        """
+
+        record = db.get(WorksheetSessionRecord, session_id)
+        if record is not None:
+            record.commit_requested_at = utcnow()
+            db.commit()
+
+    def _clear_commit_requested(self, db: Session, session_id: str) -> None:
+        """Drop the marker once the commit's outcome is known, either way.
+
+        Not called when the connection broke with the COMMIT in flight: there the
+        marker is the evidence, and the session record is closed alongside it.
+        """
+
+        record = db.get(WorksheetSessionRecord, session_id)
+        if record is not None and record.commit_requested_at is not None:
+            record.commit_requested_at = None
 
     def close_worksheet(self, db: Session, principal: Principal, session_id: str) -> dict:
         result = self._registry.close(session_id, principal.user_id or principal.subject)
@@ -361,6 +488,18 @@ class ExecutionService:
             risk=RiskClass.PERSISTENT_WRITE,
             operation_id="worksheet.commit",
         )
+        # Making pending DML durable is the most consequential thing this service does, so
+        # it is also where losing the store matters most: another process may already have
+        # recorded this session as closed and its outcome as unknown. Checked before the
+        # intent marker is written, so a refused commit leaves nothing behind.
+        self._require_store_ownership("worksheet.commit", sessionId=session_id)
+        # A commit has no execution record of its own, so the session record carries the
+        # intent instead. Committed before the COMMIT is issued and cleared once it
+        # returns either way: a process that dies in between leaves this set, and restart
+        # reconciliation reads it as a commit whose durability nobody observed. Without
+        # it, a killed process would leave a session that merely looks abandoned, and an
+        # abandoned session is otherwise a clean rollback by the database.
+        self._mark_commit_requested(db, session_id)
         try:
             result = self._registry.commit(session_id, principal.user_id or principal.subject)
         except OutcomeUnknownError as exc:
@@ -386,7 +525,9 @@ class ExecutionService:
             raise
         except HarnessError as exc:
             # A definite refusal: the work is still pending on a session the user can
-            # still reach, so the session record is left alone.
+            # still reach, so the session record is left open. The commit marker goes:
+            # its outcome is known, and a restart must not report it as uncertain.
+            self._clear_commit_requested(db, session_id)
             self._audit(
                 db,
                 principal=principal,
@@ -398,6 +539,7 @@ class ExecutionService:
             )
             db.commit()
             raise
+        self._clear_commit_requested(db, session_id)
         self._audit(
             db,
             principal=principal,
@@ -411,6 +553,15 @@ class ExecutionService:
         return result
 
     def rollback_worksheet(self, db: Session, principal: Principal, session_id: str) -> dict:
+        """Discard the pending work in this session.
+
+        Deliberately not fenced on store ownership, unlike commit and open. A rollback only
+        ever removes a pending change, so a superseded process performing one moves the
+        database towards what the new owner has already recorded -- an abandoned session is
+        a rollback anyway. Refusing it would leave the user holding a transaction with no
+        way to discard it. Cancellation is left open for the same reason.
+        """
+
         session = self.worksheet(principal, session_id)
         result = self._registry.rollback(session_id, principal.user_id or principal.subject)
         self._audit(
@@ -601,6 +752,7 @@ class ExecutionService:
             limits=effective,
             collectDbmsOutput=is_plsql(kind),
         )
+        self._mark_dispatched(db, record)
         try:
             outcome = self._engine.execute_in_session(session, request)
         except HarnessError as exc:
@@ -694,6 +846,7 @@ class ExecutionService:
             collectDbmsOutput=False,
             autocommit=entry.risk in (RiskClass.ADMINISTRATIVE, RiskClass.PERSISTENT_WRITE),
         )
+        self._mark_dispatched(db, record)
         try:
             if runner is not None:
                 outcome = runner(request)
@@ -823,6 +976,7 @@ class ExecutionService:
             collectDbmsOutput=False,
             autocommit=True,
         )
+        self._mark_dispatched(db, record)
         try:
             outcome = self._engine.execute_once(spec, request)
         except HarnessError as exc:
@@ -896,6 +1050,7 @@ class ExecutionService:
             limits=self._settings.default_limits,
             autocommit=True,
         )
+        self._mark_dispatched(db, record)
         with self._engine.one_connection(spec) as run:
             try:
                 outcome = run(request)
@@ -1022,10 +1177,74 @@ class ExecutionService:
             state=ExecutionState.QUEUED.value,
             dedup_key=dedup_key,
             request_digest=request_digest,
+            owner_id=self._runtime_id,
         )
         db.add(record)
         db.commit()
         return record
+
+    def _mark_dispatched(self, db: Session, record: Execution) -> None:
+        """Commit the moment this statement stops being merely intended.
+
+        Called immediately before the engine is handed the request, and committed, so
+        that a store surviving this process distinguishes two situations a single
+        ``queued`` row cannot: work that never reached a connection, and work that was
+        in flight. Restart reconciliation resolves the first to ``cancelled`` and the
+        second to ``outcome_unknown``; without this marker it would have to treat every
+        interrupted write as uncertain.
+
+        The cost is one extra round trip to the metadata store per execution. That buys
+        the difference between telling an operator "this did not run" and telling them
+        "this may have run", which is the whole point of persisting intent.
+
+        This is also where a runtime that has lost ownership of the store stops. By then
+        another process has already recorded this one's work, so dispatching would run a
+        statement whose record says it never was.
+        """
+
+        if record.risk_class == RiskClass.READ.value:
+            # A read cannot change anything, so the latched flag is a sufficient check and
+            # no extra round trip is spent on the common case.
+            if self._superseded:
+                raise RuntimeSupersededError(
+                    "This execution service no longer owns the metadata store. Nothing "
+                    "was dispatched. Use the service that owns the store.",
+                    detail={"runtimeId": self._runtime_id, "executionId": record.id},
+                )
+        else:
+            self._require_store_ownership(record.operation_id, executionId=record.id)
+        record.state = ExecutionState.RUNNING.value
+        record.dispatched_at = utcnow()
+        db.add(record)
+        db.commit()
+
+    def _already_settled(self, db: Session, record: Execution) -> bool:
+        """True if something else has already given this record a terminal state.
+
+        The only thing that does is restart reconciliation, run by a process that took
+        ownership of the store while this statement was still inside the driver call. Its
+        verdict has to stand. A late success written over it would erase the record an
+        operator is working from -- and they are the one who can still go and look in the
+        database, which this process, having lost the store, cannot be trusted to do.
+
+        Refused rather than merged, and logged, because it means two execution services
+        overlapped on one store, which is a deployment fault worth seeing.
+        """
+
+        db.refresh(record)
+        try:
+            settled = ExecutionState(record.state) in TERMINAL_STATES
+        except ValueError:  # a state this build does not know: leave it alone
+            settled = True
+        if not settled:
+            return False
+        log.error(
+            "execution %s was already resolved as %s by another process while this one "
+            "was still running it. Keeping that outcome; not overwriting it.",
+            record.id,
+            record.state,
+        )
+        return True
 
     def _finish_execution(
         self,
@@ -1036,6 +1255,8 @@ class ExecutionService:
         profile_id: str,
         risk: RiskClass,
     ) -> None:
+        if self._already_settled(db, record):
+            return
         record.state = outcome.state.value
         record.elapsed_ms = outcome.elapsed_ms
         record.database_elapsed_ms = outcome.database_elapsed_ms
@@ -1075,6 +1296,8 @@ class ExecutionService:
         as the state and flagged for verification.
         """
 
+        if self._already_settled(db, record):
+            return
         unknown = isinstance(error, OutcomeUnknownError)
         record.state = (
             ExecutionState.OUTCOME_UNKNOWN.value if unknown else ExecutionState.FAILED.value

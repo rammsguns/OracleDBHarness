@@ -12,25 +12,39 @@ from sqlalchemy import select
 from harness_api.deps import Administrator, Db, State
 from harness_api.models import (
     AppRole,
+    AuditEvent,
     ConnectionProfile,
+    Execution,
     IntegrationInstance,
     SecretReference,
     User,
     UserTargetGrant,
+    WorksheetSessionRecord,
     utcnow,
 )
 from harness_api.policy import ALL_PERMISSIONS
+from harness_api.recovery import (
+    COMMIT_IN_FLIGHT_REASON,
+    VERIFIED_OPERATION_ID,
+    outstanding_commit_verifications,
+    outstanding_verifications,
+)
+from harness_api.routers.history import execution_view
 from harness_api.schemas import (
     GrantIn,
     IntegrationCreated,
     IntegrationIn,
+    InterruptedCommitView,
     ProfileIn,
+    ReconciliationView,
     SecretReferenceIn,
     UserIn,
+    VerificationFindingIn,
 )
 from harness_api.secrets import SecretResolver
 from harness_api.security import generate_integration_token
 from harness_worker.errors import NotFoundError, PolicyError, ValidationError
+from harness_worker.types import ExecutionState, RiskClass
 
 router = APIRouter(prefix="/api/v1/admin", tags=["administration"])
 
@@ -326,5 +340,213 @@ def revoke_integration(integration_id: str, _: Administrator, db: Db) -> dict:
         "note": (
             "Copilot access is revoked and active copilot context is no longer usable. "
             "Oracle sessions owned by the IDE are unaffected."
+        ),
+    }
+
+
+# -- restart reconciliation ----------------------------------------------------------
+
+# The procedure returned with the report. It is here rather than only in
+# docs/operations.md so an operator holding the report holds the instructions too: an
+# execution left uncertain is the one case where the harness cannot finish the work on
+# its own, and pointing at a document is not an executable procedure.
+VERIFICATION_PROCEDURE = [
+    "Read the statement fingerprint and target from the execution record below.",
+    "Find the matching audit event (operationId system.restart.execution) for the "
+    "actor, the target and the risk class.",
+    "In the database, check whether that change is present. Query the affected rows "
+    "directly; do not rerun the statement to find out.",
+    "Record what you found with POST /api/v1/admin/executions/{executionId}/verification "
+    "-- applied, not_applied or unresolved -- which takes it off this list.",
+    "Only after recording not_applied should anyone run the statement again, and it is "
+    "the original actor who reruns it, as a new request.",
+]
+
+# A commit has no execution record and no statement of its own: it made a whole
+# transaction durable, or it did not. The audit trail is the only description of what that
+# transaction contained, so the procedure starts there rather than at a fingerprint.
+COMMIT_VERIFICATION_PROCEDURE = [
+    "For each entry in outstandingCommits, read the session id and target.",
+    "Find that session's writes in the audit trail: the worksheet.execute events "
+    "carrying the same sessionId, up to the restart. Those are what the commit would "
+    "have made durable, as one transaction.",
+    "In the database, check whether those changes are present. They are all present or "
+    "all absent; a commit is not partial.",
+    "Record what you found with POST /api/v1/admin/worksheets/{sessionId}/commit-verification.",
+    "The session itself is gone either way. If the transaction was not committed, the "
+    "work has to be redone from a new session by the person who did it.",
+]
+
+VERIFICATION_FINDINGS = ("applied", "not_applied", "unresolved")
+
+
+@router.get("/reconciliation", response_model=ReconciliationView)
+def reconciliation(_: Administrator, db: Db, state: State) -> ReconciliationView:
+    """What the last restart reconciled, and what a person still has to verify.
+
+    The report is this process's own: it describes the startup that is currently
+    serving. The outstanding list is not, and deliberately so -- an interrupted write
+    nobody has verified is still outstanding several restarts later.
+    """
+
+    report = state.reconciliation
+    outstanding = outstanding_verifications(db)
+    commits = outstanding_commit_verifications(db)
+    procedure: list[str] = []
+    if outstanding:
+        procedure += VERIFICATION_PROCEDURE
+    if commits:
+        procedure += COMMIT_VERIFICATION_PROCEDURE
+    return ReconciliationView(
+        **report.as_dict(),
+        summary=report.summary_line(),
+        outstanding=[execution_view(row) for row in outstanding],
+        outstandingCommits=[_commit_view(row) for row in commits],
+        procedure=procedure,
+    )
+
+
+def _commit_view(row: WorksheetSessionRecord) -> InterruptedCommitView:
+    # The query selects on commit_requested_at being set, so this cannot be None here.
+    requested = row.commit_requested_at
+    return InterruptedCommitView(
+        sessionId=row.id,
+        profileId=row.profile_id,
+        userId=row.user_id,
+        openedAt=row.opened_at.isoformat(),
+        commitRequestedAt=requested.isoformat() if requested else "",
+        closedAt=row.closed_at.isoformat() if row.closed_at else None,
+        closeReason=row.close_reason,
+        oracleSessionId=row.oracle_session_id,
+    )
+
+
+@router.post("/executions/{execution_id}/verification")
+def record_verification(
+    execution_id: str,
+    payload: VerificationFindingIn,
+    principal: Administrator,
+    db: Db,
+) -> dict:
+    """Record what an operator found in the database for an uncertain write.
+
+    The state stays ``outcome_unknown``. The harness never observed the outcome, and
+    overwriting that with ``succeeded`` or ``failed`` would turn a human's later check
+    into something indistinguishable from an outcome the harness saw for itself. The
+    finding is stored beside it and written to the audit trail.
+    """
+
+    if payload.finding not in VERIFICATION_FINDINGS:
+        raise ValidationError(
+            f"A finding must be one of {', '.join(VERIFICATION_FINDINGS)}.",
+            detail={"finding": payload.finding, "allowed": list(VERIFICATION_FINDINGS)},
+        )
+    row = db.get(Execution, execution_id)
+    if row is None:
+        raise NotFoundError("No such execution.", detail={"executionId": execution_id})
+    if row.state != ExecutionState.OUTCOME_UNKNOWN.value:
+        raise ValidationError(
+            "This execution has a known outcome, so there is nothing to verify. Only an "
+            "execution recorded as outcome_unknown takes a verification finding.",
+            detail={"executionId": execution_id, "state": row.state},
+        )
+
+    recorded_at = utcnow()
+    row.verification_json = {
+        **(row.verification_json or {}),
+        "operatorVerification": {
+            "finding": payload.finding,
+            "note": payload.note,
+            "verifiedBy": principal.subject,
+            "verifiedAt": recorded_at.isoformat(),
+        },
+    }
+    db.add(
+        AuditEvent(
+            actor_id=principal.user_id or "",
+            actor_subject=principal.subject,
+            profile_id=row.profile_id,
+            operation_id="system.restart.verified",
+            execution_id=row.id,
+            risk_class=row.risk_class,
+            outcome=payload.finding,
+            statement_fingerprint=row.statement_fingerprint,
+            detail={
+                "finding": payload.finding,
+                "note": payload.note,
+                "stateUnchanged": row.state,
+            },
+        )
+    )
+    db.commit()
+    return {
+        "executionId": execution_id,
+        "finding": payload.finding,
+        "state": row.state,
+        "note": (
+            "The execution keeps its outcome_unknown state: nothing observed the "
+            "outcome at the time. Your finding is recorded beside it and in the audit "
+            "trail, and it no longer appears as outstanding."
+        ),
+    }
+
+
+@router.post("/worksheets/{session_id}/commit-verification")
+def record_commit_verification(
+    session_id: str,
+    payload: VerificationFindingIn,
+    principal: Administrator,
+    db: Db,
+) -> dict:
+    """Record whether a commit interrupted by a restart was made durable.
+
+    The counterpart to the execution endpoint, for the one uncertain outcome that has no
+    execution record. Nothing about the session changes: it was closed by the restart and
+    cannot be reopened. The finding goes to the audit trail, which is what takes it off the
+    outstanding list -- there is no state on the session to rewrite, and the session record
+    goes on saying the commit was in flight, because it was.
+    """
+
+    if payload.finding not in VERIFICATION_FINDINGS:
+        raise ValidationError(
+            "A finding must be one of " + ", ".join(VERIFICATION_FINDINGS) + ".",
+            detail={"finding": payload.finding, "allowed": list(VERIFICATION_FINDINGS)},
+        )
+    row = db.get(WorksheetSessionRecord, session_id)
+    if row is None:
+        raise NotFoundError("No such worksheet session.", detail={"sessionId": session_id})
+    if row.close_reason != COMMIT_IN_FLIGHT_REASON:
+        raise ValidationError(
+            "This session's commit has a known outcome, so there is nothing to verify. "
+            "Only a session a restart closed with a commit in flight takes a finding.",
+            detail={"sessionId": session_id, "closeReason": row.close_reason},
+        )
+
+    db.add(
+        AuditEvent(
+            actor_id=principal.user_id or "",
+            actor_subject=principal.subject,
+            profile_id=row.profile_id,
+            operation_id=VERIFIED_OPERATION_ID,
+            risk_class=RiskClass.PERSISTENT_WRITE.value,
+            outcome=payload.finding,
+            detail={
+                "sessionId": session_id,
+                "finding": payload.finding,
+                "note": payload.note,
+                "commitRequestedAt": (
+                    row.commit_requested_at.isoformat() if row.commit_requested_at else None
+                ),
+            },
+        )
+    )
+    db.commit()
+    return {
+        "sessionId": session_id,
+        "finding": payload.finding,
+        "note": (
+            "Recorded in the audit trail. The session record still shows the commit was in "
+            "flight, because it was; your finding says what became of it. The session "
+            "cannot be reopened, so uncommitted work has to be redone from a new one."
         ),
     }

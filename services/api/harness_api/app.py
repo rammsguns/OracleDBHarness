@@ -22,6 +22,11 @@ from harness_api.copilot import CopilotService
 from harness_api.db import build_engine, build_session_factory, initialize_schema
 from harness_api.deps import AppState
 from harness_api.execution import ExecutionService
+from harness_api.recovery import (
+    claim_store,
+    new_runtime_id,
+    reconcile_interrupted_work,
+)
 from harness_api.routers import (
     admin,
     copilot,
@@ -59,7 +64,16 @@ def build_state(settings: Settings) -> AppState:
     engine = build_engine(settings)
     session_factory = build_session_factory(engine)
     version = initialize_schema(engine)
-    execution = ExecutionService(settings, session_factory)
+
+    # Claim the store and reconcile before the execution service exists, so no request
+    # can be dispatched against a store whose interrupted work has not been resolved.
+    # The claim comes first and commits on its own: a process that has been superseded
+    # has to learn that even if the reconciliation that follows fails.
+    runtime_id = new_runtime_id()
+    reconciliation = claim_store(session_factory, runtime_id)
+    reconciliation = reconcile_interrupted_work(session_factory, reconciliation)
+
+    execution = ExecutionService(settings, session_factory, runtime_id=runtime_id)
     with session_factory() as db:
         register_definitions(db, execution)
     return AppState(
@@ -71,6 +85,8 @@ def build_state(settings: Settings) -> AppState:
         runbooks=RunbookService(execution),
         copilot=CopilotService(settings, session_factory),
         metadata_schema_version=version,
+        runtime_id=runtime_id,
+        reconciliation=reconciliation,
     )
 
 

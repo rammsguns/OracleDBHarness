@@ -17,6 +17,7 @@ branch on it; so should you.
 | `execution_timeout` | 504 | The statement passed its budget and did not stop | The session was discarded |
 | `outcome_unknown` | 502 | **A write may or may not have been applied** | Verify in the database. Do not retry blindly |
 | `provider_failure` | 502 | The model provider failed | Database workflows are unaffected |
+| `runtime_superseded` | 503 | Another execution service has claimed the metadata store, so this one has stopped dispatching | Two API processes are pointed at one store. Stop this one; see *Restarting* |
 | `identity_provider_unavailable` | 502 | The OIDC provider's discovery document or signing keys could not be fetched, or its discovery document names a different issuer | Check `HARNESS_OIDC_ISSUER` and `HARNESS_OIDC_JWKS_URL` from inside the API container |
 | `oracle_error` | 400 | Oracle raised an error; `oracleCode` carries the ORA/PLS code | As for the ORA code |
 
@@ -89,7 +90,10 @@ it for you.
 ## What to watch
 
 - **Executions ending `outcome_unknown`.** Any is worth a look; a pattern means the
-  network or the target is unstable.
+  network or the target is unstable. After a restart, work through
+  `GET /api/v1/admin/reconciliation` rather than the raw list.
+- **`recovery:` log lines at startup.** A restart that resolved nothing says so. One that
+  resolved writes names how many need verification.
 - **Panels reporting `capability_unavailable`.** Usually a grant that was revoked.
 - **Sessions closed with reason `statement did not stop after cancellation`.** The
   target is under pressure, or a statement is genuinely stuck.
@@ -99,12 +103,82 @@ it for you.
 
 ## Restarting
 
-Execution intent is persisted before dispatch, so after a restart an `Execution` row
-left in `queued` or `running` is a statement whose fate is unknown. Reconcile those:
-they are not evidence that nothing ran.
+Startup reconciles the previous process's interrupted work before it serves a single
+request. You do not run anything; you read what it decided and follow up on the one case
+it cannot settle for you.
 
-Worksheet sessions do not survive a restart. Their connections are closed by the
-database when the process goes away, which rolls back uncommitted work.
+Execution intent is persisted before dispatch, and the moment of dispatch is persisted
+too. That second marker is what lets a restart tell two situations apart instead of
+treating both as unknown:
+
+| State the process died in | What the store holds | Resolved to | Why |
+| --- | --- | --- | --- |
+| Before dispatch | `queued`, no `dispatched_at` | `cancelled` | No connection was ever asked to run it. Nothing was applied |
+| During a read | `running`, `risk_class` `read` | `failed` | A read changes nothing, so there is nothing to verify or undo |
+| During DML or PL/SQL | `running`, a write risk class | `outcome_unknown` | Oracle may have applied it. **Never retried** |
+| During a commit | Session record with `commit_requested_at` set | Session closed, `outcome_unknown` audit event | The transaction may be durable |
+| Written by a build before schema version 4 | No `owner_id`, no `dispatched_at` | Writes to `outcome_unknown` | That build did not mark dispatch, so nothing can be established from the store |
+
+Nothing is ever redispatched. A write whose fate is unknown is recorded as unknown and
+left to a person, because retrying a write that may already have been applied applies it
+twice.
+
+Worksheet sessions do not survive a restart. Their connections are closed by the database
+when the process goes away, which rolls back uncommitted work, and their records are
+closed with reason `process restart`.
+
+### After a restart
+
+1. `GET /api/v1/admin/reconciliation` - what this startup resolved, and every execution
+   still waiting for someone to look in the database. It carries the procedure with it.
+2. For each entry in `outstanding`, check in the database whether that change is present.
+   Query the affected rows directly. **Do not rerun the statement to find out.**
+3. Record what you found:
+   `POST /api/v1/admin/executions/{executionId}/verification` with
+   `{"finding": "applied" | "not_applied" | "unresolved", "note": "..."}`.
+   That takes it off the outstanding list and writes a `system.restart.verified` audit
+   event. The execution keeps its `outcome_unknown` state: the harness never observed the
+   outcome, and your later check is a different kind of fact from one it saw itself.
+4. Only after a `not_applied` finding should anyone run the statement again, and it is
+   the original actor who reruns it, as a new request.
+5. Work through `outstandingCommits` the same way. A commit has no execution record and no
+   statement of its own -- it made a whole transaction durable or it did not -- so find that
+   session's `worksheet.execute` audit events to see what the transaction contained, check
+   whether those changes are present (all of them, or none; a commit is not partial), and
+   record the finding with
+   `POST /api/v1/admin/worksheets/{sessionId}/commit-verification`. The session cannot be
+   reopened, so uncommitted work has to be redone from a new one.
+
+The outstanding list is not scoped to the current process. An interrupted write nobody
+has verified is still outstanding several restarts later, which is the point.
+
+In the audit trail, a restart leaves `system.restart.reconciled` (one summary per
+startup), `system.restart.execution` (one per resolved record, with `redispatched: false`)
+and `system.restart.worksheet` (one per closed session). Those survive the next restart;
+the report from the endpoint does not.
+
+### One execution service per store
+
+The execution service owns the worksheet connections, so one deployment runs one of them.
+That is enforced rather than assumed. A starting process claims the metadata store,
+serialized on a single row so that simultaneous startups cannot both win, and supersedes
+any earlier claim. A second process started against a live store therefore fences the first
+rather than racing it, and logs `was still heartbeating when this process claimed the
+metadata store`. If you see that line, two API processes are pointed at one metadata store:
+stop one.
+
+A superseded process stops in two stages. Anything that could change the database durably
+-- a commit, a write, opening a new worksheet session -- checks the store itself and is
+refused with `runtime_superseded` (503) straight away, because the gap before the next
+heartbeat is exactly when a commit would land behind a record saying its outcome was
+unknown. Reads are not checked against the store, since a read changes nothing; but once a
+refusal has happened, or at the latest at the next heartbeat, the process gives up its
+sessions and stops serving entirely. A rollback and a cancellation stay allowed throughout:
+both only ever remove pending work, and refusing them would leave a user holding a
+transaction with no way to discard it.
+
+A statement that was already inside a driver call when its record got reconciled cannot
+overwrite that verdict when it finally returns; the late answer is refused and logged.
 
 ## Upgrading
 

@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from harness_api import db as metadata
 from harness_api.db import SCHEMA_VERSION, Migration, initialize_schema
-from harness_api.models import Base, SchemaVersion
+from harness_api.models import Base, SchemaVersion, StoreOwner
 from harness_worker.errors import ConfigurationError
 
 
@@ -35,13 +35,38 @@ def _version(engine: Engine) -> str:
         return session.scalars(select(SchemaVersion.version)).one()
 
 
-def _previous_release(engine: Engine) -> None:
-    """A store as version 2 left it: no request digest on executions."""
+# What each schema version added, so a store "as version N left it" can be built from
+# the current schema by stripping everything above N back out. Keeping this table here,
+# rather than hand-written per test, is what stops these fixtures quietly becoming
+# current-schema stores with an old number stamped on them -- which would test nothing.
+_ADDED_BY_VERSION: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "4": (
+        (
+            "executions.owner_id",
+            "executions.dispatched_at",
+            "worksheet_sessions.owner_id",
+            "worksheet_sessions.commit_requested_at",
+        ),
+        ("execution_runtimes", "store_owner"),
+    ),
+    "3": (("executions.request_digest",), ()),
+}
+
+
+def _store_as_of(engine: Engine, version: str) -> None:
+    """Build the store the named release would have left behind."""
 
     initialize_schema(engine)
     with engine.begin() as connection:
-        connection.execute(text("ALTER TABLE executions DROP COLUMN request_digest"))
-    _stamp(engine, "2")
+        for above, (columns, tables) in sorted(_ADDED_BY_VERSION.items(), reverse=True):
+            if int(above) <= int(version):
+                continue
+            for qualified in columns:
+                table, column = qualified.split(".")
+                connection.execute(text(f"ALTER TABLE {table} DROP COLUMN {column}"))
+            for table in tables:
+                connection.execute(text(f"DROP TABLE {table}"))
+    _stamp(engine, version)
 
 
 def _columns(engine: Engine, table: str) -> set[str]:
@@ -122,17 +147,38 @@ def test_a_schema_version_table_missing_a_column_is_refused_by_name(engine: Engi
 
 
 def test_a_version_2_store_is_upgraded_in_place(engine: Engine) -> None:
-    _previous_release(engine)
+    _store_as_of(engine, "2")
 
     assert initialize_schema(engine) == SCHEMA_VERSION
     assert _version(engine) == SCHEMA_VERSION
     assert "request_digest" in _columns(engine, "executions")
 
 
+def test_a_version_3_store_gains_the_reconciliation_columns(engine: Engine) -> None:
+    """The 3 -> 4 step, which restart reconciliation cannot work without.
+
+    An upgraded store starts with no ownership stamps and no dispatch markers on the
+    records it already holds. That is the case ``resolve_execution`` treats as unknown
+    rather than safe, and ``test_restart_recovery`` covers the consequence.
+    """
+
+    _store_as_of(engine, "3")
+
+    assert initialize_schema(engine) == SCHEMA_VERSION
+    assert {"owner_id", "dispatched_at"} <= _columns(engine, "executions")
+    assert {"owner_id", "commit_requested_at"} <= _columns(engine, "worksheet_sessions")
+    tables = inspect(engine).get_table_names()
+    assert "execution_runtimes" in tables
+    # The owner row has to exist before two processes can contend for it, so the migration
+    # creates the table and the row rather than leaving the table to create_all.
+    assert "store_owner" in tables
+    with Session(engine) as session:
+        assert session.scalars(select(StoreOwner)).one().runtime_id == ""
+
+
 def test_a_version_1_sqlite_store_is_refused_with_what_to_do(engine: Engine) -> None:
     # The 1 -> 2 step swaps a table constraint, which SQLite cannot do in place.
-    _previous_release(engine)
-    _stamp(engine, "1")
+    _store_as_of(engine, "1")
 
     with pytest.raises(ConfigurationError, match="cannot be upgraded in place"):
         initialize_schema(engine)
@@ -143,7 +189,7 @@ def test_a_version_1_sqlite_store_is_refused_with_what_to_do(engine: Engine) -> 
 def test_a_failing_migration_leaves_the_store_at_its_old_version(
     engine: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _previous_release(engine)
+    _store_as_of(engine, "2")
 
     def half_done(connection: Connection) -> None:
         connection.execute(text("ALTER TABLE executions ADD COLUMN request_digest VARCHAR(64)"))
@@ -192,9 +238,8 @@ def test_a_version_1_postgresql_store_is_upgraded_in_place() -> None:
     Base.metadata.drop_all(engine)
     try:
         # The store as version 1 left it: a global dedup_key constraint, no digest.
-        initialize_schema(engine)
+        _store_as_of(engine, "2")
         with engine.begin() as connection:
-            connection.execute(text("ALTER TABLE executions DROP COLUMN request_digest"))
             connection.execute(
                 text("ALTER TABLE executions DROP CONSTRAINT uq_executions_actor_dedup_key")
             )
@@ -209,6 +254,8 @@ def test_a_version_1_postgresql_store_is_upgraded_in_place() -> None:
         assert initialize_schema(engine) == SCHEMA_VERSION
         assert _version(engine) == SCHEMA_VERSION
         assert "request_digest" in _columns(engine, "executions")
+        assert {"owner_id", "dispatched_at"} <= _columns(engine, "executions")
+        assert {"owner_id", "commit_requested_at"} <= _columns(engine, "worksheet_sessions")
         constraints = {
             item["name"]: item["column_names"]
             for item in inspect(engine).get_unique_constraints("executions")
