@@ -72,6 +72,20 @@ class ConnectionFailedError(HarnessError):
     http_status = 502
 
 
+class RuntimeSupersededError(HarnessError):
+    """Another execution service has claimed the metadata store.
+
+    One execution service owns the worksheet connections for a deployment. When a
+    second one starts, it reconciles the first one's interrupted work, which means
+    recording writes whose fate nobody observed. A process that has been superseded
+    must therefore stop dispatching: otherwise it would run a statement that has
+    already been written down as never having been dispatched.
+    """
+
+    code = "runtime_superseded"
+    http_status = 503
+
+
 class SessionExpiredError(HarnessError):
     code = "session_expired"
     http_status = 409

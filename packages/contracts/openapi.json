@@ -1189,6 +1189,97 @@
         "title": "ProfileIn",
         "type": "object"
       },
+      "ReconciliationView": {
+        "additionalProperties": false,
+        "description": "What this process found in the store when it started, and what remains open.",
+        "properties": {
+          "cancelledBeforeDispatch": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Cancelledbeforedispatch",
+            "type": "array"
+          },
+          "commitsUnknown": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Commitsunknown",
+            "type": "array"
+          },
+          "executionsResolved": {
+            "title": "Executionsresolved",
+            "type": "integer"
+          },
+          "failedReads": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Failedreads",
+            "type": "array"
+          },
+          "needsVerification": {
+            "title": "Needsverification",
+            "type": "integer"
+          },
+          "outcomeUnknown": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Outcomeunknown",
+            "type": "array"
+          },
+          "outstanding": {
+            "items": {
+              "$ref": "#/components/schemas/ExecutionView"
+            },
+            "title": "Outstanding",
+            "type": "array"
+          },
+          "procedure": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Procedure",
+            "type": "array"
+          },
+          "runtimeId": {
+            "title": "Runtimeid",
+            "type": "string"
+          },
+          "sessionsClosed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sessionsclosed",
+            "type": "array"
+          },
+          "startedAt": {
+            "title": "Startedat",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "supersededRuntimes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Supersededruntimes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "runtimeId",
+          "startedAt",
+          "executionsResolved",
+          "needsVerification",
+          "summary"
+        ],
+        "title": "ReconciliationView",
+        "type": "object"
+      },
       "RunbookRunRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1499,6 +1590,28 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "VerificationFindingIn": {
+        "additionalProperties": false,
+        "description": "An operator's answer to \"did this write actually happen?\".\n\nThe execution keeps its ``outcome_unknown`` state: it was uncertain at the time and\nrewriting history would lose that. The finding is recorded alongside it, which is\nwhat takes it off the outstanding list.",
+        "properties": {
+          "finding": {
+            "description": "applied: the change is in the database. not_applied: it is not. unresolved: it could not be established.",
+            "title": "Finding",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "finding"
+        ],
+        "title": "VerificationFindingIn",
+        "type": "object"
       }
     }
   },
@@ -1509,6 +1622,77 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/admin/executions/{execution_id}/verification": {
+      "post": {
+        "description": "Record what an operator found in the database for an uncertain write.\n\nThe state stays ``outcome_unknown``. The harness never observed the outcome, and\noverwriting that with ``succeeded`` or ``failed`` would turn a human's later check\ninto something indistinguishable from an outcome the harness saw for itself. The\nfinding is stored beside it and written to the audit trail.",
+        "operationId": "record_verification_api_v1_admin_executions__execution_id__verification_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "execution_id",
+            "required": true,
+            "schema": {
+              "title": "Execution Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerificationFindingIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Record Verification Api V1 Admin Executions  Execution Id  Verification Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record Verification",
+        "tags": [
+          "administration"
+        ]
+      }
+    },
     "/api/v1/admin/grants": {
       "post": {
         "operationId": "create_grant_api_v1_admin_grants_post",
@@ -1794,6 +1978,56 @@
           }
         },
         "summary": "Revoke Integration",
+        "tags": [
+          "administration"
+        ]
+      }
+    },
+    "/api/v1/admin/reconciliation": {
+      "get": {
+        "description": "What the last restart reconciled, and what a person still has to verify.\n\nThe report is this process's own: it describes the startup that is currently\nserving. The outstanding list is not, and deliberately so -- an interrupted write\nnobody has verified is still outstanding several restarts later.",
+        "operationId": "reconciliation_api_v1_admin_reconciliation_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconciliationView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reconciliation",
         "tags": [
           "administration"
         ]

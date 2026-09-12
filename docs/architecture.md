@@ -36,8 +36,11 @@ Concretely, in `harness_api.execution.ExecutionService`:
    capabilities, minimum Oracle version. Each layer is separate and each records why.
 3. Persist an `Execution` row **before** dispatch, so interrupted work is visible
    after a restart.
-4. Run it through `ExecutionEngine` with narrowed limits.
-5. Write the outcome and an append-only `AuditEvent`.
+4. Commit the dispatch marker, so a restart can tell work that never reached a
+   connection from work that was in flight. See `harness_api.recovery`.
+5. Run it through `ExecutionEngine` with narrowed limits.
+6. Write the outcome and an append-only `AuditEvent`, unless another process has already
+   resolved the record -- a reconciliation verdict is never overwritten by a late answer.
 
 Free-form worksheet SQL and reviewed catalog operations both take this path. They
 differ in where the statement came from and what permission it needs, not in what

@@ -442,7 +442,7 @@ class SessionRegistry:
         with self._registry_lock:
             return [s for s in self._sessions.values() if s.actor_id == actor_id and not s.closed]
 
-    def shutdown(self) -> None:
+    def shutdown(self, *, reason: str = "service shutdown") -> list[str]:
         """Retire every session, closing the connections nobody is inside.
 
         Shutting down is not a reason to skip the session lock: a statement may still
@@ -451,12 +451,17 @@ class SessionRegistry:
         retired instead, exactly as revocation and expiry retire one, and its
         connection is disposed of by the thread that holds it when the statement
         returns.
+
+        ``reason`` is what the session records say happened. It is not always a
+        shutdown: a runtime that has lost ownership of the metadata store gives up its
+        sessions the same way, and an operator reading the records needs to see which.
         """
 
         with self._registry_lock:
             sessions = list(self._sessions.values())
         for session in sessions:
-            self._close_or_retire(session, reason="service shutdown")
+            self._close_or_retire(session, reason=reason)
+        return [session.session_id for session in sessions]
 
     # -- internals -----------------------------------------------------------------
 

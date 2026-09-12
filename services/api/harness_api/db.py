@@ -23,8 +23,9 @@ from harness_worker.errors import ConfigurationError
 
 log = logging.getLogger("harness.db")
 
-# 3: executions retain an exact request digest for idempotency checks.
-SCHEMA_VERSION = "3"
+# 4: executions and worksheet sessions record their owning runtime, and the point at
+#    which work was dispatched, so interrupted work can be reconciled after a restart.
+SCHEMA_VERSION = "4"
 
 
 def resolve_metadata_url(settings: Settings) -> URL:
@@ -108,6 +109,26 @@ def _add_request_digest(connection: Connection) -> None:
     connection.exec_driver_sql("ALTER TABLE executions ADD COLUMN request_digest VARCHAR(64)")
 
 
+def _add_restart_reconciliation(connection: Connection) -> None:
+    """Add the ownership and dispatch columns restart reconciliation reads.
+
+    Existing rows keep an empty ``owner_id`` and a NULL ``dispatched_at``. That is not
+    read as "this never reached Oracle": a store written by an earlier build has no
+    dispatch marker at all, so reconciliation treats its non-terminal writes as
+    uncertain rather than assuming the safe answer. See harness_api.recovery.
+    """
+
+    timestamp = "TIMESTAMP WITH TIME ZONE" if connection.dialect.name != "sqlite" else "TIMESTAMP"
+    for table in ("executions", "worksheet_sessions"):
+        connection.exec_driver_sql(
+            f"ALTER TABLE {table} ADD COLUMN owner_id VARCHAR(40) DEFAULT '' NOT NULL"
+        )
+    connection.exec_driver_sql(f"ALTER TABLE executions ADD COLUMN dispatched_at {timestamp}")
+    connection.exec_driver_sql(
+        f"ALTER TABLE worksheet_sessions ADD COLUMN commit_requested_at {timestamp}"
+    )
+
+
 # Keyed by the version a step upgrades *from*. Add a step here in the same change that
 # bumps SCHEMA_VERSION, and test it from a store the previous release would leave.
 MIGRATIONS: dict[str, Migration] = {
@@ -120,6 +141,11 @@ MIGRATIONS: dict[str, Migration] = {
         "3",
         "executions.request_digest for exact idempotency checks",
         _add_request_digest,
+    ),
+    "3": Migration(
+        "4",
+        "runtime ownership and dispatch markers for restart reconciliation",
+        _add_restart_reconciliation,
     ),
 }
 

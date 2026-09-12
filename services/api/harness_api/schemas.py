@@ -353,3 +353,46 @@ class AuditView(Schema):
     outcome: str
     statement_fingerprint: str = Field(default="", alias="statementFingerprint")
     affected_counts: dict[str, Any] = Field(default_factory=dict, alias="affectedCounts")
+
+
+# -- restart reconciliation ----------------------------------------------------------
+
+
+class ReconciliationView(Schema):
+    """What this process found in the store when it started, and what remains open."""
+
+    runtime_id: str = Field(alias="runtimeId")
+    started_at: str = Field(alias="startedAt")
+    superseded_runtimes: list[str] = Field(default_factory=list, alias="supersededRuntimes")
+    executions_resolved: int = Field(alias="executionsResolved")
+    cancelled_before_dispatch: list[str] = Field(
+        default_factory=list, alias="cancelledBeforeDispatch"
+    )
+    failed_reads: list[str] = Field(default_factory=list, alias="failedReads")
+    outcome_unknown: list[str] = Field(default_factory=list, alias="outcomeUnknown")
+    sessions_closed: list[str] = Field(default_factory=list, alias="sessionsClosed")
+    commits_unknown: list[str] = Field(default_factory=list, alias="commitsUnknown")
+    needs_verification: int = Field(alias="needsVerification")
+    summary: str
+    # Executions still waiting for someone to look in the database, oldest first. These
+    # outlive the restart that produced them: an unverified write from two restarts ago
+    # is still unverified.
+    outstanding: list[ExecutionView] = Field(default_factory=list)
+    procedure: list[str] = Field(default_factory=list)
+
+
+class VerificationFindingIn(Schema):
+    """An operator's answer to "did this write actually happen?".
+
+    The execution keeps its ``outcome_unknown`` state: it was uncertain at the time and
+    rewriting history would lose that. The finding is recorded alongside it, which is
+    what takes it off the outstanding list.
+    """
+
+    finding: str = Field(
+        description=(
+            "applied: the change is in the database. not_applied: it is not. "
+            "unresolved: it could not be established."
+        )
+    )
+    note: str = Field(default="", max_length=2000)

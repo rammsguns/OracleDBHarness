@@ -167,6 +167,16 @@ class WorksheetSessionRecord(Base):
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     close_reason: Mapped[str] = mapped_column(String(200), default="")
     oracle_session_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Which execution-service runtime leased this session. The connection itself lives
+    # only in that process's memory, so a record left open by any other runtime is
+    # unreachable and is closed at startup. Empty for pre-version-4 records.
+    owner_id: Mapped[str] = mapped_column(String(40), default="")
+    # Set immediately before a COMMIT is handed to the session, cleared once it
+    # returns either way. A record found open with this set is a commit whose fate
+    # inside Oracle nobody observed; see harness_api.recovery.
+    commit_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class SavedScript(Base):
@@ -223,6 +233,15 @@ class Execution(Base):
     # Separate from the redacted audit fingerprint: exact request identity, without
     # retaining SQL literals or bind values. NULL for pre-digest executions.
     request_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Which execution-service runtime persisted this intent. A non-terminal record
+    # carrying any other runtime's id belongs to a process that is gone, which is what
+    # makes restart reconciliation safe to run without guessing at liveness. Empty for
+    # pre-version-4 records, whose dispatch state cannot be established either way.
+    owner_id: Mapped[str] = mapped_column(String(40), default="")
+    # Committed before the statement is handed to the engine, so the durable record
+    # separates "never left the API" from "was in flight". NULL means nothing was
+    # dispatched: no connection was asked to run this.
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -364,6 +383,32 @@ class CopilotBudget(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+class ExecutionRuntime(Base):
+    """One run of the execution service, and which one currently owns the store.
+
+    A deployment runs a single execution service, because that service owns the
+    worksheet connections. This table is how that assumption is enforced rather than
+    assumed: a starting process claims the store, marks any earlier claim superseded,
+    and only then reconciles the work the superseded runtime left behind. A superseded
+    process discovers it at its next heartbeat and stops dispatching, so it cannot run
+    a statement that has already been reconciled as never dispatched.
+    """
+
+    __tablename__ = "execution_runtimes"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    host: Mapped[str] = mapped_column(String(255), default="")
+    pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    version: Mapped[str] = mapped_column(String(40), default="")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Set by a clean shutdown. A runtime with neither this nor a superseding id is one
+    # that died without saying so, which is exactly what reconciliation looks for.
+    stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    superseded_by: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    reconciled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class SchemaVersion(Base):

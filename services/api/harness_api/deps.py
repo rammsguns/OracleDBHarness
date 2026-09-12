@@ -14,6 +14,7 @@ from harness_api.config import Settings
 from harness_api.copilot import CopilotService
 from harness_api.execution import ExecutionService
 from harness_api.models import AppRole
+from harness_api.recovery import ReconciliationReport
 from harness_api.runbooks import RunbookService
 from harness_api.security import Authenticator, Principal
 from harness_worker.errors import AuthorizationError
@@ -29,6 +30,11 @@ class AppState:
     runbooks: RunbookService
     copilot: CopilotService
     metadata_schema_version: str
+    # This process's identity in the metadata store, and what reconciling the previous
+    # process's interrupted work found at startup. Held so an administrator can read the
+    # report without digging through the log of a container that has already restarted.
+    runtime_id: str
+    reconciliation: ReconciliationReport
 
 
 def get_state(request: Request) -> AppState:

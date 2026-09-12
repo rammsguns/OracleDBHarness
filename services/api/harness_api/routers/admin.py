@@ -12,7 +12,9 @@ from sqlalchemy import select
 from harness_api.deps import Administrator, Db, State
 from harness_api.models import (
     AppRole,
+    AuditEvent,
     ConnectionProfile,
+    Execution,
     IntegrationInstance,
     SecretReference,
     User,
@@ -20,17 +22,22 @@ from harness_api.models import (
     utcnow,
 )
 from harness_api.policy import ALL_PERMISSIONS
+from harness_api.recovery import outstanding_verifications
+from harness_api.routers.history import execution_view
 from harness_api.schemas import (
     GrantIn,
     IntegrationCreated,
     IntegrationIn,
     ProfileIn,
+    ReconciliationView,
     SecretReferenceIn,
     UserIn,
+    VerificationFindingIn,
 )
 from harness_api.secrets import SecretResolver
 from harness_api.security import generate_integration_token
 from harness_worker.errors import NotFoundError, PolicyError, ValidationError
+from harness_worker.types import ExecutionState
 
 router = APIRouter(prefix="/api/v1/admin", tags=["administration"])
 
@@ -326,5 +333,115 @@ def revoke_integration(integration_id: str, _: Administrator, db: Db) -> dict:
         "note": (
             "Copilot access is revoked and active copilot context is no longer usable. "
             "Oracle sessions owned by the IDE are unaffected."
+        ),
+    }
+
+
+# -- restart reconciliation ----------------------------------------------------------
+
+# The procedure returned with the report. It is here rather than only in
+# docs/operations.md so an operator holding the report holds the instructions too: an
+# execution left uncertain is the one case where the harness cannot finish the work on
+# its own, and pointing at a document is not an executable procedure.
+VERIFICATION_PROCEDURE = [
+    "Read the statement fingerprint and target from the execution record below.",
+    "Find the matching audit event (operationId system.restart.execution) for the "
+    "actor, the target and the risk class.",
+    "In the database, check whether that change is present. Query the affected rows "
+    "directly; do not rerun the statement to find out.",
+    "Record what you found with POST /api/v1/admin/executions/{executionId}/verification "
+    "-- applied, not_applied or unresolved -- which takes it off this list.",
+    "Only after recording not_applied should anyone run the statement again, and it is "
+    "the original actor who reruns it, as a new request.",
+]
+
+VERIFICATION_FINDINGS = ("applied", "not_applied", "unresolved")
+
+
+@router.get("/reconciliation", response_model=ReconciliationView)
+def reconciliation(_: Administrator, db: Db, state: State) -> ReconciliationView:
+    """What the last restart reconciled, and what a person still has to verify.
+
+    The report is this process's own: it describes the startup that is currently
+    serving. The outstanding list is not, and deliberately so -- an interrupted write
+    nobody has verified is still outstanding several restarts later.
+    """
+
+    report = state.reconciliation
+    outstanding = outstanding_verifications(db)
+    return ReconciliationView(
+        **report.as_dict(),
+        summary=report.summary_line(),
+        outstanding=[execution_view(row) for row in outstanding],
+        procedure=VERIFICATION_PROCEDURE if outstanding else [],
+    )
+
+
+@router.post("/executions/{execution_id}/verification")
+def record_verification(
+    execution_id: str,
+    payload: VerificationFindingIn,
+    principal: Administrator,
+    db: Db,
+) -> dict:
+    """Record what an operator found in the database for an uncertain write.
+
+    The state stays ``outcome_unknown``. The harness never observed the outcome, and
+    overwriting that with ``succeeded`` or ``failed`` would turn a human's later check
+    into something indistinguishable from an outcome the harness saw for itself. The
+    finding is stored beside it and written to the audit trail.
+    """
+
+    if payload.finding not in VERIFICATION_FINDINGS:
+        raise ValidationError(
+            f"A finding must be one of {', '.join(VERIFICATION_FINDINGS)}.",
+            detail={"finding": payload.finding, "allowed": list(VERIFICATION_FINDINGS)},
+        )
+    row = db.get(Execution, execution_id)
+    if row is None:
+        raise NotFoundError("No such execution.", detail={"executionId": execution_id})
+    if row.state != ExecutionState.OUTCOME_UNKNOWN.value:
+        raise ValidationError(
+            "This execution has a known outcome, so there is nothing to verify. Only an "
+            "execution recorded as outcome_unknown takes a verification finding.",
+            detail={"executionId": execution_id, "state": row.state},
+        )
+
+    recorded_at = utcnow()
+    row.verification_json = {
+        **(row.verification_json or {}),
+        "operatorVerification": {
+            "finding": payload.finding,
+            "note": payload.note,
+            "verifiedBy": principal.subject,
+            "verifiedAt": recorded_at.isoformat(),
+        },
+    }
+    db.add(
+        AuditEvent(
+            actor_id=principal.user_id or "",
+            actor_subject=principal.subject,
+            profile_id=row.profile_id,
+            operation_id="system.restart.verified",
+            execution_id=row.id,
+            risk_class=row.risk_class,
+            outcome=payload.finding,
+            statement_fingerprint=row.statement_fingerprint,
+            detail={
+                "finding": payload.finding,
+                "note": payload.note,
+                "stateUnchanged": row.state,
+            },
+        )
+    )
+    db.commit()
+    return {
+        "executionId": execution_id,
+        "finding": payload.finding,
+        "state": row.state,
+        "note": (
+            "The execution keeps its outcome_unknown state: nothing observed the "
+            "outcome at the time. Your finding is recorded beside it and in the audit "
+            "trail, and it no longer appears as outstanding."
         ),
     }

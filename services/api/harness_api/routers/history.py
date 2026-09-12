@@ -19,7 +19,7 @@ from harness_worker.errors import NotFoundError
 router = APIRouter(prefix="/api/v1", tags=["history"])
 
 
-def _execution_view(row: Execution) -> ExecutionView:
+def execution_view(row: Execution) -> ExecutionView:
     return ExecutionView(
         id=row.id,
         operationId=row.operation_id,
@@ -54,7 +54,7 @@ def list_executions(
     if profile_id:
         query = query.where(Execution.profile_id == profile_id)
     rows = db.scalars(query.order_by(Execution.started_at.desc()).limit(limit)).all()
-    return [_execution_view(row) for row in rows]
+    return [execution_view(row) for row in rows]
 
 
 @router.get("/executions/{execution_id}", response_model=ExecutionView)
@@ -62,7 +62,7 @@ def get_execution(execution_id: str, principal: CurrentUser, db: Db) -> Executio
     row = db.get(Execution, execution_id)
     if row is None or row.user_id != principal.user_id:
         raise NotFoundError("No such execution.", detail={"executionId": execution_id})
-    return _execution_view(row)
+    return execution_view(row)
 
 
 @router.get("/audit", response_model=list[AuditView])
