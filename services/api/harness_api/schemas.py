@@ -358,6 +358,19 @@ class AuditView(Schema):
 # -- restart reconciliation ----------------------------------------------------------
 
 
+class InterruptedCommitView(Schema):
+    """A worksheet session whose COMMIT was in flight when its process died."""
+
+    session_id: str = Field(alias="sessionId")
+    profile_id: str = Field(alias="profileId")
+    user_id: str = Field(default="", alias="userId")
+    opened_at: str = Field(alias="openedAt")
+    commit_requested_at: str = Field(alias="commitRequestedAt")
+    closed_at: str | None = Field(default=None, alias="closedAt")
+    close_reason: str = Field(default="", alias="closeReason")
+    oracle_session_id: int | None = Field(default=None, alias="oracleSessionId")
+
+
 class ReconciliationView(Schema):
     """What this process found in the store when it started, and what remains open."""
 
@@ -374,10 +387,16 @@ class ReconciliationView(Schema):
     commits_unknown: list[str] = Field(default_factory=list, alias="commitsUnknown")
     needs_verification: int = Field(alias="needsVerification")
     summary: str
-    # Executions still waiting for someone to look in the database, oldest first. These
-    # outlive the restart that produced them: an unverified write from two restarts ago
-    # is still unverified.
+    # Executions still waiting for someone to look in the database. These outlive the
+    # restart that produced them: an unverified write from two restarts ago is still
+    # unverified.
     outstanding: list[ExecutionView] = Field(default_factory=list)
+    # Commits whose durability nobody observed. Listed separately because a commit has no
+    # execution record of its own, and counted in `needsVerification` alongside the
+    # executions, so the number and the lists always agree.
+    outstanding_commits: list[InterruptedCommitView] = Field(
+        default_factory=list, alias="outstandingCommits"
+    )
     procedure: list[str] = Field(default_factory=list)
 
 

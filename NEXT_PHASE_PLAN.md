@@ -89,14 +89,19 @@ deployment half is untouched.** What landed:
 - A commit carries its intent on the session record, because a commit has no execution
   record of its own. A process that dies between the marker and the answer leaves a
   session whose durability is reported as unknown rather than as a clean rollback.
-- One execution service per store is enforced, not assumed: a starting process claims
-  the store, supersedes the previous claim, and the superseded process stops dispatching
-  at its next heartbeat with `runtime_superseded`. A late answer from a statement whose
-  record was already reconciled is refused rather than written over the verdict.
-- `GET /api/v1/admin/reconciliation` and
-  `POST /api/v1/admin/executions/{id}/verification` are the operator path, and
-  `docs/operations.md` carries the procedure. An execution keeps its `outcome_unknown`
-  state after a human verification; the finding is recorded beside it.
+- One execution service per store is enforced, not assumed. The claim is serialized on a
+  single row, because reading the live runtimes first is not enough: under READ COMMITTED
+  two simultaneous startups cannot see each other's uncommitted row, so both would find no
+  previous owner and both would serve. A superseded process is refused every operation that
+  could change the database durably -- commit, write, new session lease -- checked against
+  the store rather than against a flag that is up to one heartbeat stale. A late answer from
+  a statement whose record was already reconciled is refused, not written over the verdict.
+- `GET /api/v1/admin/reconciliation` is the operator path, with
+  `POST /api/v1/admin/executions/{id}/verification` for an uncertain write and
+  `POST /api/v1/admin/worksheets/{id}/commit-verification` for an interrupted commit, which
+  has no execution record of its own. Both lists and the count always agree. An execution
+  keeps its `outcome_unknown` state after a human verification; the finding is recorded
+  beside it.
 
 Still owed in this step: the same restart run against Oracle, PostgreSQL migration and
 restart-persistence coverage in CI, and a clean Compose install, upgrade and restore.
@@ -195,7 +200,10 @@ All run locally, outside the filesystem sandbox, against the local stand-in back
 - Baseline before any change: 379 passed, 56 skipped. `ruff check`, `ruff format
   --check`, `mypy` over both services and contract freshness all passed. This is what
   closed NP-09.
-- After the change: **411 passed, 56 skipped**. The 32 new checks are the restart suites.
+- After the change: **424 passed, 57 skipped**. The 45 new checks are the restart,
+  store-ownership and commit-verification suites. Two of the skips are the PostgreSQL
+  migration and concurrent-claim checks, which need `HARNESS_TEST_POSTGRES_URL`; the
+  concurrent-claim race cannot be reproduced on SQLite, which serializes writers.
 - `ruff check`, `ruff format`, `mypy` (38 source files) clean; `packages/contracts`
   regenerated, 47 paths, and the contract-freshness check passes.
 - Web: typecheck, 45 tests (3 Keycloak skipped) and build all passed. DataForge adapter:

@@ -141,6 +141,13 @@ closed with reason `process restart`.
    outcome, and your later check is a different kind of fact from one it saw itself.
 4. Only after a `not_applied` finding should anyone run the statement again, and it is
    the original actor who reruns it, as a new request.
+5. Work through `outstandingCommits` the same way. A commit has no execution record and no
+   statement of its own -- it made a whole transaction durable or it did not -- so find that
+   session's `worksheet.execute` audit events to see what the transaction contained, check
+   whether those changes are present (all of them, or none; a commit is not partial), and
+   record the finding with
+   `POST /api/v1/admin/worksheets/{sessionId}/commit-verification`. The session cannot be
+   reopened, so uncommitted work has to be redone from a new one.
 
 The outstanding list is not scoped to the current process. An interrupted write nobody
 has verified is still outstanding several restarts later, which is the point.
@@ -153,12 +160,22 @@ the report from the endpoint does not.
 ### One execution service per store
 
 The execution service owns the worksheet connections, so one deployment runs one of them.
-That is enforced rather than assumed. A starting process claims the metadata store and
-supersedes any earlier claim; the superseded process notices at its next heartbeat, gives
-up its sessions and refuses all further dispatch with `runtime_superseded` (503). A second
-process started against a live store therefore fences the first rather than racing it, and
-logs `was still heartbeating when this process claimed the metadata store`. If you see
-that line, two API processes are pointed at one metadata store: stop one.
+That is enforced rather than assumed. A starting process claims the metadata store,
+serialized on a single row so that simultaneous startups cannot both win, and supersedes
+any earlier claim. A second process started against a live store therefore fences the first
+rather than racing it, and logs `was still heartbeating when this process claimed the
+metadata store`. If you see that line, two API processes are pointed at one metadata store:
+stop one.
+
+A superseded process stops in two stages. Anything that could change the database durably
+-- a commit, a write, opening a new worksheet session -- checks the store itself and is
+refused with `runtime_superseded` (503) straight away, because the gap before the next
+heartbeat is exactly when a commit would land behind a record saying its outcome was
+unknown. Reads are not checked against the store, since a read changes nothing; but once a
+refusal has happened, or at the latest at the next heartbeat, the process gives up its
+sessions and stops serving entirely. A rollback and a cancellation stay allowed throughout:
+both only ever remove pending work, and refusing them would leave a user holding a
+transaction with no way to discard it.
 
 A statement that was already inside a driver call when its record got reconciled cannot
 overwrite that verdict when it finally returns; the late answer is refused and logged.

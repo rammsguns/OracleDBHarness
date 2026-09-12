@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from harness_api import db as metadata
 from harness_api.db import SCHEMA_VERSION, Migration, initialize_schema
-from harness_api.models import Base, SchemaVersion
+from harness_api.models import Base, SchemaVersion, StoreOwner
 from harness_worker.errors import ConfigurationError
 
 
@@ -47,7 +47,7 @@ _ADDED_BY_VERSION: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
             "worksheet_sessions.owner_id",
             "worksheet_sessions.commit_requested_at",
         ),
-        ("execution_runtimes",),
+        ("execution_runtimes", "store_owner"),
     ),
     "3": (("executions.request_digest",), ()),
 }
@@ -167,7 +167,13 @@ def test_a_version_3_store_gains_the_reconciliation_columns(engine: Engine) -> N
     assert initialize_schema(engine) == SCHEMA_VERSION
     assert {"owner_id", "dispatched_at"} <= _columns(engine, "executions")
     assert {"owner_id", "commit_requested_at"} <= _columns(engine, "worksheet_sessions")
-    assert "execution_runtimes" in inspect(engine).get_table_names()
+    tables = inspect(engine).get_table_names()
+    assert "execution_runtimes" in tables
+    # The owner row has to exist before two processes can contend for it, so the migration
+    # creates the table and the row rather than leaving the table to create_all.
+    assert "store_owner" in tables
+    with Session(engine) as session:
+        assert session.scalars(select(StoreOwner)).one().runtime_id == ""
 
 
 def test_a_version_1_sqlite_store_is_refused_with_what_to_do(engine: Engine) -> None:

@@ -827,6 +827,68 @@
         "title": "IntegrationIn",
         "type": "object"
       },
+      "InterruptedCommitView": {
+        "additionalProperties": false,
+        "description": "A worksheet session whose COMMIT was in flight when its process died.",
+        "properties": {
+          "closeReason": {
+            "default": "",
+            "title": "Closereason",
+            "type": "string"
+          },
+          "closedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closedat"
+          },
+          "commitRequestedAt": {
+            "title": "Commitrequestedat",
+            "type": "string"
+          },
+          "openedAt": {
+            "title": "Openedat",
+            "type": "string"
+          },
+          "oracleSessionId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oraclesessionid"
+          },
+          "profileId": {
+            "title": "Profileid",
+            "type": "string"
+          },
+          "sessionId": {
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "userId": {
+            "default": "",
+            "title": "Userid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "profileId",
+          "openedAt",
+          "commitRequestedAt"
+        ],
+        "title": "InterruptedCommitView",
+        "type": "object"
+      },
       "MeResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1234,6 +1296,13 @@
               "$ref": "#/components/schemas/ExecutionView"
             },
             "title": "Outstanding",
+            "type": "array"
+          },
+          "outstandingCommits": {
+            "items": {
+              "$ref": "#/components/schemas/InterruptedCommitView"
+            },
+            "title": "Outstandingcommits",
             "type": "array"
           },
           "procedure": {
@@ -2309,6 +2378,77 @@
           }
         },
         "summary": "Create User",
+        "tags": [
+          "administration"
+        ]
+      }
+    },
+    "/api/v1/admin/worksheets/{session_id}/commit-verification": {
+      "post": {
+        "description": "Record whether a commit interrupted by a restart was made durable.\n\nThe counterpart to the execution endpoint, for the one uncertain outcome that has no\nexecution record. Nothing about the session changes: it was closed by the restart and\ncannot be reopened. The finding goes to the audit trail, which is what takes it off the\noutstanding list -- there is no state on the session to rewrite, and the session record\ngoes on saying the commit was in flight, because it was.",
+        "operationId": "record_commit_verification_api_v1_admin_worksheets__session_id__commit_verification_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerificationFindingIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Record Commit Verification Api V1 Admin Worksheets  Session Id  Commit Verification Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record Commit Verification",
         "tags": [
           "administration"
         ]

@@ -33,7 +33,8 @@ import socket
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from harness_api import __version__
@@ -41,6 +42,7 @@ from harness_api.models import (
     AuditEvent,
     Execution,
     ExecutionRuntime,
+    StoreOwner,
     WorksheetSessionRecord,
     new_id,
     utcnow,
@@ -54,6 +56,16 @@ log = logging.getLogger("harness.recovery")
 RECONCILE_EXECUTION = "system.restart.execution"
 RECONCILE_SESSION = "system.restart.worksheet"
 RECONCILE_SUMMARY = "system.restart.reconciled"
+
+# The store has exactly one owner row, and claiming locks it. See models.StoreOwner.
+OWNER_ROW_ID = 1
+
+# The reason reconciliation writes on a session whose commit was in flight. Also how the
+# outstanding-commit query finds those sessions again after the next restart.
+COMMIT_IN_FLIGHT_REASON = "process restart with a commit in flight"
+
+# Where an operator's finding is recorded, for an execution or for a commit.
+VERIFIED_OPERATION_ID = "system.restart.verified"
 
 # Three heartbeat intervals. Used only to decide whether a double-start warning is
 # worth logging; the fencing itself never depends on a liveness guess.
@@ -191,17 +203,35 @@ def new_runtime_id() -> str:
 
 
 def claim_store(session_factory: sessionmaker[Session], runtime_id: str) -> ReconciliationReport:
-    """Record this process as the store's execution owner and supersede any earlier one.
+    """Take ownership of the store and supersede any earlier owner.
 
-    Returns the report the caller passes to :func:`reconcile_interrupted_work`. Split
-    from the reconciliation itself so the claim is committed first: if reconciliation
-    then fails, the store still records who owns it, and the superseded process has
-    already been told to stop.
+    Returns the report the caller passes to :func:`reconcile_interrupted_work`. Split from
+    the reconciliation itself so the claim is committed first: if reconciliation then
+    fails, the store still records who owns it and the superseded process has already
+    been told to stop.
+
+    The claim is serialized on the single ``store_owner`` row, and that ordering is the
+    whole point. Reading the live runtimes and then superseding them is not enough by
+    itself: under PostgreSQL's default READ COMMITTED isolation, two simultaneous startups
+    cannot see each other's uncommitted runtime row, so each would find no previous owner,
+    each would leave its own claim unsuperseded, and both would go on serving one store.
+    Updating the owner row before reading anything takes a row lock, so the second claimer
+    waits for the first to commit and then sees it -- and the loser of a genuine race is
+    superseded rather than left running.
     """
 
     now = utcnow()
     report = ReconciliationReport(runtime_id=runtime_id, started_at=now)
     with session_factory() as db:
+        _ensure_owner_row(db)
+        # First statement in the transaction, and a blind UPDATE rather than a read: it
+        # takes the row lock that serializes concurrent claims. Everything below runs
+        # holding it, so the reads that follow see whatever the previous claimer committed.
+        db.execute(
+            update(StoreOwner)
+            .where(StoreOwner.id == OWNER_ROW_ID)
+            .values(runtime_id=runtime_id, claimed_at=now)
+        )
         db.add(
             ExecutionRuntime(
                 id=runtime_id,
@@ -212,6 +242,7 @@ def claim_store(session_factory: sessionmaker[Session], runtime_id: str) -> Reco
                 heartbeat_at=now,
             )
         )
+        db.flush()
         previous = db.scalars(
             select(ExecutionRuntime).where(
                 ExecutionRuntime.id != runtime_id,
@@ -222,29 +253,64 @@ def claim_store(session_factory: sessionmaker[Session], runtime_id: str) -> Reco
         for row in previous:
             row.superseded_by = runtime_id
             report.superseded_runtimes.append(row.id)
-            # A heartbeat inside the interval this process is about to use means the
-            # other one was probably still running: the deployment is misconfigured
-            # with two execution services on one store. It is fenced either way -- its
-            # next heartbeat refuses further dispatch -- but say so loudly, because its
-            # in-flight work is about to be recorded as uncertain.
+            # A heartbeat inside the interval this process is about to use means the other
+            # one was probably still running: the deployment is misconfigured with two
+            # execution services on one store. It is fenced either way -- it can no longer
+            # dispatch a write or commit -- but say so loudly, because its in-flight work
+            # is about to be recorded as uncertain.
             if (now - _as_utc(row.heartbeat_at)).total_seconds() < LIVE_HEARTBEAT_SECONDS:
                 report.live_runtimes.append(row.id)
         db.commit()
 
-    # Two processes starting at the same instant each see the other as previous and each
-    # supersede it, so both fence themselves at their first heartbeat and the deployment
-    # stops serving. That is the intended failure: a store with no owner is recoverable by
-    # starting one process, whereas a store with two owners silently reconciles work that
-    # is still running.
     for stale in report.live_runtimes:
         log.error(
             "recovery: runtime %s was still heartbeating when this process claimed the "
             "metadata store. Two execution services on one store is not a supported "
-            "deployment; %s is now fenced and will stop dispatching.",
+            "deployment; %s is now fenced and will refuse to dispatch or commit.",
             stale,
             stale,
         )
     return report
+
+
+def _ensure_owner_row(db: Session) -> None:
+    """Create the singleton owner row if a store somehow lacks it.
+
+    ``initialize_schema`` writes it, both when creating a store and when upgrading one, so
+    this is for a store that was restored or edited without it. Committed on its own and
+    tolerant of a concurrent creator, because the row's whole job is to exist before two
+    processes contend for it.
+    """
+
+    if db.get(StoreOwner, OWNER_ROW_ID) is not None:
+        return
+    try:
+        db.add(StoreOwner(id=OWNER_ROW_ID, runtime_id=""))
+        db.commit()
+    except IntegrityError:
+        db.rollback()  # another starting process created it first, which is the point
+
+
+def owns_store(session_factory: sessionmaker[Session], runtime_id: str) -> bool:
+    """Whether this runtime is still the store's owner, according to the store.
+
+    Read synchronously before an operation that could change the database durably. The
+    latched flag a heartbeat sets is not enough on its own: between another process
+    claiming the store and this one's next heartbeat there is a window in which this
+    process still believes it owns everything, and a commit issued in that window would
+    make a transaction durable after the new process had already recorded the session as
+    closed and its outcome as unknown.
+    """
+
+    with session_factory() as db:
+        owner = db.get(StoreOwner, OWNER_ROW_ID)
+        if owner is not None and owner.runtime_id:
+            return owner.runtime_id == runtime_id
+        # An unclaimed or missing owner row: fall back to this runtime's own record, so a
+        # service running against a store written before this row existed still works, and
+        # so releasing the claim on a clean stop does not read as ownership regained.
+        row = db.get(ExecutionRuntime, runtime_id)
+        return row is not None and row.superseded_by is None and row.stopped_at is None
 
 
 def reconcile_interrupted_work(
@@ -360,9 +426,7 @@ def _reconcile_sessions(db: Session, report: ReconciliationReport) -> None:
     for row in rows:
         uncertain_commit = row.commit_requested_at is not None
         row.closed_at = utcnow()
-        row.close_reason = (
-            "process restart with a commit in flight" if uncertain_commit else "process restart"
-        )
+        row.close_reason = COMMIT_IN_FLIGHT_REASON if uncertain_commit else "process restart"
         db.add(
             AuditEvent(
                 actor_id=row.user_id,
@@ -438,18 +502,28 @@ def heartbeat(session_factory: sessionmaker[Session], runtime_id: str) -> bool:
 
 
 def record_clean_stop(session_factory: sessionmaker[Session], runtime_id: str) -> None:
-    """Mark this runtime as stopped on purpose.
+    """Mark this runtime as stopped on purpose, and release its claim on the store.
 
-    It changes nothing about how the next process reconciles -- a clean stop leaves no
-    non-terminal records to reconcile anyway -- but it separates an orderly shutdown
-    from a process that died, which is the first thing an operator wants to know.
+    Stopping separates an orderly shutdown from a process that died, which is the first
+    thing an operator wants to know, and it changes nothing about how the next process
+    reconciles: a clean stop leaves no non-terminal records to reconcile anyway.
+
+    Releasing the claim is what makes the store read as unowned between an orderly stop and
+    the next start, rather than still naming a process that is gone. The release is
+    conditional on this runtime still being the named owner: a newer process may have
+    claimed the store already, and a stopping one must not clear the new owner's name.
     """
 
     with session_factory() as db:
         row = db.get(ExecutionRuntime, runtime_id)
         if row is not None and row.stopped_at is None:
             row.stopped_at = utcnow()
-            db.commit()
+        db.execute(
+            update(StoreOwner)
+            .where(StoreOwner.id == OWNER_ROW_ID, StoreOwner.runtime_id == runtime_id)
+            .values(runtime_id="", claimed_at=None)
+        )
+        db.commit()
 
 
 def outstanding_verifications(db: Session, limit: int = 200) -> list[Execution]:
@@ -462,6 +536,40 @@ def outstanding_verifications(db: Session, limit: int = 200) -> list[Execution]:
         .limit(limit)
     ).all()
     return [row for row in rows if not _is_verified(row)]
+
+
+def outstanding_commit_verifications(db: Session, limit: int = 200) -> list[WorksheetSessionRecord]:
+    """Sessions whose commit was in flight when their process died, still unverified.
+
+    These have no execution record of their own -- a commit never had one -- so they are
+    counted and listed separately from ``outstanding_verifications``. Both are things a
+    person still has to go and look at in the database; neither is something the harness
+    can settle.
+
+    Verification is recorded as an audit event rather than on the session record, so the
+    query excludes any session that already has one. The trail is append-only and outlives
+    the report, which is what this needs.
+    """
+
+    rows = db.scalars(
+        select(WorksheetSessionRecord)
+        .where(
+            WorksheetSessionRecord.commit_requested_at.is_not(None),
+            WorksheetSessionRecord.close_reason == COMMIT_IN_FLIGHT_REASON,
+        )
+        .order_by(WorksheetSessionRecord.opened_at.desc())
+        .limit(limit)
+    ).all()
+    if not rows:
+        return []
+    verified = set(
+        db.scalars(
+            select(AuditEvent.detail["sessionId"].as_string()).where(
+                AuditEvent.operation_id == VERIFIED_OPERATION_ID
+            )
+        ).all()
+    )
+    return [row for row in rows if row.id not in verified]
 
 
 def _is_verified(row: Execution) -> bool:

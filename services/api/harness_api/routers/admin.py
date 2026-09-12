@@ -19,15 +19,22 @@ from harness_api.models import (
     SecretReference,
     User,
     UserTargetGrant,
+    WorksheetSessionRecord,
     utcnow,
 )
 from harness_api.policy import ALL_PERMISSIONS
-from harness_api.recovery import outstanding_verifications
+from harness_api.recovery import (
+    COMMIT_IN_FLIGHT_REASON,
+    VERIFIED_OPERATION_ID,
+    outstanding_commit_verifications,
+    outstanding_verifications,
+)
 from harness_api.routers.history import execution_view
 from harness_api.schemas import (
     GrantIn,
     IntegrationCreated,
     IntegrationIn,
+    InterruptedCommitView,
     ProfileIn,
     ReconciliationView,
     SecretReferenceIn,
@@ -37,7 +44,7 @@ from harness_api.schemas import (
 from harness_api.secrets import SecretResolver
 from harness_api.security import generate_integration_token
 from harness_worker.errors import NotFoundError, PolicyError, ValidationError
-from harness_worker.types import ExecutionState
+from harness_worker.types import ExecutionState, RiskClass
 
 router = APIRouter(prefix="/api/v1/admin", tags=["administration"])
 
@@ -355,6 +362,21 @@ VERIFICATION_PROCEDURE = [
     "the original actor who reruns it, as a new request.",
 ]
 
+# A commit has no execution record and no statement of its own: it made a whole
+# transaction durable, or it did not. The audit trail is the only description of what that
+# transaction contained, so the procedure starts there rather than at a fingerprint.
+COMMIT_VERIFICATION_PROCEDURE = [
+    "For each entry in outstandingCommits, read the session id and target.",
+    "Find that session's writes in the audit trail: the worksheet.execute events "
+    "carrying the same sessionId, up to the restart. Those are what the commit would "
+    "have made durable, as one transaction.",
+    "In the database, check whether those changes are present. They are all present or "
+    "all absent; a commit is not partial.",
+    "Record what you found with POST /api/v1/admin/worksheets/{sessionId}/commit-verification.",
+    "The session itself is gone either way. If the transaction was not committed, the "
+    "work has to be redone from a new session by the person who did it.",
+]
+
 VERIFICATION_FINDINGS = ("applied", "not_applied", "unresolved")
 
 
@@ -369,11 +391,33 @@ def reconciliation(_: Administrator, db: Db, state: State) -> ReconciliationView
 
     report = state.reconciliation
     outstanding = outstanding_verifications(db)
+    commits = outstanding_commit_verifications(db)
+    procedure: list[str] = []
+    if outstanding:
+        procedure += VERIFICATION_PROCEDURE
+    if commits:
+        procedure += COMMIT_VERIFICATION_PROCEDURE
     return ReconciliationView(
         **report.as_dict(),
         summary=report.summary_line(),
         outstanding=[execution_view(row) for row in outstanding],
-        procedure=VERIFICATION_PROCEDURE if outstanding else [],
+        outstandingCommits=[_commit_view(row) for row in commits],
+        procedure=procedure,
+    )
+
+
+def _commit_view(row: WorksheetSessionRecord) -> InterruptedCommitView:
+    # The query selects on commit_requested_at being set, so this cannot be None here.
+    requested = row.commit_requested_at
+    return InterruptedCommitView(
+        sessionId=row.id,
+        profileId=row.profile_id,
+        userId=row.user_id,
+        openedAt=row.opened_at.isoformat(),
+        commitRequestedAt=requested.isoformat() if requested else "",
+        closedAt=row.closed_at.isoformat() if row.closed_at else None,
+        closeReason=row.close_reason,
+        oracleSessionId=row.oracle_session_id,
     )
 
 
@@ -443,5 +487,66 @@ def record_verification(
             "The execution keeps its outcome_unknown state: nothing observed the "
             "outcome at the time. Your finding is recorded beside it and in the audit "
             "trail, and it no longer appears as outstanding."
+        ),
+    }
+
+
+@router.post("/worksheets/{session_id}/commit-verification")
+def record_commit_verification(
+    session_id: str,
+    payload: VerificationFindingIn,
+    principal: Administrator,
+    db: Db,
+) -> dict:
+    """Record whether a commit interrupted by a restart was made durable.
+
+    The counterpart to the execution endpoint, for the one uncertain outcome that has no
+    execution record. Nothing about the session changes: it was closed by the restart and
+    cannot be reopened. The finding goes to the audit trail, which is what takes it off the
+    outstanding list -- there is no state on the session to rewrite, and the session record
+    goes on saying the commit was in flight, because it was.
+    """
+
+    if payload.finding not in VERIFICATION_FINDINGS:
+        raise ValidationError(
+            "A finding must be one of " + ", ".join(VERIFICATION_FINDINGS) + ".",
+            detail={"finding": payload.finding, "allowed": list(VERIFICATION_FINDINGS)},
+        )
+    row = db.get(WorksheetSessionRecord, session_id)
+    if row is None:
+        raise NotFoundError("No such worksheet session.", detail={"sessionId": session_id})
+    if row.close_reason != COMMIT_IN_FLIGHT_REASON:
+        raise ValidationError(
+            "This session's commit has a known outcome, so there is nothing to verify. "
+            "Only a session a restart closed with a commit in flight takes a finding.",
+            detail={"sessionId": session_id, "closeReason": row.close_reason},
+        )
+
+    db.add(
+        AuditEvent(
+            actor_id=principal.user_id or "",
+            actor_subject=principal.subject,
+            profile_id=row.profile_id,
+            operation_id=VERIFIED_OPERATION_ID,
+            risk_class=RiskClass.PERSISTENT_WRITE.value,
+            outcome=payload.finding,
+            detail={
+                "sessionId": session_id,
+                "finding": payload.finding,
+                "note": payload.note,
+                "commitRequestedAt": (
+                    row.commit_requested_at.isoformat() if row.commit_requested_at else None
+                ),
+            },
+        )
+    )
+    db.commit()
+    return {
+        "sessionId": session_id,
+        "finding": payload.finding,
+        "note": (
+            "Recorded in the audit trail. The session record still shows the commit was in "
+            "flight, because it was; your finding says what became of it. The session "
+            "cannot be reopened, so uncommitted work has to be redone from a new one."
         ),
     }

@@ -385,6 +385,24 @@ class CopilotBudget(Base):
     )
 
 
+class StoreOwner(Base):
+    """One row, ever, naming the runtime that currently owns this metadata store.
+
+    The serialization point for claiming the store. Reading the live runtimes and then
+    superseding them is not enough on its own: under PostgreSQL's default READ COMMITTED
+    isolation two simultaneous startups cannot see each other's uncommitted runtime row,
+    so each would find no previous owner, each would leave its own claim unsuperseded,
+    and both would serve. Updating this row first takes a row lock, which makes the
+    second claimer wait for the first to commit and then see it.
+    """
+
+    __tablename__ = "store_owner"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    runtime_id: Mapped[str] = mapped_column(String(40), default="")
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class ExecutionRuntime(Base):
     """One run of the execution service, and which one currently owns the store.
 

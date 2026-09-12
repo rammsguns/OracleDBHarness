@@ -39,7 +39,7 @@ from harness_api.policy import (
     PolicyDecision,
     PolicyEngine,
 )
-from harness_api.recovery import heartbeat, new_runtime_id, record_clean_stop
+from harness_api.recovery import heartbeat, new_runtime_id, owns_store, record_clean_stop
 from harness_api.secrets import SecretResolver
 from harness_api.security import Principal
 from harness_worker.backend import ConnectionSpec, create_backend
@@ -229,6 +229,37 @@ class ExecutionService:
         # this heartbeat, and leaves the earlier reason in place where there is one.
         self._close_session_records(self._registry.shutdown(reason=reason), reason)
 
+    def _require_store_ownership(self, operation_id: str, **detail: object) -> None:
+        """Refuse an operation that could change the database if this process has lost the store.
+
+        Checked against the store, not against the flag a heartbeat latches. The flag is
+        up to one heartbeat interval stale, and that interval is exactly the dangerous
+        window: another process has claimed the store and recorded this process's sessions
+        as closed and its in-flight writes as uncertain, while this process still believes
+        it owns everything. A commit issued in that window would make a transaction durable
+        after the record saying so had already been written.
+
+        The cost is one read of a single row, and it is only paid by operations that can
+        change the database durably -- writes and commits, not reads. A read served by a
+        superseded process cannot corrupt anything, and its record was resolved to
+        ``failed``, which is what a read that never returned is.
+
+        A service holding no claim -- seeding, a one-off script, a fixture -- is exempt.
+        Nothing has reconciled its work, because nothing knows it is running.
+        """
+
+        if not self._owns_store:
+            return
+        if not self._superseded and owns_store(self._sessions_factory, self._runtime_id):
+            return
+        self._superseded = True
+        raise RuntimeSupersededError(
+            "This execution service no longer owns the metadata store: another one has "
+            "claimed it and has already reconciled this process's work. Nothing was sent "
+            "to the database. Use the service that owns the store.",
+            detail={"runtimeId": self._runtime_id, "operationId": operation_id, **detail},
+        )
+
     @property
     def catalog(self) -> QueryCatalog:
         return self._catalog
@@ -345,6 +376,7 @@ class ExecutionService:
             target_major_version=identity.major_version if identity else None,
             operation_id="worksheet.open",
         )
+        self._require_store_ownership("worksheet.open", profileId=profile.id)
         spec = self.connection_spec(profile, grant)
         session = self._registry.open(
             actor_id=principal.user_id or principal.subject,
@@ -456,6 +488,11 @@ class ExecutionService:
             risk=RiskClass.PERSISTENT_WRITE,
             operation_id="worksheet.commit",
         )
+        # Making pending DML durable is the most consequential thing this service does, so
+        # it is also where losing the store matters most: another process may already have
+        # recorded this session as closed and its outcome as unknown. Checked before the
+        # intent marker is written, so a refused commit leaves nothing behind.
+        self._require_store_ownership("worksheet.commit", sessionId=session_id)
         # A commit has no execution record of its own, so the session record carries the
         # intent instead. Committed before the COMMIT is issued and cleared once it
         # returns either way: a process that dies in between leaves this set, and restart
@@ -516,6 +553,15 @@ class ExecutionService:
         return result
 
     def rollback_worksheet(self, db: Session, principal: Principal, session_id: str) -> dict:
+        """Discard the pending work in this session.
+
+        Deliberately not fenced on store ownership, unlike commit and open. A rollback only
+        ever removes a pending change, so a superseded process performing one moves the
+        database towards what the new owner has already recorded -- an abandoned session is
+        a rollback anyway. Refusing it would leave the user holding a transaction with no
+        way to discard it. Cancellation is left open for the same reason.
+        """
+
         session = self.worksheet(principal, session_id)
         result = self._registry.rollback(session_id, principal.user_id or principal.subject)
         self._audit(
@@ -1156,13 +1202,17 @@ class ExecutionService:
         statement whose record says it never was.
         """
 
-        if self._superseded:
-            raise RuntimeSupersededError(
-                "This execution service no longer owns the metadata store: another one "
-                "has claimed it and has already reconciled this process's work. Nothing "
-                "was dispatched. Use the service that owns the store.",
-                detail={"runtimeId": self._runtime_id, "executionId": record.id},
-            )
+        if record.risk_class == RiskClass.READ.value:
+            # A read cannot change anything, so the latched flag is a sufficient check and
+            # no extra round trip is spent on the common case.
+            if self._superseded:
+                raise RuntimeSupersededError(
+                    "This execution service no longer owns the metadata store. Nothing "
+                    "was dispatched. Use the service that owns the store.",
+                    detail={"runtimeId": self._runtime_id, "executionId": record.id},
+                )
+        else:
+            self._require_store_ownership(record.operation_id, executionId=record.id)
         record.state = ExecutionState.RUNNING.value
         record.dispatched_at = utcnow()
         db.add(record)

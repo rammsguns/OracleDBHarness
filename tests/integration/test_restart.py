@@ -393,3 +393,242 @@ def test_a_clean_restart_reconciles_nothing(settings: Settings, seeded: dict) ->
     assert body["outstanding"] == []
     assert body["procedure"] == []
     assert "nothing interrupted" in body["summary"]
+
+
+# -- the fence, on the operations that can change the database -------------------------
+
+
+@pytest.mark.stand_in_only
+def test_a_superseded_process_refuses_to_commit(
+    settings: Settings, seeded: dict, doomed: Callable[[], TestClient]
+) -> None:
+    """The window between another process claiming the store and this one noticing.
+
+    A commit is the sharpest case. By the time a new process has claimed the store it has
+    already recorded this session as closed and, if a commit was in flight, its outcome as
+    unknown. A commit allowed through afterwards would make a transaction durable behind
+    that record -- so the check reads the store rather than the flag a heartbeat latches,
+    which is up to one heartbeat interval stale.
+    """
+
+    client = doomed()
+    headers = _developer(client)
+    profile_id = _development_target(client, headers)
+    session = open_worksheet(client, headers, profile_id)
+    response = client.post(
+        f"/api/v1/worksheets/{session}/execute",
+        headers=headers,
+        json={"statement": "UPDATE employees SET salary = 31337 WHERE employee_id = 100"},
+    )
+    assert response.status_code == 200, response.text
+
+    # Another process takes the store. The first one's heartbeat has not run.
+    second = create_app(settings)
+    with TestClient(second):
+        refused = client.post(f"/api/v1/worksheets/{session}/commit", headers=headers)
+
+    assert refused.status_code == 503, refused.text
+    assert refused.json()["error"]["code"] == "runtime_superseded"
+    assert refused.json()["error"]["detail"]["operationId"] == "worksheet.commit"
+
+    # Nothing was sent, so no commit intent was left behind to be reconciled later.
+    with _store(settings)() as db:
+        row = db.get(WorksheetSessionRecord, session)
+        assert row is not None
+        assert row.commit_requested_at is None
+
+
+@pytest.mark.stand_in_only
+def test_a_superseded_process_refuses_new_leases_and_writes(
+    settings: Settings, seeded: dict, doomed: Callable[[], TestClient]
+) -> None:
+    """What a superseded process will and will not still do.
+
+    Opening a session leases a fresh Oracle connection, which mitigates nothing, so it is
+    fenced. Writes are fenced against the store. Reads are not: a read served in the window
+    before this process notices cannot corrupt anything, and its record would be resolved to
+    ``failed``, which is what a read that never returned is -- so the common case does not
+    pay for a store round trip.
+
+    Once a fenced operation has told this process it no longer owns the store, though, the
+    flag latches and it stops serving that session entirely, reads included. Both halves
+    are asserted here in that order, because the order is the point.
+    """
+
+    client = doomed()
+    headers = _developer(client)
+    profile_id = _development_target(client, headers)
+    session = open_worksheet(client, headers, profile_id)
+
+    second = create_app(settings)
+    with TestClient(second):
+        # In the window, before anything has told this process it was superseded.
+        early_read = client.post(
+            f"/api/v1/worksheets/{session}/execute",
+            headers=headers,
+            json={"statement": "SELECT employee_id FROM employees WHERE employee_id = 100"},
+        )
+        opening = client.post("/api/v1/worksheets", headers=headers, json={"profileId": profile_id})
+        writing = client.post(
+            f"/api/v1/worksheets/{session}/execute",
+            headers=headers,
+            json={"statement": "UPDATE employees SET salary = 999 WHERE employee_id = 100"},
+        )
+        # By now the fence has latched, so the process stops serving this session at all.
+        late_read = client.post(
+            f"/api/v1/worksheets/{session}/execute",
+            headers=headers,
+            json={"statement": "SELECT employee_id FROM employees WHERE employee_id = 100"},
+        )
+
+    assert early_read.status_code == 200, early_read.text
+    assert opening.status_code == 503, opening.text
+    assert opening.json()["error"]["code"] == "runtime_superseded"
+    assert writing.status_code == 503, writing.text
+    assert writing.json()["error"]["code"] == "runtime_superseded"
+    assert writing.json()["error"]["detail"]["operationId"] == "worksheet.execute"
+    assert late_read.status_code == 503, late_read.text
+
+    # The refused write left a record, and it says nothing was ever dispatched.
+    with _store(settings)() as db:
+        undispatched = [
+            row
+            for row in db.scalars(select(Execution)).all()
+            if row.risk_class != "read" and row.dispatched_at is None
+        ]
+    assert undispatched, "the refused write left no record at all"
+    assert all(row.state == ExecutionState.QUEUED.value for row in undispatched)
+
+
+@pytest.mark.stand_in_only
+def test_a_rollback_is_still_allowed_after_being_superseded(
+    settings: Settings, seeded: dict, doomed: Callable[[], TestClient]
+) -> None:
+    """Refusing a rollback would leave a user holding a transaction with no way out.
+
+    A rollback only ever removes a pending change, so it moves the database towards what
+    the new owner already recorded -- an abandoned session is a rollback anyway.
+    """
+
+    client = doomed()
+    headers = _developer(client)
+    session = open_worksheet(client, headers, _development_target(client, headers))
+    client.post(
+        f"/api/v1/worksheets/{session}/execute",
+        headers=headers,
+        json={"statement": "UPDATE employees SET salary = 555 WHERE employee_id = 100"},
+    )
+
+    second = create_app(settings)
+    with TestClient(second):
+        rolled_back = client.post(f"/api/v1/worksheets/{session}/rollback", headers=headers)
+
+    assert rolled_back.status_code == 200, rolled_back.text
+
+
+# -- verifying an interrupted commit ---------------------------------------------------
+
+
+def _plant_interrupted_commit(settings: Settings, profile_id: str, session_id: str) -> None:
+    """A session record as a process killed mid-COMMIT would have left it, then reconciled."""
+
+    factory = _store(settings)
+    with factory() as db:
+        db.add(
+            WorksheetSessionRecord(
+                id=session_id,
+                user_id="",
+                profile_id=profile_id,
+                owner_id=DEAD_RUNTIME,
+                commit_requested_at=utcnow(),
+            )
+        )
+        db.commit()
+
+
+def test_an_interrupted_commit_is_listed_with_a_way_to_record_the_finding(
+    settings: Settings, seeded: dict
+) -> None:
+    """A restart that finds only a commit must not report work with nothing to act on.
+
+    ``needsVerification`` counts commits as well as executions, so a report that counted
+    one while leaving both the list and the procedure empty would tell an administrator
+    there was something to do and then give them no item and no endpoint.
+    """
+
+    first = create_app(settings)
+    with TestClient(first) as client:
+        profile_id = _development_target(client, _developer(client))
+    _plant_interrupted_commit(settings, profile_id, "ws_commit_in_flight")
+
+    second = create_app(settings)
+    with TestClient(second) as client:
+        administrator = auth(client, "admin@example.internal", ["administrator"])
+        body = client.get("/api/v1/admin/reconciliation", headers=administrator).json()
+
+        assert body["commitsUnknown"] == ["ws_commit_in_flight"]
+        assert body["needsVerification"] == 1
+        assert body["outstanding"] == [], "a commit has no execution record"
+        listed = {item["sessionId"]: item for item in body["outstandingCommits"]}
+        assert "ws_commit_in_flight" in listed
+        assert listed["ws_commit_in_flight"]["profileId"] == profile_id
+        assert listed["ws_commit_in_flight"]["closeReason"] == (
+            "process restart with a commit in flight"
+        )
+        assert body["procedure"], "an administrator is handed no procedure"
+        assert any("commit-verification" in step for step in body["procedure"])
+
+        recorded = client.post(
+            "/api/v1/admin/worksheets/ws_commit_in_flight/commit-verification",
+            headers=administrator,
+            json={"finding": "applied", "note": "The salary change is present; it committed."},
+        )
+        assert recorded.status_code == 200, recorded.text
+
+        after = client.get("/api/v1/admin/reconciliation", headers=administrator).json()
+        assert after["outstandingCommits"] == []
+        assert after["procedure"] == []
+        assert after["needsVerification"] == 1, "the restart still reports what it found"
+
+        trail = client.get("/api/v1/audit", headers=administrator).json()
+        verified = [e for e in trail if e["operationId"] == "system.restart.verified"]
+        assert [e["outcome"] for e in verified] == ["applied"]
+
+    # The session record is unchanged: it did have a commit in flight, and still says so.
+    with _store(settings)() as db:
+        row = db.get(WorksheetSessionRecord, "ws_commit_in_flight")
+        assert row is not None
+        assert row.commit_requested_at is not None
+        assert row.close_reason == "process restart with a commit in flight"
+
+
+def test_a_commit_finding_is_refused_for_a_session_that_ended_normally(
+    settings: Settings, seeded: dict
+) -> None:
+    first = create_app(settings)
+    with TestClient(first) as client:
+        headers = _developer(client)
+        session = open_worksheet(client, headers, _development_target(client, headers))
+        client.delete(f"/api/v1/worksheets/{session}", headers=headers)
+
+    second = create_app(settings)
+    with TestClient(second) as client:
+        administrator = auth(client, "admin@example.internal", ["administrator"])
+        refused = client.post(
+            f"/api/v1/admin/worksheets/{session}/commit-verification",
+            headers=administrator,
+            json={"finding": "applied"},
+        )
+    assert refused.status_code == 400, refused.text
+    assert refused.json()["error"]["code"] == "invalid_request"
+    assert refused.json()["error"]["detail"]["closeReason"] == "closed by user"
+
+
+def test_a_commit_finding_is_refused_for_an_unknown_session(client: TestClient) -> None:
+    administrator = auth(client, "admin@example.internal", ["administrator"])
+    refused = client.post(
+        "/api/v1/admin/worksheets/ws_nope/commit-verification",
+        headers=administrator,
+        json={"finding": "applied"},
+    )
+    assert refused.status_code == 404, refused.text

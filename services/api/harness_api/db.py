@@ -13,12 +13,22 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from sqlalchemy import Connection, Engine, Inspector, Table, create_engine, inspect, select, update
+from sqlalchemy import (
+    Connection,
+    Engine,
+    Inspector,
+    Table,
+    create_engine,
+    insert,
+    inspect,
+    select,
+    update,
+)
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from harness_api.config import Settings
-from harness_api.models import Base, SchemaVersion, utcnow
+from harness_api.models import Base, SchemaVersion, StoreOwner, utcnow
 from harness_worker.errors import ConfigurationError
 
 log = logging.getLogger("harness.db")
@@ -127,6 +137,11 @@ def _add_restart_reconciliation(connection: Connection) -> None:
     connection.exec_driver_sql(
         f"ALTER TABLE worksheet_sessions ADD COLUMN commit_requested_at {timestamp}"
     )
+    # store_owner and execution_runtimes are new tables, so create_all makes them after
+    # this step. The singleton row is not a table, and claiming the store locks it, so it
+    # has to exist before two processes can race for it.
+    Base.metadata.tables[StoreOwner.__tablename__].create(connection, checkfirst=True)
+    connection.execute(insert(StoreOwner).values(id=1, runtime_id=""))
 
 
 # Keyed by the version a step upgrades *from*. Add a step here in the same change that
@@ -175,6 +190,8 @@ def initialize_schema(engine: Engine) -> str:
             session.add(
                 SchemaVersion(id=1, version=SCHEMA_VERSION, note="Created by initialize_schema.")
             )
+            # The row claiming runs against. Unclaimed until an execution service starts.
+            session.add(StoreOwner(id=1, runtime_id=""))
             session.commit()
         return SCHEMA_VERSION
 
