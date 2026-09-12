@@ -1,10 +1,98 @@
 # Next phase: pilot qualification and release readiness
 
-Prepared 2026-09-12 against local commit `263d2f2`; updated the same day with the
-first implementation results. This is the active follow-up to
+Prepared 2026-09-12; replanned against local commit `598870a` after restart recovery
+and PostgreSQL/restore CI landed. This is the active follow-up to
 [MVP_PLAN.md](MVP_PLAN.md), milestone 6. It is a proposed delivery plan, not evidence
 that its gates have passed. Where a gate now has evidence, the row says so and names
 what the evidence covers.
+
+## Current execution plan
+
+The next implementation milestone is **real-provider evaluation readiness** (NP-04),
+followed by completing the external pilot qualification gates. Keep the existing
+recovery and deployment work as the baseline.
+
+CI for `598870a` is green: [run 34709372347](https://github.com/rammsguns/OracleDBHarness/actions/runs/34709372347).
+This verifies the configured CI jobs, including PostgreSQL checks and the Compose
+install/restore drill. It does not establish Oracle restart behavior, browser login,
+real-provider quality or DataForge integration. Earlier validation entries below
+remain historical run records.
+
+### First milestone: real-provider evaluation
+
+Suggested owner: application/integration engineer, with a DBA reviewer. Planning
+allowance: 3-5 engineering days for implementation and fixture validation; provider
+execution and review depend on access and reviewer availability.
+
+1. Define a versioned evaluation case format and at least 30 cases under
+   `tests/copilot/`, covering explain, fix, draft, test blocks, tuning, inaccessible
+   objects, stale source and embedded instructions. Give each case an ID, permitted
+   context, expected behavior and review rubric. Fix the explain/fix denominator
+   before the run.
+2. Add a separate opt-in runner and document its entry point in
+   `tests/copilot/README.md`. Exercise the harness context, authorization, streaming
+   and proposal paths in `services/api/harness_api/copilot/`, not only the provider
+   adapter. Reject the fake provider in qualification mode and require explicit
+   provider/model configuration. Keep ordinary pytest runs deterministic and free.
+3. Add preflight checks for credentials, approved context and a configured spend
+   ceiling. Bound output and requests; reserve a conservative per-request cost
+   before dispatch and stop when the remaining budget is insufficient. Record
+   provider usage and pricing assumptions. Treat timeouts, partial streams and
+   missing usage as incomplete evidence.
+4. Emit a report with harness commit, case-set version, requested and reported model
+   identifiers, per-case outcome, latency, usage, estimated cost and DBA review
+   fields. Exclude credentials and unauthorized context. Unreviewed, skipped or
+   incomplete cases cannot count as passes.
+5. Verify configuration, fake-provider refusal, budget exhaustion, provider failures,
+   report completeness and redaction with controlled responses. Then run the corpus
+   against the configured real provider and record DBA judgments and failure patterns.
+
+Implementation exit: the runner and corpus are reviewable, negative-path checks
+pass, and the documented command cannot silently qualify fixtures. Qualification
+exit: at least 30 completed cases, every authorization/no-automatic-execution case
+passes, and at least 90% DBA-reviewed correctness on explain/fix cases. Runner
+completion alone does not close NP-04.
+
+### Remaining delivery order
+
+These are suggested roles, not assigned people or dated commitments. Environment
+preparation can proceed alongside runner implementation.
+
+| Order | Work package | Suggested owner | Dependency | Completion evidence |
+| --- | --- | --- | --- | --- |
+| 1 | Preserve green CI and capture deployment evidence (NP-02) | Application engineer | Current CI run | Link green run and drill timings; retain an actual release-store snapshot for a later released-version upgrade test. Identify synthetic migration coverage separately. |
+| 2 | Build and evaluate the provider runner (NP-04) | Integration engineer + DBA | Provider configuration, approved context and budget for the paid run | Runner checks, reviewed case report and both quality gates above. |
+| 3 | Qualify Oracle recovery, grants and isolation (NP-01/03) | Application engineer + DBA | Isolated schemas, direct grants, PDB and independent second database | Process-death cases before dispatch, during read/write and during commit; no replay or false success; restricted panels degrade correctly; target identity and state remain isolated. |
+| 4 | Complete browser identity and DataForge integration (NP-05/06) | Integration engineer + identity owner | Pilot OIDC registration, deployed origin/proxy, pinned DataForge checkout; NP-04 for full provider flow | Browser callback/expiry/logout/access checks; editor context, incremental streaming, reviewed/stale diffs and outage recovery; both projects' regressions; measured setup time. |
+| 5 | Measure capacity and complete the pilot (NP-07) | Application engineer + developer + DBA | Functional gates above and three independent databases | Ten concurrent users, agreed latency/error thresholds, connection/queue limits, saturation and soak recovery; developer and DBA complete all six MVP workflows. |
+
+For Oracle restart qualification, use a disposable process and observe persisted
+records and database effects from an independent connection. Account for the old
+connection's eventual cleanup; a stand-in fault hook or a killed database session
+alone is not proof of recovery after application process death.
+
+### Dependencies and release decision
+
+- Assign a named person and availability date to Oracle accounts/grants/PDB/extra
+  databases, provider configuration and spend allowance, DBA review, DataForge
+  checkout, OIDC registration and a pilot host with Docker. Their current
+  availability has not been rechecked by this planning review.
+- Before load testing, record the network baseline, numerical acceptance thresholds,
+  workload mix, soak duration and resource limits. Separate database time from
+  application overhead; agree thresholds before evaluating results.
+- For each gate retain the commit, environment/version identifiers, command or
+  manual procedure, pass/fail/skip counts, report location, limitations and reviewer.
+  Append real-environment runs to `docs/compatibility.md` and DataForge runs to
+  `integrations/dataforge/COMPATIBILITY.md`.
+- Reconcile stale MVP and compatibility annotations when attaching evidence.
+  PostgreSQL now has green CI; browser redirect qualification remains separate
+  from Node-based identity tests.
+
+Release requires recorded evidence for every mandatory gate and no unresolved
+defect risking incorrect writes, access leakage or misleading outcomes. If an
+external dependency is unavailable, finish local preparation and leave its gate
+blocked. Re-estimate the remaining 3-4 week allowance after dependencies have owners
+and dates; it is not elapsed time from this document's date.
 
 ## Outcome and scope
 
@@ -29,9 +117,9 @@ a complete code audit.
 | ID | Priority | Finding and evidence | Required result |
 | --- | --- | --- | --- |
 | NP-01 | **Done, stand-in only** | Implemented in `services/api/harness_api/recovery.py`, run from `build_state` before the execution service exists. Covered by `tests/unit/test_restart_recovery.py` (23 checks) and `tests/integration/test_restart.py` (8), including a statement held in flight while its process is abandoned. | Met against the stand-in: never-dispatched work resolves to `cancelled`, interrupted reads to `failed`, interrupted writes to `outcome_unknown` with `verificationRequired`, stale worksheet records closed, nothing redispatched. The equivalent run on Oracle is still owed (step 2). |
-| NP-02 | **Done in CI, pending a first green run** | The `python` job runs against a `postgres:16-alpine` service container, and `HARNESS_REQUIRE_POSTGRES` turns a missing database into a failed job rather than a silent skip of the only checks that cover the pilot store. A new `deployment` job runs `deploy/backup-restore-drill.sh`: clean install, seed, dump, restore into a fresh database, cut the API over. | Met for migration, persistence, installation and restore, on every build. Upgrade *from a released version* is still only covered synthetically — no earlier build's store exists to upgrade. |
+| NP-02 | **Implemented; green CI at `598870a`** | The `python` job runs against a `postgres:16-alpine` service container, and `HARNESS_REQUIRE_POSTGRES` turns a missing database into a failed job rather than a silent skip of the only checks that cover the pilot store. A new `deployment` job runs `deploy/backup-restore-drill.sh`: clean install, seed, dump, restore into a fresh database, cut the API over. | Met for migration, persistence, installation and restore, on every build. Upgrade *from a released version* is still only covered synthetically — no earlier build's store exists to upgrade. |
 | NP-03 | P1 | One Oracle 19.9 non-CDB/thin instance has passed; restricted grants, a PDB and independent target isolation remain unqualified. The recorded run substituted `SELECT_CATALOG_ROLE` for seven direct SYS-view grants. | Run the reviewed grants with appropriate DBA support and qualify restricted/developer accounts, a second database and a PDB; record exact versions and skipped checks. |
-| NP-04 | P1 | `tests/copilot/README.md` suggests environment variables switch the suite to a real provider, but `tests/conftest.py` explicitly sets `copilot_provider="fake"`. | Create a separate opt-in provider evaluation path that verifies the actual provider/model and rejects fixture results as qualification evidence. Run the DBA-reviewed case set. |
+| NP-04 | P1 | `tests/conftest.py` explicitly sets `copilot_provider="fake"`; `tests/copilot/README.md` now correctly documents that no real-provider runner exists. | Create a separate opt-in provider evaluation path that verifies the actual provider/model and rejects fixture results as qualification evidence. Run the DBA-reviewed case set. |
 | NP-05 | P1 | DataForge adapter tests use a stub; no real DataForge commit, proxy streaming path or setup time has been qualified. See `integrations/dataforge/COMPATIBILITY.md`. | Integrate a pinned DataForge revision and pass its published release gates, including unchanged execution/transaction behavior. |
 | NP-06 | P1 | Keycloak sign-in is tested under Node; browser redirect and the pilot identity registration have not been exercised. | Complete sign-in through the deployed console in a browser and verify API authorization, token expiry and rejected identities. |
 | NP-07 | P1 | Ten concurrent users over three databases is a release target with no measurements. | Measure mixed-workload load, connection limits, queueing, cancellation and recovery; prove no cross-user or cross-target contamination. |
@@ -78,7 +166,7 @@ uses them; otherwise keep them outside the tested matrix rather than claiming su
 Suggested owner: application engineer. Complete NP-01 and NP-02 first.
 
 **Status: restart behavior is implemented and tested against the stand-in; the
-deployment half is untouched.** What landed:
+deployment coverage is also implemented and green in CI.** What landed:
 
 - Schema version 4 adds `executions.owner_id` / `dispatched_at`,
   `worksheet_sessions.owner_id` / `commit_requested_at` and an `execution_runtimes`
@@ -248,8 +336,8 @@ All run locally, outside the filesystem sandbox, against the local stand-in back
 
 ### Not validated
 
-No real Oracle, PostgreSQL, identity provider, DataForge or model qualification has been
+For the restart implementation recorded above, no real Oracle, PostgreSQL, identity provider, DataForge or model qualification had been
 performed. In particular the restart behavior above is evidence about the harness, not
 about Oracle: that an abandoned connection rolls back, and that a commit interrupted at
 the wire behaves as reconciliation assumes, are Oracle-side claims and belong to step 2's
-Oracle run. NP-02 through NP-08 remain open.
+Oracle run. Current status is given in the execution plan above: NP-02 now has green CI evidence, NP-03 through NP-07 remain external qualification gates, and NP-08 is addressed.
