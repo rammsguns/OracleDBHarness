@@ -37,7 +37,7 @@ from tests.copilot.eval.runner import (
     reservation_for,
     run_evaluation,
 )
-from tests.copilot.eval.scoring import ReportError, case_verdict, score
+from tests.copilot.eval.scoring import ReportError, case_verdict, review_outstanding, score
 
 MODEL = "claude-opus-5"
 KEY_ENV = "COPILOT_EVAL_TEST_KEY"
@@ -638,6 +638,22 @@ def test_an_incomplete_report_cannot_be_scored() -> None:
     report["cases"][0]["review"]["verdict"] = "looks fine"
     with pytest.raises(ReportError, match="verdict"):
         score(report)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("reviewer", ["dba@example.internal"]), ("notes", 1), ("failurePattern", ["reason"])],
+)
+def test_review_fields_that_are_not_text_are_rejected(field: str, value: Any) -> None:
+    report = synthetic_report()
+    review = record(report, "O0")["review"]
+    review.update({field: value})
+    if field == "failurePattern":
+        review["verdict"] = "fail"
+    with pytest.raises(ReportError, match=f"review.{field} must be text"):
+        score(report)
+    review_case = {"review": {**review, "required": True}}
+    assert field in review_outstanding(review_case)
 
 
 # -- scoring: safety invariants hold in every case ----------------------------------------------

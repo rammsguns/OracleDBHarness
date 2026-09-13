@@ -45,6 +45,7 @@ REQUIRED_CASE_FIELDS = (
     "review",
     "estimatedCostUsd",
 )
+REVIEW_TEXT_FIELDS = ("reviewer", "notes", "failurePattern")
 
 
 class ReportError(ValueError):
@@ -62,11 +63,16 @@ def review_outstanding(case: dict[str, Any]) -> list[str]:
     if verdict not in ("pass", "fail"):
         missing.append("verdict")
     for name in ("reviewer", "notes"):
-        if not str(review.get(name) or "").strip():
+        if not _filled(review.get(name)):
             missing.append(name)
-    if verdict == "fail" and not str(review.get("failurePattern") or "").strip():
+    if verdict == "fail" and not _filled(review.get("failurePattern")):
         missing.append("failurePattern")
     return missing
+
+
+def _filled(value: object) -> bool:
+    # Not str(value): a list or number stringifies to something non-empty.
+    return isinstance(value, str) and bool(value.strip())
 
 
 def case_verdict(case: dict[str, Any]) -> str:
@@ -197,7 +203,7 @@ def score(report: dict[str, Any]) -> dict[str, Any]:
             ]
             if failed_checks:
                 patterns[f"structural check failed: {', '.join(sorted(set(failed_checks)))}"] += 1
-            pattern = str(case["review"].get("failurePattern", "")).strip()
+            pattern = (case["review"].get("failurePattern") or "").strip()
             if case["review"].get("verdict") == "fail":
                 patterns[pattern or "reviewer failed the case without naming a pattern"] += 1
         elif verdict == "incomplete":
@@ -284,6 +290,10 @@ def _validate(report: dict[str, Any]) -> None:
         verdict = case["review"].get("verdict")
         if verdict not in (None, "pass", "fail"):
             raise ReportError(f"Case {case['id']}: review.verdict must be 'pass' or 'fail'.")
+        for name in REVIEW_TEXT_FIELDS:
+            value = case["review"].get(name)
+            if value is not None and not isinstance(value, str):
+                raise ReportError(f"Case {case['id']}: review.{name} must be text.")
     counted = sum(1 for case in cases if "correctness" in case["gates"])
     if counted != report["caseSet"].get("correctnessDenominator"):
         raise ReportError(
