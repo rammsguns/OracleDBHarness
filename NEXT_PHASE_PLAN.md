@@ -53,12 +53,11 @@ exit: at least 30 completed cases, every authorization/no-automatic-execution ca
 passes, and at least 90% DBA-reviewed correctness on explain/fix cases. Runner
 completion alone does not close NP-04.
 
-**Status: implementation under review; scoring fixes open. Qualification exit not
-started.** Steps 1-4 and the controlled-response half of step 5 were built in `e25dc4f`,
-but review of that commit found the scorer could report QUALIFIED for a run that should
-not qualify (below). The fixes are verified locally on branch `fix/np04-scoring-gates`
-and stay open until merged with green CI. See `tests/copilot/README.md` and *Validation*
-below. What landed in `e25dc4f`:
+**Status: implementation exit met, with scoring fixes merged; qualification exit not
+started.** Steps 1-4 and the controlled-response half of step 5 were built in `e25dc4f`.
+Review of that commit found the scorer could report QUALIFIED for a run that should not
+qualify (below); the fixes merged in `a6303f8` (#12) with green CI on the pull request and
+on `main`. See `tests/copilot/README.md` and *Validation* below. What landed in `e25dc4f`:
 
 - `tests/copilot/eval/cases.json`, case-set version `2026-09-12.1`: 39 cases (36 reach
   the provider) across explain 6, fix 7, draft 4, test blocks 3, tuning 4, inaccessible
@@ -100,7 +99,7 @@ Review findings on `e25dc4f`, and their resolution:
   `--allow-partial-run` only permits starting such a run; a run that completes within its
   ceiling is scored normally. CLI help and the README say so.
 
-Still owed for NP-04: merging the scoring fixes with green CI; provider configuration, a data-sharing approval and a spend
+Still owed for NP-04: provider configuration, a data-sharing approval and a spend
 allowance with named owners; the paid run (worst-case reservation for the full case set
 is about $8.50 at $5/$25 per million tokens and 8000 output tokens); DBA review of every
 reviewed case; `score`; and recording the result and failure patterns.
@@ -113,7 +112,7 @@ preparation can proceed alongside runner implementation.
 | Order | Work package | Suggested owner | Dependency | Completion evidence |
 | --- | --- | --- | --- | --- |
 | 1 | Preserve green CI and capture deployment evidence (NP-02) | Application engineer | Current CI run | Link green run and drill timings; retain an actual release-store snapshot for a later released-version upgrade test. Identify synthetic migration coverage separately. |
-| 2 | Build and evaluate the provider runner (NP-04) — runner built, scoring fixes under review | Integration engineer + DBA | Merged scoring fixes; provider configuration, approved context and budget for the paid run | Runner checks and scoring regressions (verified locally, merge owed), reviewed case report and both quality gates above (owed). |
+| 2 | Build and evaluate the provider runner (NP-04) — runner built, scoring fixes merged | Integration engineer + DBA | Provider configuration, approved context and budget for the paid run | Runner checks and scoring regressions (done, `a6303f8`), reviewed case report and both quality gates above (owed). |
 | 3 | Qualify Oracle recovery, grants and isolation (NP-01/03) | Application engineer + DBA | Isolated schemas, direct grants, PDB and independent second database | Process-death cases before dispatch, during read/write and during commit; no replay or false success; restricted panels degrade correctly; target identity and state remain isolated. |
 | 4 | Complete browser identity and DataForge integration (NP-05/06) | Integration engineer + identity owner | Pilot OIDC registration, deployed origin/proxy, pinned DataForge checkout; NP-04 for full provider flow | Browser callback/expiry/logout/access checks; editor context, incremental streaming, reviewed/stale diffs and outage recovery; both projects' regressions; measured setup time. |
 | 5 | Measure capacity and complete the pilot (NP-07) | Application engineer + developer + DBA | Functional gates above and three independent databases | Ten concurrent users, agreed latency/error thresholds, connection/queue limits, saturation and soak recovery; developer and DBA complete all six MVP workflows. |
@@ -426,6 +425,14 @@ No model provider was called; every report scored here is a fixture, not evidenc
   budget stop, each naming its cause; and exited 0 with QUALIFIED for a safe, fully
   reviewed report at 9/10 correctness with `allowPartialRun` set. `rehearse` still runs
   all 39 cases and `score` still refuses the rehearsal.
+- Merged to `main` as `a6303f8` (#12). CI passed all five jobs (API and worker, Compose
+  install and restore, DataForge adapter, Keycloak sign-in, web console) on the pull
+  request head `996e9d7`, run 34730247342, and again on `a6303f8` after the merge, run
+  34735451804, where the API job's full pytest run was **495 passed, 54 skipped** (more
+  run than locally because PostgreSQL is available on CI). CI's `mypy` step covers the
+  two services only; `tests/copilot/eval` was type-checked locally. This is evidence
+  about the harness and the scorer's fixture tests, not model quality: no provider run,
+  DBA review or pilot has happened.
 
 ### Not validated
 
