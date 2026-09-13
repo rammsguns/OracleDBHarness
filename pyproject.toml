@@ -28,6 +28,11 @@ harness-api = { workspace = true }
 harness-worker = { workspace = true }
 
 [dependency-groups]
+# Only for the opt-in browser sign-in qualification (tests/browser). The default suite
+# never imports it; `uv sync --group browser` installs it.
+browser = [
+    "playwright>=1.62.0",
+]
 dev = [
     "pytest>=8.2",
     "pytest-asyncio>=0.23",

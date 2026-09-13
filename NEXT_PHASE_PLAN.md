@@ -172,7 +172,7 @@ a complete code audit.
 | NP-03 | P1 | One Oracle 19.9 non-CDB/thin instance has passed; restricted grants, a PDB and independent target isolation remain unqualified. The recorded run substituted `SELECT_CATALOG_ROLE` for seven direct SYS-view grants. | Run the reviewed grants with appropriate DBA support and qualify restricted/developer accounts, a second database and a PDB; record exact versions and skipped checks. |
 | NP-04 | P1; **runner implemented, run owed** | `tests/conftest.py` explicitly sets `copilot_provider="fake"`, so the default suite cannot be provider evidence. An opt-in runner and a 39-case set now exist under `tests/copilot/eval/`, with their negative paths in `tests/copilot/test_evaluation_runner.py`. No paid run or DBA review has happened. | Create a separate opt-in provider evaluation path that verifies the actual provider/model and rejects fixture results as qualification evidence. Run the DBA-reviewed case set. |
 | NP-05 | P1 | DataForge adapter tests use a stub; no real DataForge commit, proxy streaming path or setup time has been qualified. See `integrations/dataforge/COMPATIBILITY.md`. | Integrate a pinned DataForge revision and pass its published release gates, including unchanged execution/transaction behavior. |
-| NP-06 | P1 | Keycloak sign-in is tested under Node; browser redirect and the pilot identity registration have not been exercised. | Complete sign-in through the deployed console in a browser and verify API authorization, token expiry and rejected identities. |
+| NP-06 | P1; **browser run prepared, pilot run owed** | Keycloak sign-in is tested under Node; browser redirect and the pilot identity registration have not been exercised. `python -m tests.browser` now drives Chromium through sign-in, callback, API access, refused identities, sign-out and expiry, in `rehearsal`, `fixture` (CI, Keycloak) and `pilot` modes; only `pilot` can report QUALIFIED. | Complete sign-in through the deployed console in a browser and verify API authorization, token expiry and rejected identities. |
 | NP-07 | P1 | Ten concurrent users over three databases is a release target with no measurements. | Measure mixed-workload load, connection limits, queueing, cancellation and recovery; prove no cross-user or cross-target contamination. |
 | NP-08 | P2 | The historical MVP milestone/backlog text still says no Oracle environment was obtained, contrary to the 2026-09-11 evidence. The adapter compatibility file repeats the old claim. | Reconcile current annotations and link this plan; keep the original scope and acceptance criteria visible. Addressed by this planning change. |
 | NP-09 | **Closed, not a fault** | The configured interpreter is present and working. The 2026-09-12 failure was the filesystem sandbox, the same cause as the web-test failure recorded below, not a missing environment. | Met: lint, format, types, the full pytest suite and contract freshness all pass locally. No environment repair was needed. |
@@ -433,6 +433,39 @@ No model provider was called; every report scored here is a fixture, not evidenc
   two services only; `tests/copilot/eval` was type-checked locally. This is evidence
   about the harness and the scorer's fixture tests, not model quality: no provider run,
   DBA review or pilot has happened.
+
+### 2026-09-13, browser identity preparation (NP-06)
+
+Run locally on Windows, branch `qual/np06-browser-identity`. Docker and Java are not
+available here, so **no Keycloak and no pilot provider was reachable**: the browser run was
+exercised only against its own stand-in provider.
+
+- New: `tests/browser`, entry point `uv run --group browser python -m tests.browser run`,
+  with Playwright 1.62 in an opt-in `browser` dependency group. Three modes, `rehearsal`
+  (stand-in provider), `fixture` (the Keycloak realm, local API and `vite preview`) and
+  `pilot` (deployed origin, manual login, nothing started). Only a complete pilot run
+  reports `QUALIFIED`; pilot mode refuses the fixture issuer and form login. Reports carry
+  commit, mode, verdict, origin, issuer, client, browser and per-check outcomes, and
+  refuse to be written if they contain a token, code, PKCE value, password or JWT-shaped
+  text.
+- Supporting changes: `HARNESS_API_PROXY_TARGET` in `apps/web/vite.config.ts` (default
+  unchanged); the realm's console client issues 60-second access tokens so the expiry
+  check is short; CI's `identity` job runs fixture mode with the runner's Chrome and
+  uploads the report; CI `mypy` covers `tests/browser`.
+- Rehearsal, Chromium 151: **26 checks, 24 passed, 2 observed, 0 failed**, about 70s.
+  Observed and recorded, not judged: the token stays valid at the API after console
+  sign-out until it expires, and the provider session survives sign-out. With the console
+  deliberately changed to keep the token in `localStorage` and not clear the callback
+  URL, four checks failed naming exactly those faults and the report still contained no
+  secret. Fixture mode without Keycloak and pilot mode against an unreachable origin both
+  stop at a named prerequisite.
+- `tests/unit/test_browser_qualification.py`: 21 checks (configuration refusals, verdicts,
+  report redaction, the stand-in provider's PKCE and single-use code enforcement). Full
+  suite **503 passed, 67 skipped**; `ruff check`, `ruff format --check`, `mypy` (CI set plus
+  `tests/browser`), web typecheck and web tests (45 passed, 3 Keycloak skipped) clean.
+- Owed: the fixture run on CI (first execution against Keycloak in a browser), and the
+  pilot run against the pilot registration and deployed origin, which needs that
+  registration, two provider accounts, an ungranted target and an agreed expiry wait.
 
 ### Not validated
 
