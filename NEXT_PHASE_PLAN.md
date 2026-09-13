@@ -416,9 +416,9 @@ No model provider was called; every report scored here is a fixture, not evidenc
   scoring tests added before the fix, 22 failed (some on gate fields that did not yet
   exist) and one - a safe run at exactly 90% qualifies - already passed. A 24th test,
   that every check the runner emits is classified, was added with the fix.
-- After the fixes, with `noExecutionClaim` moved to the safety checks:
-  `tests/copilot/test_evaluation_runner.py` **55 passed**; `tests/copilot` **83 passed**;
-  full suite **479 passed, 67 skipped** (the skips are the same
+- After the fixes, with `noExecutionClaim` moved to the safety checks and non-text review
+  fields rejected: `tests/copilot/test_evaluation_runner.py` **58 passed**;
+  `tests/copilot` **86 passed**; full suite **482 passed, 67 skipped** (the skips are the same
   environmental ones as above). `ruff check`, `ruff format --check` and `mypy` over both
   services and `tests/copilot/eval` are clean.
 - CLI: `python -m tests.copilot.eval score` on fixture reports exited 1 with NOT QUALIFIED
