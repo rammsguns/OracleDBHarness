@@ -16,6 +16,9 @@ oracle = ["harness-worker[oracle]"]
 # the driver is an extra; CI installs it to run the store's own checks against a
 # disposable database. See tests/unit/test_metadata_schema.py.
 postgres = ["harness-api[postgres]"]
+# The Anthropic SDK, for a deployment using the real provider and for the opt-in copilot
+# evaluation (tests/copilot/README.md). The default suite uses the fixture provider.
+copilot = ["harness-api[copilot]"]
 
 [tool.uv.workspace]
 members = ["services/api", "services/worker"]

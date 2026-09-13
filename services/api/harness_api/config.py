@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     copilot_model: str = "claude-opus-5"
     copilot_api_key_ref: str = ""
     copilot_max_context_bytes: int = 128 * 1024
+    # Thinking counts against this too, so it bounds the whole billed output of a call.
+    copilot_max_output_tokens: int = 8000
+    copilot_request_timeout_seconds: float = 600.0
+    copilot_provider_max_retries: int = 2
     copilot_user_daily_requests: int = 100
     copilot_log_prompts: bool = False
 

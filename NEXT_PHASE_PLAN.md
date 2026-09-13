@@ -53,6 +53,34 @@ exit: at least 30 completed cases, every authorization/no-automatic-execution ca
 passes, and at least 90% DBA-reviewed correctness on explain/fix cases. Runner
 completion alone does not close NP-04.
 
+**Status: implementation exit met locally; qualification exit not started.** Steps 1-4
+and the controlled-response half of step 5 are done; see `tests/copilot/README.md` and
+*Validation* below. What landed:
+
+- `tests/copilot/eval/cases.json`, case-set version `2026-09-12.1`: 39 cases (36 reach
+  the provider) across explain 6, fix 7, draft 4, test blocks 3, tuning 4, inaccessible
+  objects 3, stale source 2, embedded instructions 4 and authorization 6. The
+  correctness denominator (13 explain/fix cases) is declared in the file and enforced
+  by the loader, as are the safety gate (12 cases) and which cases may be judged
+  structurally rather than by a DBA.
+- `python -m tests.copilot.eval` with `validate`, `rehearse` (fixture provider, report
+  marked not-evidence), `run` and `score`. `run` serves a throwaway harness over real HTTP
+  and drives the router, context policy, SSE stream, proposal capture and apply check.
+  It refuses the fixture provider, an unnamed model, a missing key, missing prices or
+  ceiling, unapproved context categories and a ceiling below the worst case; checks the
+  key and model with a lookup that generates nothing; reserves a byte-bounded worst-case
+  cost per request with provider retries disabled; and aborts if fixture answers appear.
+  Timeouts, provider errors, partial or truncated streams, missing usage and a model
+  mismatch are recorded as incomplete.
+- The provider adapter gained `HARNESS_COPILOT_MAX_OUTPUT_TOKENS`,
+  `HARNESS_COPILOT_REQUEST_TIMEOUT_SECONDS` and `HARNESS_COPILOT_PROVIDER_MAX_RETRIES`,
+  records cache-creation tokens, and an access check. A `copilot` extra installs the SDK.
+
+Still owed for NP-04: provider configuration, a data-sharing approval and a spend
+allowance with named owners; the paid run (worst-case reservation for the full case set
+is about $8.50 at $5/$25 per million tokens and 8000 output tokens); DBA review of every
+reviewed case; `score`; and recording the result and failure patterns.
+
 ### Remaining delivery order
 
 These are suggested roles, not assigned people or dated commitments. Environment
@@ -61,7 +89,7 @@ preparation can proceed alongside runner implementation.
 | Order | Work package | Suggested owner | Dependency | Completion evidence |
 | --- | --- | --- | --- | --- |
 | 1 | Preserve green CI and capture deployment evidence (NP-02) | Application engineer | Current CI run | Link green run and drill timings; retain an actual release-store snapshot for a later released-version upgrade test. Identify synthetic migration coverage separately. |
-| 2 | Build and evaluate the provider runner (NP-04) | Integration engineer + DBA | Provider configuration, approved context and budget for the paid run | Runner checks, reviewed case report and both quality gates above. |
+| 2 | Build and evaluate the provider runner (NP-04) — runner built | Integration engineer + DBA | Provider configuration, approved context and budget for the paid run | Runner checks (done), reviewed case report and both quality gates above (owed). |
 | 3 | Qualify Oracle recovery, grants and isolation (NP-01/03) | Application engineer + DBA | Isolated schemas, direct grants, PDB and independent second database | Process-death cases before dispatch, during read/write and during commit; no replay or false success; restricted panels degrade correctly; target identity and state remain isolated. |
 | 4 | Complete browser identity and DataForge integration (NP-05/06) | Integration engineer + identity owner | Pilot OIDC registration, deployed origin/proxy, pinned DataForge checkout; NP-04 for full provider flow | Browser callback/expiry/logout/access checks; editor context, incremental streaming, reviewed/stale diffs and outage recovery; both projects' regressions; measured setup time. |
 | 5 | Measure capacity and complete the pilot (NP-07) | Application engineer + developer + DBA | Functional gates above and three independent databases | Ten concurrent users, agreed latency/error thresholds, connection/queue limits, saturation and soak recovery; developer and DBA complete all six MVP workflows. |
@@ -119,7 +147,7 @@ a complete code audit.
 | NP-01 | **Done, stand-in only** | Implemented in `services/api/harness_api/recovery.py`, run from `build_state` before the execution service exists. Covered by `tests/unit/test_restart_recovery.py` (23 checks) and `tests/integration/test_restart.py` (8), including a statement held in flight while its process is abandoned. | Met against the stand-in: never-dispatched work resolves to `cancelled`, interrupted reads to `failed`, interrupted writes to `outcome_unknown` with `verificationRequired`, stale worksheet records closed, nothing redispatched. The equivalent run on Oracle is still owed (step 2). |
 | NP-02 | **Implemented; green CI at `598870a`** | The `python` job runs against a `postgres:16-alpine` service container, and `HARNESS_REQUIRE_POSTGRES` turns a missing database into a failed job rather than a silent skip of the only checks that cover the pilot store. A new `deployment` job runs `deploy/backup-restore-drill.sh`: clean install, seed, dump, restore into a fresh database, cut the API over. | Met for migration, persistence, installation and restore, on every build. Upgrade *from a released version* is still only covered synthetically — no earlier build's store exists to upgrade. |
 | NP-03 | P1 | One Oracle 19.9 non-CDB/thin instance has passed; restricted grants, a PDB and independent target isolation remain unqualified. The recorded run substituted `SELECT_CATALOG_ROLE` for seven direct SYS-view grants. | Run the reviewed grants with appropriate DBA support and qualify restricted/developer accounts, a second database and a PDB; record exact versions and skipped checks. |
-| NP-04 | P1 | `tests/conftest.py` explicitly sets `copilot_provider="fake"`; `tests/copilot/README.md` now correctly documents that no real-provider runner exists. | Create a separate opt-in provider evaluation path that verifies the actual provider/model and rejects fixture results as qualification evidence. Run the DBA-reviewed case set. |
+| NP-04 | P1; **runner implemented, run owed** | `tests/conftest.py` explicitly sets `copilot_provider="fake"`, so the default suite cannot be provider evidence. An opt-in runner and a 39-case set now exist under `tests/copilot/eval/`, with their negative paths in `tests/copilot/test_evaluation_runner.py`. No paid run or DBA review has happened. | Create a separate opt-in provider evaluation path that verifies the actual provider/model and rejects fixture results as qualification evidence. Run the DBA-reviewed case set. |
 | NP-05 | P1 | DataForge adapter tests use a stub; no real DataForge commit, proxy streaming path or setup time has been qualified. See `integrations/dataforge/COMPATIBILITY.md`. | Integrate a pinned DataForge revision and pass its published release gates, including unchanged execution/transaction behavior. |
 | NP-06 | P1 | Keycloak sign-in is tested under Node; browser redirect and the pilot identity registration have not been exercised. | Complete sign-in through the deployed console in a browser and verify API authorization, token expiry and rejected identities. |
 | NP-07 | P1 | Ten concurrent users over three databases is a release target with no measurements. | Measure mixed-workload load, connection limits, queueing, cancellation and recovery; prove no cross-user or cross-target contamination. |
@@ -333,6 +361,24 @@ All run locally, outside the filesystem sandbox, against the local stand-in back
   had to name a real user; and the demonstration seed writes placeholder password files,
   which fails against the read-only `/run/secrets` mount.
 - Lint, format and types clean.
+
+### 2026-09-12, real-provider evaluation runner (NP-04)
+
+Run locally on Windows against the stand-in backend. No model provider was called.
+
+- **453 passed, 67 skipped.** The 29 new checks in `tests/copilot/test_evaluation_runner.py`
+  all run; every skip is environmental (PostgreSQL, Oracle, Keycloak, POSIX modes,
+  symlinks). `ruff check`, `ruff format --check`, `mypy` (both services, and the new
+  `tests/copilot/eval` package) and contract freshness are clean.
+- `python -m tests.copilot.eval rehearse` ran all 39 cases through the served harness with
+  the fixture provider: 36 streamed, the three refusals were not dispatched, no execution
+  or worksheet record appeared, and `score` refused the report as a rehearsal.
+- Writing the tests found one defect in the runner before it was ever used: the credential
+  scan read the raw event stream, and a key split across two deltas appears in neither
+  line. It now scans the assembled answer as well, and redaction covers the report.
+- The Anthropic adapter's new timeout, retry and access-check wiring was checked against
+  the installed SDK (1.4.0) offline only. The first real call will be the qualification
+  run's access check.
 
 ### Not validated
 

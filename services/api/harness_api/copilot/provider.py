@@ -56,6 +56,17 @@ class Provider(abc.ABC):
     def ready(self) -> bool:
         """Whether the adapter is configured well enough to be called."""
 
+    async def check_access(self) -> str:
+        """Prove the credentials and model work without generating anything.
+
+        Returns the model identifier the provider reports. Adapters that cannot check
+        without spending say so, rather than reporting a check that did not happen.
+        """
+
+        raise ConfigurationError(
+            f"The {self.name!r} provider has no access check that avoids generating text."
+        )
+
 
 class FakeProvider(Provider):
     """Deterministic fixture answers.
@@ -97,7 +108,15 @@ class AnthropicProvider(Provider):
 
     name = "anthropic"
 
-    def __init__(self, api_key: str, model: str = "claude-opus-5", max_tokens: int = 8000) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "claude-opus-5",
+        max_tokens: int = 8000,
+        *,
+        timeout_seconds: float = 600.0,
+        max_retries: int = 2,
+    ) -> None:
         try:
             from anthropic import AsyncAnthropic
         except ImportError as exc:  # pragma: no cover - depends on install extra
@@ -110,7 +129,11 @@ class AnthropicProvider(Provider):
                 "The Anthropic provider needs a key. Point HARNESS_COPILOT_API_KEY_REF "
                 "at a secret reference."
             )
-        self._client = AsyncAnthropic(api_key=api_key)
+        # A retried attempt can be billed as well as the one that finally answers, so
+        # anything accounting for spend has to know how many attempts one call may make.
+        self._client = AsyncAnthropic(
+            api_key=api_key, timeout=timeout_seconds, max_retries=max_retries
+        )
         self._model = model
         self._max_tokens = max_tokens
         self._usage = ProviderUsage(provider=self.name, model=model)
@@ -118,6 +141,25 @@ class AnthropicProvider(Provider):
     @property
     def ready(self) -> bool:
         return True
+
+    async def check_access(self) -> str:
+        import anthropic
+
+        try:
+            info = await self._client.models.retrieve(self._model)
+        except anthropic.AuthenticationError as exc:
+            raise ProviderError(
+                "The model provider rejected the configured key.",
+                detail={"status": exc.status_code},
+            ) from exc
+        except anthropic.APIStatusError as exc:
+            raise ProviderError(
+                f"The model provider returned {exc.status_code} for model {self._model!r}.",
+                detail={"status": exc.status_code, "model": self._model},
+            ) from exc
+        except anthropic.APIConnectionError as exc:
+            raise ProviderError("The model provider could not be reached.") from exc
+        return info.id
 
     async def stream(self, system: str, user_message: str) -> AsyncIterator[str]:
         import anthropic
@@ -152,6 +194,9 @@ class AnthropicProvider(Provider):
             stop_reason=final.stop_reason or "",
             extra={
                 "cacheReadInputTokens": getattr(final.usage, "cache_read_input_tokens", None),
+                "cacheCreationInputTokens": getattr(
+                    final.usage, "cache_creation_input_tokens", None
+                ),
             },
         )
         if final.stop_reason == "refusal":
@@ -166,11 +211,25 @@ class AnthropicProvider(Provider):
         return self._usage
 
 
-def create_provider(kind: str, *, api_key: str = "", model: str = "claude-opus-5") -> Provider:
+def create_provider(
+    kind: str,
+    *,
+    api_key: str = "",
+    model: str = "claude-opus-5",
+    max_output_tokens: int = 8000,
+    timeout_seconds: float = 600.0,
+    max_retries: int = 2,
+) -> Provider:
     if kind == "fake":
         return FakeProvider(model="fixture")
     if kind == "anthropic":
-        return AnthropicProvider(api_key=api_key, model=model)
+        return AnthropicProvider(
+            api_key=api_key,
+            model=model,
+            max_tokens=max_output_tokens,
+            timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
+        )
     raise ConfigurationError(
         f"Unknown copilot provider {kind!r}. Use 'anthropic' or 'fake'.",
         detail={"configured": kind},

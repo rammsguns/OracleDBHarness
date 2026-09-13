@@ -69,6 +69,8 @@ not the harness's.
 ## Limits and failure
 
 - A per-actor daily request limit (`HARNESS_COPILOT_USER_DAILY_REQUESTS`).
+- Per call: an output-token limit that thinking counts against
+  (`HARNESS_COPILOT_MAX_OUTPUT_TOKENS`), a timeout and a retry count.
 - A context size cap (`HARNESS_COPILOT_MAX_CONTEXT_BYTES`), enforced per attachment
   and in total.
 - A provider failure returns a typed `provider_failure` and leaves every database
@@ -98,5 +100,6 @@ evaluate answer quality, because the fixture provider's answers are fixed.
 
 MVP_PLAN.md requires at least 30 representative cases reviewed by a DBA against a real
 provider, with all authorisation and no-automatic-execution cases passing and at least
-90% reviewed correctness on explain and fix cases. That has not been done. See
-`tests/copilot/README.md`.
+90% reviewed correctness on explain and fix cases. The case set and an opt-in runner for
+that exist (`python -m tests.copilot.eval`); the paid run and its DBA review have not
+been done. See `tests/copilot/README.md`.
