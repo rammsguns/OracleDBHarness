@@ -132,7 +132,13 @@ closed with reason `process restart`.
 1. `GET /api/v1/admin/reconciliation` - what this startup resolved, and every execution
    still waiting for someone to look in the database. It carries the procedure with it.
 2. For each entry in `outstanding`, check in the database whether that change is present.
-   Query the affected rows directly. **Do not rerun the statement to find out.**
+   Query the affected rows directly. **Do not rerun the statement to find out.** Check
+   only once the dead process's session has gone from `V$SESSION` (module
+   `OracleDBHarness`): until the database has cleaned it up, its transaction is still in
+   progress and a read shows the state before it. Expect a session that was running or
+   waiting on a lock when the process died to stay until that statement ends. (This
+   project has not yet observed that on Oracle; `tests/integration/test_process_death.py`
+   records it when run against a target.)
 3. Record what you found:
    `POST /api/v1/admin/executions/{executionId}/verification` with
    `{"finding": "applied" | "not_applied" | "unresolved", "note": "..."}`.
