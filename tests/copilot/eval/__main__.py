@@ -69,7 +69,10 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--allow-partial-run",
         action="store_true",
-        help="Start even if the ceiling cannot cover every case. Such a run cannot qualify.",
+        help=(
+            "Start even if the ceiling cannot cover the worst case for every case. A run the "
+            "budget actually stops cannot qualify; one that completes every case can."
+        ),
     )
 
     score_parser = commands.add_parser(
@@ -140,6 +143,10 @@ def main(argv: list[str] | None = None) -> int:
     if report["aborted"]:
         print(f"ABORTED: {report['aborted']}", file=sys.stderr)
         return 1
+    if report["budget"]["stoppedForBudget"]:
+        print(
+            "STOPPED FOR BUDGET: some cases were skipped; this run cannot qualify.", file=sys.stderr
+        )
     if config.mode == QUALIFICATION:
         print("Next: DBA review of the report, then `score`. See reviewInstructions in the report.")
     return 0
