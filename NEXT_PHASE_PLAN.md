@@ -53,9 +53,12 @@ exit: at least 30 completed cases, every authorization/no-automatic-execution ca
 passes, and at least 90% DBA-reviewed correctness on explain/fix cases. Runner
 completion alone does not close NP-04.
 
-**Status: implementation exit met locally; qualification exit not started.** Steps 1-4
-and the controlled-response half of step 5 are done; see `tests/copilot/README.md` and
-*Validation* below. What landed:
+**Status: implementation under review; scoring fixes open. Qualification exit not
+started.** Steps 1-4 and the controlled-response half of step 5 were built in `e25dc4f`,
+but review of that commit found the scorer could report QUALIFIED for a run that should
+not qualify (below). The fixes are verified locally on branch `fix/np04-scoring-gates`
+and stay open until merged with green CI. See `tests/copilot/README.md` and *Validation*
+below. What landed in `e25dc4f`:
 
 - `tests/copilot/eval/cases.json`, case-set version `2026-09-12.1`: 39 cases (36 reach
   the provider) across explain 6, fix 7, draft 4, test blocks 3, tuning 4, inaccessible
@@ -76,7 +79,26 @@ and the controlled-response half of step 5 are done; see `tests/copilot/README.m
   `HARNESS_COPILOT_REQUEST_TIMEOUT_SECONDS` and `HARNESS_COPILOT_PROVIDER_MAX_RETRIES`,
   records cache-creation tokens, and an access check. A `copilot` extra installs the SDK.
 
-Still owed for NP-04: provider configuration, a data-sharing approval and a spend
+Review findings on `e25dc4f`, and their resolution:
+
+- **P1, safety checks outside the safety group.** Only `noDatabaseOperation` was enforced
+  globally; a leaked credential, context outside the permitted set or a failed apply
+  check in a case outside the safety group - or inside the 10% explain/fix allowance -
+  still qualified. The runner now classifies every structural check as a safety or an
+  answer check. Any safety-check failure in any case blocks qualification and is named
+  by case and check in the gate result, reasons and Markdown; `noDatabaseOperation` and
+  `credentialNotExposed` must be present for every case that ran. Answer checks still
+  fall within the correctness allowance.
+- **P2, outstanding DBA reviews.** A pending review was listed but did not block, and a
+  structurally failed case hid a missing review. Review completion is now computed from
+  the review fields for every completed case that requires one: verdict, reviewer, notes
+  and, for a failure, a failure pattern. Structural-only cases need none.
+- **P2, budget-stopped runs.** A run stopped by its budget with 30 or more completed
+  cases qualified. `stoppedForBudget` or any skipped case now blocks qualification.
+  `--allow-partial-run` only permits starting such a run; a run that completes within its
+  ceiling is scored normally. CLI help and the README say so.
+
+Still owed for NP-04: merging the scoring fixes with green CI; provider configuration, a data-sharing approval and a spend
 allowance with named owners; the paid run (worst-case reservation for the full case set
 is about $8.50 at $5/$25 per million tokens and 8000 output tokens); DBA review of every
 reviewed case; `score`; and recording the result and failure patterns.
@@ -89,7 +111,7 @@ preparation can proceed alongside runner implementation.
 | Order | Work package | Suggested owner | Dependency | Completion evidence |
 | --- | --- | --- | --- | --- |
 | 1 | Preserve green CI and capture deployment evidence (NP-02) | Application engineer | Current CI run | Link green run and drill timings; retain an actual release-store snapshot for a later released-version upgrade test. Identify synthetic migration coverage separately. |
-| 2 | Build and evaluate the provider runner (NP-04) — runner built | Integration engineer + DBA | Provider configuration, approved context and budget for the paid run | Runner checks (done), reviewed case report and both quality gates above (owed). |
+| 2 | Build and evaluate the provider runner (NP-04) — runner built, scoring fixes under review | Integration engineer + DBA | Merged scoring fixes; provider configuration, approved context and budget for the paid run | Runner checks and scoring regressions (verified locally, merge owed), reviewed case report and both quality gates above (owed). |
 | 3 | Qualify Oracle recovery, grants and isolation (NP-01/03) | Application engineer + DBA | Isolated schemas, direct grants, PDB and independent second database | Process-death cases before dispatch, during read/write and during commit; no replay or false success; restricted panels degrade correctly; target identity and state remain isolated. |
 | 4 | Complete browser identity and DataForge integration (NP-05/06) | Integration engineer + identity owner | Pilot OIDC registration, deployed origin/proxy, pinned DataForge checkout; NP-04 for full provider flow | Browser callback/expiry/logout/access checks; editor context, incremental streaming, reviewed/stale diffs and outage recovery; both projects' regressions; measured setup time. |
 | 5 | Measure capacity and complete the pilot (NP-07) | Application engineer + developer + DBA | Functional gates above and three independent databases | Ten concurrent users, agreed latency/error thresholds, connection/queue limits, saturation and soak recovery; developer and DBA complete all six MVP workflows. |
@@ -379,6 +401,28 @@ Run locally on Windows against the stand-in backend. No model provider was calle
 - The Anthropic adapter's new timeout, retry and access-check wiring was checked against
   the installed SDK (1.4.0) offline only. The first real call will be the qualification
   run's access check.
+
+### 2026-09-12, NP-04 scoring fixes (review of `e25dc4f`)
+
+Run locally on Windows on branch `fix/np04-scoring-gates`, not yet merged or run on CI.
+No model provider was called; every report scored here is a fixture, not evidence.
+
+- Regressions first: against the unchanged scorer, an otherwise qualifying report scored
+  `qualified=True` with `credentialNotExposed` failed on `O0`, with
+  `contextWithinPermitted` failed on a correctness case at exactly 90%, with `O0`'s
+  review pending, and with `O0` skipped for budget and `stoppedForBudget` set. Of the 23
+  scoring tests added before the fix, 22 failed (some on gate fields that did not yet
+  exist) and one - a safe run at exactly 90% qualifies - already passed. A 24th test,
+  that every check the runner emits is classified, was added with the fix.
+- After the fixes: `tests/copilot/test_evaluation_runner.py` **53 passed**; `tests/copilot`
+  **81 passed**; full suite **477 passed, 67 skipped** (the skips are the same
+  environmental ones as above). `ruff check`, `ruff format --check` and `mypy` over both
+  services and `tests/copilot/eval` are clean.
+- CLI: `python -m tests.copilot.eval score` on fixture reports exited 1 with NOT QUALIFIED
+  in the Markdown for the leaked credential on `O0`, the pending review on `O0` and the
+  budget stop, each naming its cause; and exited 0 with QUALIFIED for a safe, fully
+  reviewed report at 9/10 correctness with `allowPartialRun` set. `rehearse` still runs
+  all 39 cases and `score` still refuses the rehearsal.
 
 ### Not validated
 
