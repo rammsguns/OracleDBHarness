@@ -173,7 +173,7 @@ a complete code audit.
 | NP-04 | P1; **runner implemented, run owed** | `tests/conftest.py` explicitly sets `copilot_provider="fake"`, so the default suite cannot be provider evidence. An opt-in runner and a 39-case set now exist under `tests/copilot/eval/`, with their negative paths in `tests/copilot/test_evaluation_runner.py`. No paid run or DBA review has happened. | Create a separate opt-in provider evaluation path that verifies the actual provider/model and rejects fixture results as qualification evidence. Run the DBA-reviewed case set. |
 | NP-05 | P1 | DataForge adapter tests use a stub; no real DataForge commit, proxy streaming path or setup time has been qualified. See `integrations/dataforge/COMPATIBILITY.md`. | Integrate a pinned DataForge revision and pass its published release gates, including unchanged execution/transaction behavior. |
 | NP-06 | P1 | Keycloak sign-in is tested under Node; browser redirect and the pilot identity registration have not been exercised. | Complete sign-in through the deployed console in a browser and verify API authorization, token expiry and rejected identities. |
-| NP-07 | P1 | Ten concurrent users over three databases is a release target with no measurements. | Measure mixed-workload load, connection limits, queueing, cancellation and recovery; prove no cross-user or cross-target contamination. |
+| NP-07 | P1; **runner prepared, thresholds and run owed** | Ten concurrent users over three databases is a release target with no measurements. `python -m tests.capacity` and docs/capacity.md now define the run; its thresholds are proposals, and it has rehearsed only against the stand-in, where it found two defects (below). | Measure mixed-workload load, connection limits, queueing, cancellation and recovery; prove no cross-user or cross-target contamination. |
 | NP-08 | P2 | The historical MVP milestone/backlog text still says no Oracle environment was obtained, contrary to the 2026-09-11 evidence. The adapter compatibility file repeats the old claim. | Reconcile current annotations and link this plan; keep the original scope and acceptance criteria visible. Addressed by this planning change. |
 | NP-09 | **Closed, not a fault** | The configured interpreter is present and working. The 2026-09-12 failure was the filesystem sandbox, the same cause as the web-test failure recorded below, not a missing environment. | Met: lint, format, types, the full pytest suite and contract freshness all pass locally. No environment repair was needed. |
 
@@ -433,6 +433,57 @@ No model provider was called; every report scored here is a fixture, not evidenc
   two services only; `tests/copilot/eval` was type-checked locally. This is evidence
   about the harness and the scorer's fixture tests, not model quality: no provider run,
   DBA review or pilot has happened.
+
+### 2026-09-13, capacity preparation (NP-07)
+
+Run locally on Windows, branch `qual/np07-capacity`, against a local API on the stand-in.
+**No Oracle database and no load deployment were used**; nothing below is a capacity
+measurement of anything a pilot runs.
+
+- New: `tests/capacity` (`validate`, `baseline`, `run`, `rehearse`), `docs/capacity.md`,
+  `oracle/capacity/load_schema.sql` and `load_teardown.sql`. A workload file must state
+  the mix, seed, phase durations, declared resource limits and every threshold; thresholds
+  are `proposed` until `agreedBy`, `agreedOn` and `reference` are recorded. Steady,
+  saturation and recovery phases; per-phase p50/p95/p99 client time, execution and database
+  time, and client-minus-database overhead; network baseline; contamination checks through
+  marker rows, uncommitted-work probes from another user's session, session and execution
+  ownership attempts, and leaked sessions. The verdict cannot be `PASSED` without the
+  `oracledb` backend, three distinct database identities, ten users, agreed thresholds and
+  every phase complete.
+- The rehearsal found two defects, each now fixed with a regression test that fails
+  without the fix:
+  1. **A worksheet whose session record could not be saved kept its Oracle connection.**
+     `open_worksheet` leased the connection, then committed the record; when that commit
+     failed (the rehearsal's SQLite metadata store reporting "database is locked") the
+     caller got a 500 and no session id while the connection stayed open in the registry,
+     reported by the run as a leaked session. The lease is now closed when the record
+     cannot be written. `tests/integration/test_worksheet_open_failure.py`.
+  2. **The stand-in reported a cancelled running query as `oracle_error`**, or, when the
+     break landed while rows were being read, as a bare `harness_error`. Oracle's ORA-01013
+     is reported as `cancelled`, as the 2026-09-11 run confirmed. Both sites now map a
+     requested break the same way. `tests/unit/test_fake_cancellation.py`.
+- Still reported by the rehearsal and not fixed here: under saturation the in-process
+  SQLite metadata store also makes other requests fail with an unstructured 500 (no error
+  code), and the stand-in allows one writer per database file ("database is locked"). The
+  pilot's store is PostgreSQL; whether a PostgreSQL failure also surfaces without an error
+  code is not established.
+- Rehearsals (10 users, 3 stand-in targets, 20s/15s/20s): two consecutive runs
+  `REHEARSAL SOUND`, exit 0, about 200 committed and 30 rolled-back markers each, 50-60
+  cross-user probes, 0 contamination, 0 lost commits, 0 leaked sessions, recovery 0s.
+  Deliberate harness breaks were caught: routing every session to one database gave "43
+  marker(s) written for another target" and 43 lost commits; turning commit into rollback
+  gave 98 lost commits. Both breaks were reverted.
+- `tests/unit/test_capacity_planning.py`: 29 checks (workload refusals, reproducible and
+  weighted scheduling, the in-flight gate, percentiles, overhead, recovery, eligibility and
+  verdicts, token redaction). The query catalog now skips `oracle/capacity/`, as it skips
+  `grants/` and `qualification/`; the first full run with that directory present failed
+  every API test until it did.
+- Full suite **514 passed, 67 skipped**; `ruff check`, `ruff format --check`, `mypy` (CI set
+  plus `tests/capacity`) and the web typecheck clean. A third rehearsal on the final code was
+  `REHEARSAL SOUND` with 197 committed and 34 rolled-back markers, 0 contamination.
+- Owed: a load deployment on PostgreSQL with the pilot's limits, three independent
+  non-production databases with the marker table, ten accounts and credentials, the network
+  baseline, agreed thresholds, the run itself with host metrics, and a bounded soak.
 
 ### Not validated
 

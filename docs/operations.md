@@ -101,6 +101,12 @@ it for you.
   cannot, something is coupling the copilot to a database path that should be
   independent.
 
+## Measuring capacity
+
+The load procedure for the pilot target - ten users, three databases, steady, saturation
+and recovery phases, and contamination checks - is in [capacity.md](capacity.md). Run it
+against a disposable load deployment, never the pilot or a production target.
+
 ## Restarting
 
 Startup reconciles the previous process's interrupted work before it serves a single

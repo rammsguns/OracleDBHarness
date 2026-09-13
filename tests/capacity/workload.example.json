@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "name": "pilot capacity - TEMPLATE, replace every placeholder",
+  "api": {
+    "baseUrl": "https://harness-load.example.internal",
+    "auth": { "kind": "tokenFiles", "tokenDir": "/run/secrets/load-tokens" }
+  },
+  "users": [
+    { "subject": "load-user-01" },
+    { "subject": "load-user-02" },
+    { "subject": "load-user-03" },
+    { "subject": "load-user-04" },
+    { "subject": "load-user-05" },
+    { "subject": "load-user-06" },
+    { "subject": "load-user-07" },
+    { "subject": "load-user-08" },
+    { "subject": "load-user-09" },
+    { "subject": "load-user-10" }
+  ],
+  "targets": [
+    {
+      "name": "load-db-1",
+      "profileId": "tgt_REPLACE_1",
+      "sql": {
+        "boundedRead": "SELECT object_name, object_type FROM all_objects WHERE ROWNUM <= 50",
+        "slowRead": "SELECT COUNT(*) FROM (SELECT LEVEL n FROM dual CONNECT BY LEVEL <= 5000) a CROSS JOIN (SELECT LEVEL n FROM dual CONNECT BY LEVEL <= 5000) b",
+        "insertMarker": "INSERT INTO harness_load_markers (run_id, target_name, user_name, seq) VALUES (:run_id, :target_name, :user_name, :seq)",
+        "countMarker": "SELECT COUNT(*) FROM harness_load_markers WHERE run_id = :run_id AND user_name = :user_name AND seq = :seq",
+        "listMarkers": "SELECT seq FROM harness_load_markers WHERE run_id = :run_id AND target_name = :target_name AND user_name = :user_name AND seq BETWEEN :lo AND :hi ORDER BY seq",
+        "foreignMarkers": "SELECT COUNT(*) FROM harness_load_markers WHERE run_id = :run_id AND target_name <> :target_name",
+        "deleteMarkers": "DELETE FROM harness_load_markers WHERE run_id = :run_id"
+      }
+    },
+    {
+      "name": "load-db-2",
+      "profileId": "tgt_REPLACE_2",
+      "sql": {
+        "boundedRead": "SELECT object_name, object_type FROM all_objects WHERE ROWNUM <= 50",
+        "slowRead": "SELECT COUNT(*) FROM (SELECT LEVEL n FROM dual CONNECT BY LEVEL <= 5000) a CROSS JOIN (SELECT LEVEL n FROM dual CONNECT BY LEVEL <= 5000) b",
+        "insertMarker": "INSERT INTO harness_load_markers (run_id, target_name, user_name, seq) VALUES (:run_id, :target_name, :user_name, :seq)",
+        "countMarker": "SELECT COUNT(*) FROM harness_load_markers WHERE run_id = :run_id AND user_name = :user_name AND seq = :seq",
+        "listMarkers": "SELECT seq FROM harness_load_markers WHERE run_id = :run_id AND target_name = :target_name AND user_name = :user_name AND seq BETWEEN :lo AND :hi ORDER BY seq",
+        "foreignMarkers": "SELECT COUNT(*) FROM harness_load_markers WHERE run_id = :run_id AND target_name <> :target_name",
+        "deleteMarkers": "DELETE FROM harness_load_markers WHERE run_id = :run_id"
+      }
+    },
+    {
+      "name": "load-db-3",
+      "profileId": "tgt_REPLACE_3",
+      "sql": {
+        "boundedRead": "SELECT object_name, object_type FROM all_objects WHERE ROWNUM <= 50",
+        "slowRead": "SELECT COUNT(*) FROM (SELECT LEVEL n FROM dual CONNECT BY LEVEL <= 5000) a CROSS JOIN (SELECT LEVEL n FROM dual CONNECT BY LEVEL <= 5000) b",
+        "insertMarker": "INSERT INTO harness_load_markers (run_id, target_name, user_name, seq) VALUES (:run_id, :target_name, :user_name, :seq)",
+        "countMarker": "SELECT COUNT(*) FROM harness_load_markers WHERE run_id = :run_id AND user_name = :user_name AND seq = :seq",
+        "listMarkers": "SELECT seq FROM harness_load_markers WHERE run_id = :run_id AND target_name = :target_name AND user_name = :user_name AND seq BETWEEN :lo AND :hi ORDER BY seq",
+        "foreignMarkers": "SELECT COUNT(*) FROM harness_load_markers WHERE run_id = :run_id AND target_name <> :target_name",
+        "deleteMarkers": "DELETE FROM harness_load_markers WHERE run_id = :run_id"
+      }
+    }
+  ],
+  "workload": {
+    "seed": 1,
+    "mix": { "metadata": 25, "boundedRead": 40, "transaction": 25, "cancellation": 10 },
+    "thinkTimeMs": { "min": 2000, "max": 8000 },
+    "cancelAfterMs": 1500
+  },
+  "phases": {
+    "steady": { "seconds": 1800, "streamsPerUser": 1, "thinkTimeScale": 1 },
+    "saturation": { "seconds": 300, "streamsPerUser": 3, "thinkTimeScale": 0 },
+    "recovery": { "seconds": 600, "streamsPerUser": 1, "thinkTimeScale": 1 }
+  },
+  "resourceLimits": {
+    "apiCpus": 2,
+    "apiMemoryMiB": 2048,
+    "apiWorkerProcesses": 4,
+    "maxInFlightRequests": 30,
+    "requestTimeoutSeconds": 120,
+    "statementDeadlineSeconds": 30,
+    "maxRowsPerRead": 50
+  },
+  "thresholds": {
+    "status": "proposed",
+    "agreedBy": "",
+    "agreedOn": "",
+    "reference": "",
+    "latencyMs": {
+      "metadata": { "p50": 800, "p95": 2500 },
+      "boundedRead": { "p50": 500, "p95": 2000 },
+      "transaction": { "p50": 800, "p95": 3000 },
+      "cancellation": { "p50": 3000, "p95": 8000 }
+    },
+    "applicationOverheadP95Ms": 400,
+    "steadyMaxErrorRate": 0.01,
+    "saturation": { "maxErrorRate": 0.1, "allowedErrorCodes": ["execution_timeout", "session_busy"] },
+    "recoveryWithinSeconds": 120,
+    "maxOutcomeUnknown": 0,
+    "maxContaminations": 0
+  },
+  "cleanup": true
+}

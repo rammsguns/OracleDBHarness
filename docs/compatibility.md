@@ -31,7 +31,7 @@ claim. Where something has not been tested, it says so.
 | Sign-in in a real browser | The console's sign-in code has run against Keycloak under Node, and the token endpoint's CORS answer has been checked, but no browser has completed the redirect. |
 | A real model provider | The Anthropic adapter is written against the current Messages API; no call has been made. |
 | OracleDataForge | Not integrated. See `integrations/dataforge/COMPATIBILITY.md`. |
-| Load | The pilot target is ten concurrent users across three databases. Not measured. |
+| Load | The pilot target is ten concurrent users across three databases. **Not measured.** The runner and runbook exist (`python -m tests.capacity`, docs/capacity.md) and have only rehearsed against the stand-in; the thresholds in the example workload are proposals nobody has agreed. |
 
 ## Why the stand-in is not evidence
 
