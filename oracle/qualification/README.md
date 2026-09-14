@@ -40,6 +40,16 @@ The six areas the release criteria name, each one currently answered only by a s
 | `test_compilation.py` | Compiling a package body, line-level error rows, repair and recompile, and `DBMS_OUTPUT` read back through the `arrayvar` bind that has never been executed |
 | `test_binds.py` | Scalar binds, `NUMBER(20,10)` precision, Unicode, nulls versus empty strings, timestamps with time zones, quoted identifiers, bounded fetch |
 | `test_lobs.py` | The bounded LOB preview, `EMPTY_CLOB()` against NULL, hex previews for binary, and a zero-byte budget |
+| `test_identity_and_versions.py` (container) | That `isCdb` and `containerName` agree with `CON_ID`/`CON_NAME`. A non-CDB or `CDB$ROOT` target is recorded as a gap in PDB coverage, not a pass |
+| `test_target_isolation.py` | That the second target is a different container on the databases' own say-so (DBID, CON_DBID, instance, host), not merely a differently spelled DSN |
+| `test_restricted_account.py` | That an account really missing grants probes as such, and that every DBA panel's outcome agrees with the probe: no panel failing with an Oracle error its probe allowed |
+
+And through the API, in `tests/integration/test_process_death.py`, which runs against
+whichever backend the switch selects:
+
+| Scenario | What it settles |
+| --- | --- |
+| Process death before dispatch, during a read, during a write, during `COMMIT` (before it is sent and after it returns), and mid-statement while a write waits on a row lock | What restart reconciliation records, what Oracle actually did once it cleaned up the dead session, that nothing was replayed, and that no success was recorded for an answer nobody saw. See [Process death](#process-death) |
 
 ## Setting up
 
@@ -93,6 +103,108 @@ Without `HARNESS_QUAL_ORACLE_DSN` the whole suite skips, which is what happens i
 A half-configured run fails rather than skipping: a qualification run that quietly did
 nothing is indistinguishable from a passing one in a CI summary, and that is the
 failure mode worth avoiding.
+
+### A restricted account, a PDB, and requiring what the run is for
+
+5. Optionally create a restricted account on the primary database (or on
+   `HARNESS_QUAL_RESTRICTED_DSN`). It must be missing some of the grants the DBA panels
+   need, or the checks fail and say the account is not restricted. One reviewed shape,
+   for a DBA to adapt:
+
+   ```sql
+   CREATE USER harness_restricted IDENTIFIED BY "managed elsewhere";
+   GRANT CREATE SESSION TO harness_restricted;
+   GRANT SELECT ON sys.dba_tablespaces              TO harness_restricted;
+   GRANT SELECT ON sys.dba_tablespace_usage_metrics TO harness_restricted;
+   -- deliberately no V$SESSION, V$SQL or DBA_SCHEDULER_* grants
+   ```
+
+6. To qualify a PDB, point `HARNESS_QUAL_ORACLE_DSN` at the PDB's service. The container
+   check records what the target is; a non-CDB or `CDB$ROOT` target is written to the
+   report as a gap in PDB coverage.
+
+```bash
+# Optional, for the restricted-account checks:
+export HARNESS_QUAL_RESTRICTED_USER=harness_restricted
+export HARNESS_QUAL_RESTRICTED_PASSWORD_FILE=/run/secrets/harness_restricted.password
+
+# For the run that is meant to close the NP-03 gate: a missing environment fails the
+# run instead of skipping its checks.
+export HARNESS_QUAL_REQUIRE=admin,second_target,restricted_account,pdb
+```
+
+Every optional environment the run did not have is listed under "Not exercised by this
+run" in the report. `HARNESS_QUAL_REQUIRE` accepts `admin`, `second_target`,
+`restricted_account` and `pdb`; an unknown name is refused.
+
+## Process death
+
+`tests/integration/test_process_death.py` is the Oracle half of restart recovery (NP-01).
+It is not the fault-injection tests: nothing is raised inside the harness. Each scenario
+starts the API as a separate Python process against the qualification target, sends it a
+real request, waits until it reaches a chosen point, and ends it with `Popen.kill()` -
+`SIGKILL` on Linux, `TerminateProcess` on Windows - so no handler in it runs. A second
+process then starts over the same metadata store. The points are a pause in the child,
+installed by `tests/process_death/child.py`, not a change to what the harness does.
+
+Three sources are checked in every scenario: the execution and session records in the
+metadata store, the administrator's reconciliation report from the restarted process, and
+the row itself, read through a separate Oracle session only after that session has seen
+the dead one cleaned up.
+
+| Point | The database, once cleaned up | The record |
+| --- | --- | --- |
+| Record written, not dispatched | Row unchanged | `cancelled`, `interrupted_before_dispatch` |
+| Read fetched, answer not returned | Unchanged | `failed`, no verification |
+| UPDATE applied in an open transaction, answer not returned | Rolled back with the session | `outcome_unknown`, verification required; finding `not_applied` is recorded |
+| UPDATE waiting inside Oracle on a row lock the observer holds | Rolled back once the wait ends | `outcome_unknown` |
+| Commit intent recorded, `COMMIT` not sent | Rolled back | Session under `commitsUnknown`; finding `not_applied` |
+| `COMMIT` returned, answer not recorded | **Durable** | Session under `commitsUnknown`, no successful commit audited; finding `applied` |
+
+The last two leave identical records and opposite database states. That is the reason an
+interrupted commit is reported as unknown rather than as either outcome.
+
+A scenario only records evidence when the killed process's own backend reports
+`oracledb` and its worksheet identity is not the stand-in's; otherwise it fails. The same
+file runs against the stand-in in ordinary CI as a rehearsal of the machinery, and writes
+nothing.
+
+**Prerequisites**, beyond the setup above:
+
+* A disposable `HARNESS_APP` schema on a non-production database. Scenarios write to
+  `EMPLOYEES` row 101 and put it back; a run that is interrupted can leave it changed
+  until the next fixture rebuild.
+* `SELECT` on `V$SESSION` for the qualification account (`harness_diagnostics_role` has
+  it). Without it the mid-statement scenario skips - it cannot show the statement was
+  inside the database - and cleanup is judged by the row lock alone. Both are written to
+  the report.
+* A host that can start child Python processes and bind an ephemeral port on
+  `127.0.0.1`. Each child uses a SQLite metadata store in the test's temporary directory;
+  the scenarios are about the target database, and the metadata store's own restart
+  behaviour is covered on PostgreSQL in CI.
+* The client host and the database on a network where a closed socket reaches the server.
+  A killed process's sockets are closed by the operating system, so the server notices at
+  its next read or write. A host that loses power or network sends nothing; that needs
+  `SQLNET.EXPIRE_TIME` (dead connection detection) and is **not** covered by these
+  scenarios.
+
+```bash
+uv run pytest tests/integration/test_process_death.py -v
+```
+
+With `HARNESS_QUAL_REPORT=./qualification-report.md`, the observations are written to
+`./qualification-report-process-death.md` (and a `.json` sidecar), separately from the
+backend suite's report.
+
+**Process cleanup.** Every child is killed in test teardown, pass or fail. If pytest itself
+is killed, children can be left running: look for command lines containing
+`tests.process_death.child` and end them. A killed child's Oracle session is cleaned up by
+the server on its own; one that is still present after the run shows in `V$SESSION` with
+`MODULE = 'OracleDBHarness'` under the qualification account. The mid-statement scenario
+holds a row lock from its observer session until it releases it in a `finally`; if the
+pytest process dies first, that session ends with it and the lock goes too. The scenarios
+wait up to 180 seconds for cleanup and fail, rather than read a transaction in progress,
+if it has not happened.
 
 ## The fixtures
 

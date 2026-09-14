@@ -44,6 +44,11 @@ MARKERS = [
         "Oracle equivalent lives in tests/qualification."
     ),
     ("needs_second_target: needs two genuinely separate databases (HARNESS_QUAL_SECOND_DSN)."),
+    (
+        "oracle_only: needs behaviour the stand-in does not have (row locks that hold a "
+        "statement inside the database, a V$SESSION that describes real sessions). Skips "
+        "against the stand-in rather than passing trivially there."
+    ),
 ]
 
 
@@ -73,10 +78,13 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         "tests/qualification."
     )
     no_second = pytest.mark.skip(reason=oracle_config.NO_SECOND_TARGET_REASON)
+    no_oracle = pytest.mark.skip(reason=f"Marked oracle_only. {oracle_config.SKIP_REASON}")
 
     for item in items:
         if on_oracle and item.get_closest_marker("stand_in_only"):
             item.add_marker(stand_in)
+        if not on_oracle and item.get_closest_marker("oracle_only"):
+            item.add_marker(no_oracle)
         if not have_second and item.get_closest_marker("needs_second_target"):
             item.add_marker(no_second)
 

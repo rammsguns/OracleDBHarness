@@ -59,6 +59,20 @@ ENV_SECOND_USER = f"{ENV_PREFIX}SECOND_USER"
 ENV_SECOND_PASSWORD_FILE = f"{ENV_PREFIX}SECOND_PASSWORD_FILE"  # noqa: S105 - a path
 ENV_SECOND_SCHEMA = f"{ENV_PREFIX}SECOND_SCHEMA"
 
+# An account deliberately missing some of the grants in oracle/grants/harness_roles.sql,
+# on the primary database unless a DSN says otherwise. The full-grant fixture account
+# cannot show a panel degrading, because every panel works for it.
+ENV_RESTRICTED_DSN = f"{ENV_PREFIX}RESTRICTED_DSN"
+ENV_RESTRICTED_USER = f"{ENV_PREFIX}RESTRICTED_USER"
+ENV_RESTRICTED_PASSWORD_FILE = f"{ENV_PREFIX}RESTRICTED_PASSWORD_FILE"  # noqa: S105 - a path
+
+# Environments a run is meant to qualify. Without this, a missing admin account, second
+# database, restricted account or PDB is a skip, which is right for a partial run and
+# wrong for the run that is supposed to close the gate: a skip is indistinguishable from a
+# pass in a summary line. Naming an area here turns its absence into a failure.
+ENV_REQUIRE = f"{ENV_PREFIX}REQUIRE"
+REQUIREMENTS = ("admin", "second_target", "restricted_account", "pdb")
+
 SKIP_REASON = (
     f"No Oracle target is configured. Set {ENV_DSN} (and {ENV_USER}, "
     f"{ENV_PASSWORD_FILE}) to run against a real database. "
@@ -83,6 +97,11 @@ NO_SECOND_TARGET_REASON = (
     f"{ENV_SECOND_DSN} is not set. This check needs two genuinely separate databases; "
     "two profiles pointing at one cannot show that identity, credentials and session "
     "state stay apart."
+)
+
+NO_RESTRICTED_ACCOUNT_REASON = (
+    f"{ENV_RESTRICTED_USER} is not set. Degraded panels need an account that is really "
+    "missing grants; the full-grant fixture account has every capability."
 )
 
 
@@ -165,6 +184,8 @@ class OracleTestConfig:
     protocol: str
     wallet_dir: str | None
     report_path: Path | None
+    restricted: Endpoint | None = None
+    required: frozenset[str] = frozenset()
 
     # -- convenience for the qualification suite, which only uses the primary ------
 
@@ -227,6 +248,16 @@ class OracleTestConfig:
         spec = self.spec_for(self.admin, "qualification-admin")
         return replace(spec, default_schema=None)
 
+    def restricted_spec(
+        self, profile_id: str = "qualification-restricted"
+    ) -> ConnectionSpec | None:
+        if self.restricted is None:
+            return None
+        return self.spec_for(self.restricted, profile_id)
+
+    def requires(self, area: str) -> bool:
+        return area in self.required
+
 
 def is_configured() -> bool:
     return bool(os.environ.get(ENV_DSN, "").strip())
@@ -274,6 +305,20 @@ def load() -> OracleTestConfig:
         )
 
     admin = _optional_endpoint(ENV_ADMIN_DSN, ENV_ADMIN_USER, ENV_ADMIN_PASSWORD_FILE, None)
+    restricted = _restricted_endpoint(primary)
+    required = _requirements()
+
+    missing = {
+        "admin": (admin, ENV_ADMIN_DSN),
+        "second_target": (second, ENV_SECOND_DSN),
+        "restricted_account": (restricted, ENV_RESTRICTED_USER),
+    }
+    for area, (endpoint, variable) in missing.items():
+        if area in required and endpoint is None:
+            raise ConfigurationProblem(
+                f"{ENV_REQUIRE} names {area!r}, but {variable} is not set. A run meant to "
+                "qualify it would otherwise skip those checks and still look green."
+            )
 
     report = os.environ.get(ENV_REPORT_PATH, "").strip()
 
@@ -286,6 +331,65 @@ def load() -> OracleTestConfig:
         protocol=os.environ.get(ENV_PROTOCOL, "tcp").strip() or "tcp",
         wallet_dir=os.environ.get(ENV_WALLET_DIR, "").strip() or None,
         report_path=Path(report) if report else None,
+        restricted=restricted,
+        required=required,
+    )
+
+
+def _requirements() -> frozenset[str]:
+    named = {
+        item.strip().lower() for item in os.environ.get(ENV_REQUIRE, "").split(",") if item.strip()
+    }
+    unknown = named - set(REQUIREMENTS)
+    if unknown:
+        raise ConfigurationProblem(
+            f"{ENV_REQUIRE} names {sorted(unknown)}, which this suite does not know. "
+            f"Known: {', '.join(REQUIREMENTS)}."
+        )
+    return frozenset(named)
+
+
+def _restricted_endpoint(primary: Endpoint) -> Endpoint | None:
+    """The restricted account, on the primary database unless its own DSN is given.
+
+    Its session addresses the fixture schema, like the primary account's does. Setting
+    ``CURRENT_SCHEMA`` needs no privilege, and what a missing grant costs is exactly what
+    the checks want to see.
+    """
+
+    username = os.environ.get(ENV_RESTRICTED_USER, "").strip()
+    dsn = os.environ.get(ENV_RESTRICTED_DSN, "").strip()
+    if not username:
+        if dsn:
+            raise ConfigurationProblem(
+                f"{ENV_RESTRICTED_DSN} is set but {ENV_RESTRICTED_USER} is not."
+            )
+        return None
+    host, port, service = (
+        _split_dsn(dsn, ENV_RESTRICTED_DSN)
+        if dsn
+        else (
+            primary.host,
+            primary.port,
+            primary.service_name,
+        )
+    )
+    if username.upper() == primary.username.upper() and (host, port, service) == (
+        primary.host,
+        primary.port,
+        primary.service_name,
+    ):
+        raise ConfigurationProblem(
+            f"{ENV_RESTRICTED_USER} is the primary account on the primary database. The "
+            "restricted checks need a different account that is missing grants."
+        )
+    return Endpoint(
+        host=host,
+        port=port,
+        service_name=service,
+        username=username,
+        password=_read_password(ENV_RESTRICTED_PASSWORD_FILE),
+        schema=primary.schema,
     )
 
 
