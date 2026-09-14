@@ -29,7 +29,7 @@ claim. Where something has not been tested, it says so.
 | TCPS and wallets | Not exercised. `ConnectionSpec` carries the fields; the path is untested. |
 | PostgreSQL as the metadata store | The schema is portable SQLAlchemy and the container is configured, but the suite runs on SQLite. |
 | OIDC providers other than Keycloak | Entra ID, Okta and Auth0 are documented in docs/setup.md but have not been signed in against. Nor has the pilot's own provider registration. |
-| Sign-in in a real browser | The console's sign-in code has run against Keycloak under Node, and the token endpoint's CORS answer has been checked, but no browser has completed the redirect. |
+| Sign-in in a real browser | The console's sign-in code has run against Keycloak under Node, and the token endpoint's CORS answer has been checked. `tests/browser` now drives Chromium through the console's sign-in, callback, API access, sign-out and expiry: its fixture mode runs in the CI `identity` job against the Keycloak realm (first passed on pull request #16, CI run 34788083498: 24 checks passed, 2 observed), and a rehearsal against a local stand-in provider has passed. **No browser run against the pilot's registration, deployed origin or proxy has happened**, and a fixture run cannot stand in for one. See tests/identity/README.md, "Browser qualification". |
 | A real model provider | The Anthropic adapter is written against the current Messages API; no call has been made. |
 | OracleDataForge | Not integrated. See `integrations/dataforge/COMPATIBILITY.md`. |
 | Load | The pilot target is ten concurrent users across three databases. Not measured. |

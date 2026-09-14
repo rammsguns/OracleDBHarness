@@ -50,7 +50,7 @@ jobs:
       - name: Types
         # The process-death tooling and the Oracle switch mostly run against Oracle, so
         # type checking is the only thing that looks at all of them before a qualification run.
-        run: uv run mypy services/api/harness_api services/worker/harness_worker tests/copilot/eval tests/process_death tests/oracle_config.py
+        run: uv run mypy services/api/harness_api services/worker/harness_worker tests/copilot/eval tests/process_death tests/oracle_config.py tests/browser
       - name: Tests
         run: uv run pytest -q
       - name: Contracts are current
@@ -99,7 +99,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - run: uv sync --frozen
+      - run: uv sync --frozen --group browser
       - name: API verification
         run: uv run pytest tests/identity -v
       - uses: actions/setup-node@v4
@@ -108,6 +108,22 @@ jobs:
       - run: npm --prefix apps/web install --no-audit --no-fund
       - name: Console sign-in code
         run: npm --prefix apps/web test -- src/oidc.keycloak.test.ts
+      - name: Console sign-in in a browser (fixture)
+        # The runner image's Chrome, driven through the console's own sign-in against the
+        # realm. A fixture run: it cannot qualify a pilot's registration, origin or proxy,
+        # and its report says so. See tests/identity/README.md, "Browser qualification".
+        env:
+          HARNESS_BROWSER_MODE: fixture
+          HARNESS_BROWSER_CHANNEL: chrome
+          HARNESS_BROWSER_REPORT: browser-report/fixture.md
+        run: uv run --group browser python -m tests.browser run
+      - name: Browser report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-sign-in-fixture
+          path: browser-report/
+          if-no-files-found: ignore
       - name: Keycloak log
         if: failure()
         run: docker compose -f tests/identity/keycloak/compose.yaml logs

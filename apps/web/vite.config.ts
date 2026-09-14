@@ -4,7 +4,11 @@ import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
 
 // The console talks to the API on its own origin in the pilot deployment; in
-// development Vite proxies /api and /healthz to the local API process.
+// development Vite proxies /api and /healthz to the local API process. `vite preview`
+// uses the same proxy. HARNESS_API_PROXY_TARGET points it at an API on another address,
+// which the browser sign-in run (tests/browser) uses for the API it starts.
+const apiTarget = process.env.HARNESS_API_PROXY_TARGET || "http://localhost:8000";
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -17,8 +21,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": { target: "http://localhost:8000", changeOrigin: true },
-      "/healthz": { target: "http://localhost:8000", changeOrigin: true },
+      "/api": { target: apiTarget, changeOrigin: true },
+      "/healthz": { target: apiTarget, changeOrigin: true },
     },
   },
   test: {
