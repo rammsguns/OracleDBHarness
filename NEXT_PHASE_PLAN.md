@@ -113,7 +113,7 @@ preparation can proceed alongside runner implementation.
 | --- | --- | --- | --- | --- |
 | 1 | Preserve green CI and capture deployment evidence (NP-02) | Application engineer | Current CI run | Link green run and drill timings; retain an actual release-store snapshot for a later released-version upgrade test. Identify synthetic migration coverage separately. |
 | 2 | Build and evaluate the provider runner (NP-04) — runner built, scoring fixes merged | Integration engineer + DBA | Provider configuration, approved context and budget for the paid run | Runner checks and scoring regressions (done, `a6303f8`), reviewed case report and both quality gates above (owed). |
-| 3 | Qualify Oracle recovery, grants and isolation (NP-01/03) | Application engineer + DBA | Isolated schemas, direct grants, PDB and independent second database | Process-death cases before dispatch, during read/write and during commit; no replay or false success; restricted panels degrade correctly; target identity and state remain isolated. |
+| 3 | Qualify Oracle recovery, grants and isolation (NP-01/03) — checks prepared, not run | Application engineer + DBA | Isolated schemas, direct grants, PDB and independent second database | Process-death cases before dispatch, during read/write and during commit; no replay or false success; restricted panels degrade correctly; target identity and state remain isolated. The checks and procedure exist (*Validation*, 2026-09-13); the Oracle run itself is owed. |
 | 4 | Complete browser identity and DataForge integration (NP-05/06) | Integration engineer + identity owner | Pilot OIDC registration, deployed origin/proxy, pinned DataForge checkout; NP-04 for full provider flow | Browser callback/expiry/logout/access checks; editor context, incremental streaming, reviewed/stale diffs and outage recovery; both projects' regressions; measured setup time. |
 | 5 | Measure capacity and complete the pilot (NP-07) | Application engineer + developer + DBA | Functional gates above and three independent databases | Ten concurrent users, agreed latency/error thresholds, connection/queue limits, saturation and soak recovery; developer and DBA complete all six MVP workflows. |
 
@@ -167,12 +167,12 @@ a complete code audit.
 
 | ID | Priority | Finding and evidence | Required result |
 | --- | --- | --- | --- |
-| NP-01 | **Done, stand-in only** | Implemented in `services/api/harness_api/recovery.py`, run from `build_state` before the execution service exists. Covered by `tests/unit/test_restart_recovery.py` (23 checks) and `tests/integration/test_restart.py` (8), including a statement held in flight while its process is abandoned. | Met against the stand-in: never-dispatched work resolves to `cancelled`, interrupted reads to `failed`, interrupted writes to `outcome_unknown` with `verificationRequired`, stale worksheet records closed, nothing redispatched. The equivalent run on Oracle is still owed (step 2). |
+| NP-01 | **Done, stand-in only** | Implemented in `services/api/harness_api/recovery.py`, run from `build_state` before the execution service exists. Covered by `tests/unit/test_restart_recovery.py` (23 checks) and `tests/integration/test_restart.py` (8), including a statement held in flight while its process is abandoned. | Met against the stand-in: never-dispatched work resolves to `cancelled`, interrupted reads to `failed`, interrupted writes to `outcome_unknown` with `verificationRequired`, stale worksheet records closed, nothing redispatched. The equivalent run on Oracle is still owed (step 2); its scenarios, which kill a real API process and read the outcome through an independent session, are in `tests/integration/test_process_death.py` and pass against the stand-in only. |
 | NP-02 | **Implemented; green CI at `598870a`** | The `python` job runs against a `postgres:16-alpine` service container, and `HARNESS_REQUIRE_POSTGRES` turns a missing database into a failed job rather than a silent skip of the only checks that cover the pilot store. A new `deployment` job runs `deploy/backup-restore-drill.sh`: clean install, seed, dump, restore into a fresh database, cut the API over. | Met for migration, persistence, installation and restore, on every build. Upgrade *from a released version* is still only covered synthetically — no earlier build's store exists to upgrade. |
-| NP-03 | P1 | One Oracle 19.9 non-CDB/thin instance has passed; restricted grants, a PDB and independent target isolation remain unqualified. The recorded run substituted `SELECT_CATALOG_ROLE` for seven direct SYS-view grants. | Run the reviewed grants with appropriate DBA support and qualify restricted/developer accounts, a second database and a PDB; record exact versions and skipped checks. |
+| NP-03 | P1; **checks prepared, run owed** | One Oracle 19.9 non-CDB/thin instance has passed; restricted grants, a PDB and independent target isolation remain unqualified. The recorded run substituted `SELECT_CATALOG_ROLE` for seven direct SYS-view grants. Checks for a restricted account, the container identity and the second target's database identity now exist, with `HARNESS_QUAL_REQUIRE` to make a missing environment fail the run; none has met a database. | Run the reviewed grants with appropriate DBA support and qualify restricted/developer accounts, a second database and a PDB; record exact versions and skipped checks. |
 | NP-04 | P1; **runner implemented, run owed** | `tests/conftest.py` explicitly sets `copilot_provider="fake"`, so the default suite cannot be provider evidence. An opt-in runner and a 39-case set now exist under `tests/copilot/eval/`, with their negative paths in `tests/copilot/test_evaluation_runner.py`. No paid run or DBA review has happened. | Create a separate opt-in provider evaluation path that verifies the actual provider/model and rejects fixture results as qualification evidence. Run the DBA-reviewed case set. |
 | NP-05 | P1 | DataForge adapter tests use a stub; no real DataForge commit, proxy streaming path or setup time has been qualified. See `integrations/dataforge/COMPATIBILITY.md`. | Integrate a pinned DataForge revision and pass its published release gates, including unchanged execution/transaction behavior. |
-| NP-06 | P1 | Keycloak sign-in is tested under Node; browser redirect and the pilot identity registration have not been exercised. | Complete sign-in through the deployed console in a browser and verify API authorization, token expiry and rejected identities. |
+| NP-06 | P1; **browser run prepared, pilot run owed** | Keycloak sign-in is tested under Node; browser redirect and the pilot identity registration have not been exercised. `python -m tests.browser` now drives Chromium through sign-in, callback, API access, refused identities, sign-out and expiry, in `rehearsal`, `fixture` (CI, Keycloak) and `pilot` modes; only `pilot` can report QUALIFIED. | Complete sign-in through the deployed console in a browser and verify API authorization, token expiry and rejected identities. |
 | NP-07 | P1; **runner prepared, thresholds and run owed** | Ten concurrent users over three databases is a release target with no measurements. `python -m tests.capacity` and docs/capacity.md now define the run; its thresholds are proposals, and it has rehearsed only against the stand-in, where it found two defects (below). | Measure mixed-workload load, connection limits, queueing, cancellation and recovery; prove no cross-user or cross-target contamination. |
 | NP-08 | P2 | The historical MVP milestone/backlog text still says no Oracle environment was obtained, contrary to the 2026-09-11 evidence. The adapter compatibility file repeats the old claim. | Reconcile current annotations and link this plan; keep the original scope and acceptance criteria visible. Addressed by this planning change. |
 | NP-09 | **Closed, not a fault** | The configured interpreter is present and working. The 2026-09-12 failure was the filesystem sandbox, the same cause as the web-test failure recorded below, not a missing environment. | Met: lint, format, types, the full pytest suite and contract freshness all pass locally. No environment repair was needed. |
@@ -433,6 +433,73 @@ No model provider was called; every report scored here is a fixture, not evidenc
   two services only; `tests/copilot/eval` was type-checked locally. This is evidence
   about the harness and the scorer's fixture tests, not model quality: no provider run,
   DBA review or pilot has happened.
+
+### 2026-09-13, Oracle recovery and isolation preparation (NP-01/03)
+
+Run locally on Windows, branch `qual/np01-03-process-death`, against the stand-in. **No
+Oracle database was available** (none configured, and Docker is not usable on this
+machine), so nothing below is Oracle evidence and no compatibility record was appended.
+
+- New: `tests/process_death/` starts the API as a separate process, pauses it at one of
+  five points and ends it with `Popen.kill()`; `tests/integration/test_process_death.py`
+  runs six scenarios over it (before dispatch, read, write with the answer unrecorded, write
+  waiting on a row lock, commit before send, commit returned), checking the store, the
+  reconciliation report and an independent session. The row-lock scenario is
+  `oracle_only`. New qualification checks: container identity against `CON_ID`, the second
+  target's database identity, and a restricted account's probes against its DBA panels.
+  `HARNESS_QUAL_REQUIRE` makes a missing admin account, second target, restricted account
+  or PDB fail the run; the report lists what a run did not exercise.
+- Against the stand-in: the five runnable scenarios pass in about 25s with real OS kills.
+  Two deliberate regressions were caught: resolving an interrupted write as `failed`
+  failed the write scenario, and removing the commit-intent marker failed both commit
+  scenarios. No child process was left running afterwards.
+- Full suite **502 passed, 72 skipped** (baseline 482/67; the extra skips are the
+  Oracle-only and new qualification checks). `ruff check`, `ruff format --check`, contract
+  freshness and `mypy` over the CI set plus `tests/process_death` and `tests/oracle_config.py`
+  are clean. `tests/qualification/test_cancellation.py` and `test_connection_loss.py`
+  already fail `mypy` on `main` (`HarnessError.oracle_code`), so `tests/qualification` is
+  not added to CI's type check here.
+- Owed on a real target: the Oracle run of all of the above, per
+  `oracle/qualification/README.md`; a PDB; a second independent database; a restricted
+  account reviewed by a DBA. A host losing power or network (dead connection detection) is
+  not covered by any scenario.
+
+### 2026-09-13, browser identity preparation (NP-06)
+
+Run locally on Windows, branch `qual/np06-browser-identity`. Docker and Java are not
+available here, so **no Keycloak and no pilot provider was reachable**: the browser run was
+exercised only against its own stand-in provider.
+
+- New: `tests/browser`, entry point `uv run --group browser python -m tests.browser run`,
+  with Playwright 1.62 in an opt-in `browser` dependency group. Three modes, `rehearsal`
+  (stand-in provider), `fixture` (the Keycloak realm, local API and `vite preview`) and
+  `pilot` (deployed origin, manual login, nothing started). Only a complete pilot run
+  reports `QUALIFIED`; pilot mode refuses the fixture issuer and form login. Reports carry
+  commit, mode, verdict, origin, issuer, client, browser and per-check outcomes, and
+  refuse to be written if they contain a token, code, PKCE value, password or JWT-shaped
+  text.
+- Supporting changes: `HARNESS_API_PROXY_TARGET` in `apps/web/vite.config.ts` (default
+  unchanged); the realm's console client issues 60-second access tokens so the expiry
+  check is short; CI's `identity` job runs fixture mode with the runner's Chrome and
+  uploads the report; CI `mypy` covers `tests/browser`.
+- Rehearsal, Chromium 151: **26 checks, 24 passed, 2 observed, 0 failed**, about 70s.
+  Observed and recorded, not judged: the token stays valid at the API after console
+  sign-out until it expires, and the provider session survives sign-out. With the console
+  deliberately changed to keep the token in `localStorage` and not clear the callback
+  URL, four checks failed naming exactly those faults and the report still contained no
+  secret. Fixture mode without Keycloak and pilot mode against an unreachable origin both
+  stop at a named prerequisite.
+- `tests/unit/test_browser_qualification.py`: 21 checks (configuration refusals, verdicts,
+  report redaction, the stand-in provider's PKCE and single-use code enforcement). Full
+  suite **503 passed, 67 skipped**; `ruff check`, `ruff format --check`, `mypy` (CI set plus
+  `tests/browser`), web typecheck and web tests (45 passed, 3 Keycloak skipped) clean.
+- CI, pull request #16, run 34788083498: the fixture run against the Keycloak realm in the
+  runner's Chrome, its first execution against a real provider in a browser, reported
+  `FIXTURE PASSED` - 24 checks passed and 2 observed (a signed-out token accepted for
+  about 57s more; the provider session surviving sign-out), including expiry of the
+  realm's 60-second token in the console and at the API. Fixture evidence only.
+- Owed: the pilot run against the pilot registration and deployed origin, which needs that
+  registration, two provider accounts, an ungranted target and an agreed expiry wait.
 
 ### 2026-09-13, capacity preparation (NP-07)
 

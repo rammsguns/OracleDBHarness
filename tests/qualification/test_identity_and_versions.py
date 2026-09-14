@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from harness_worker.backend import OracleConnection
 from harness_worker.types import Capability, ExecutionLimits, StatementKind
 from tests.oracle_config import OracleTestConfig
@@ -119,6 +121,66 @@ def test_the_driver_version_is_recorded(
     versions = driver_versions(oracle_config.driver_mode)
     assert versions["pythonOracledb"] != "not installed"
     evidence.record_database({f"driver.{k}": v for k, v in versions.items()})
+
+
+CONTAINER_SQL = """
+SELECT SYS_CONTEXT('USERENV', 'CON_ID'),
+       SYS_CONTEXT('USERENV', 'CON_NAME'),
+       SYS_CONTEXT('USERENV', 'DB_UNIQUE_NAME')
+  FROM dual
+"""
+
+
+def test_the_container_identity_matches_what_the_database_says(
+    connection: OracleConnection,
+    evidence: Evidence,
+    oracle_config: OracleTestConfig,
+    limits: ExecutionLimits,
+) -> None:
+    """A PDB is reported as a container, under its own name, not as its CDB.
+
+    ``isCdb`` and ``containerName`` are what an operator reads to know which database a
+    target really is. They are derived from ``CON_ID`` in the adapter; this checks that
+    derivation against the database's own answer for whatever the target turns out to be,
+    and records a non-CDB or the root as a gap in PDB coverage rather than a pass.
+    """
+
+    result = connection.execute(CONTAINER_SQL, {}, StatementKind.QUERY, limits)
+    assert result.result_set is not None and result.result_set.rows
+    con_id_text, con_name, unique_name = result.result_set.rows[0]
+    con_id = int(con_id_text or 0)
+    identity = connection.identity()
+
+    assert identity.is_cdb == (con_id != 0), (
+        f"CON_ID is {con_id} but the harness reports isCdb={identity.is_cdb}"
+    )
+    evidence.record_database({"containerId": con_id, "dbUniqueName": unique_name})
+
+    if con_id == 0:
+        kind = "non-CDB"
+        reason = f"the target is a non-CDB (CON_ID 0, `{unique_name}`)."
+    elif con_id == 1:
+        kind = "the CDB root"
+        reason = "the target is CDB$ROOT, not a PDB. Point the DSN at a PDB service."
+        assert identity.container_name == con_name
+    else:
+        kind = "a pluggable database"
+        reason = ""
+        assert identity.container_name == con_name, (
+            f"The database says container {con_name!r}; the harness reports "
+            f"{identity.container_name!r}"
+        )
+        assert str(con_name).upper() != "CDB$ROOT"
+    evidence.note(
+        "Container identity",
+        f"{kind}: CON_ID `{con_id}`, CON_NAME `{con_name}`, DB_UNIQUE_NAME `{unique_name}`; "
+        f"harness reported isCdb=`{identity.is_cdb}`, containerName=`{identity.container_name}`, "
+        f"databaseName=`{identity.database_name}`.",
+    )
+    if reason:
+        evidence.gap("PDB identity", reason)
+        if oracle_config.requires("pdb"):
+            pytest.fail(f"HARNESS_QUAL_REQUIRE names 'pdb', but {reason}")
 
 
 def test_capabilities_are_probed_rather_than_assumed(
