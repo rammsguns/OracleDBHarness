@@ -114,7 +114,7 @@ preparation can proceed alongside runner implementation.
 | 1 | Preserve green CI and capture deployment evidence (NP-02) | Application engineer | Current CI run | Link green run and drill timings; retain an actual release-store snapshot for a later released-version upgrade test. Identify synthetic migration coverage separately. |
 | 2 | Build and evaluate the provider runner (NP-04) — runner built, scoring fixes merged | Integration engineer + DBA | Provider configuration, approved context and budget for the paid run | Runner checks and scoring regressions (done, `a6303f8`), reviewed case report and both quality gates above (owed). |
 | 3 | Qualify Oracle recovery, grants and isolation (NP-01/03) — checks prepared, not run | Application engineer + DBA | Isolated schemas, direct grants, PDB and independent second database | Process-death cases before dispatch, during read/write and during commit; no replay or false success; restricted panels degrade correctly; target identity and state remain isolated. The checks and procedure exist (*Validation*, 2026-09-13); the Oracle run itself is owed. |
-| 4 | Complete browser identity and DataForge integration (NP-05/06) | Integration engineer + identity owner | Pilot OIDC registration, deployed origin/proxy, pinned DataForge checkout; NP-04 for full provider flow | Browser callback/expiry/logout/access checks; editor context, incremental streaming, reviewed/stale diffs and outage recovery; both projects' regressions; measured setup time. |
+| 4 | Complete browser identity and DataForge integration (NP-05/06) — browser run and adapter-vs-real-harness checks prepared, not run against DataForge or the pilot | Integration engineer + identity owner | Pilot OIDC registration, deployed origin/proxy, pinned DataForge checkout; NP-04 for full provider flow | Browser callback/expiry/logout/access checks; editor context, incremental streaming, reviewed/stale diffs and outage recovery; both projects' regressions; measured setup time. The browser harness and the adapter-against-a-real-harness checks exist (*Validation*, 2026-09-13 and 2026-09-14); the DataForge checkout and the pilot browser run are owed. |
 | 5 | Measure capacity and complete the pilot (NP-07) | Application engineer + developer + DBA | Functional gates above and three independent databases | Ten concurrent users, agreed latency/error thresholds, connection/queue limits, saturation and soak recovery; developer and DBA complete all six MVP workflows. |
 
 For Oracle restart qualification, use a disposable process and observe persisted
@@ -171,7 +171,7 @@ a complete code audit.
 | NP-02 | **Implemented; green CI at `598870a`** | The `python` job runs against a `postgres:16-alpine` service container, and `HARNESS_REQUIRE_POSTGRES` turns a missing database into a failed job rather than a silent skip of the only checks that cover the pilot store. A new `deployment` job runs `deploy/backup-restore-drill.sh`: clean install, seed, dump, restore into a fresh database, cut the API over. | Met for migration, persistence, installation and restore, on every build. Upgrade *from a released version* is still only covered synthetically — no earlier build's store exists to upgrade. |
 | NP-03 | P1; **checks prepared, run owed** | One Oracle 19.9 non-CDB/thin instance has passed; restricted grants, a PDB and independent target isolation remain unqualified. The recorded run substituted `SELECT_CATALOG_ROLE` for seven direct SYS-view grants. Checks for a restricted account, the container identity and the second target's database identity now exist, with `HARNESS_QUAL_REQUIRE` to make a missing environment fail the run; none has met a database. | Run the reviewed grants with appropriate DBA support and qualify restricted/developer accounts, a second database and a PDB; record exact versions and skipped checks. |
 | NP-04 | P1; **runner implemented, run owed** | `tests/conftest.py` explicitly sets `copilot_provider="fake"`, so the default suite cannot be provider evidence. An opt-in runner and a 39-case set now exist under `tests/copilot/eval/`, with their negative paths in `tests/copilot/test_evaluation_runner.py`. No paid run or DBA review has happened. | Create a separate opt-in provider evaluation path that verifies the actual provider/model and rejects fixture results as qualification evidence. Run the DBA-reviewed case set. |
-| NP-05 | P1 | DataForge adapter tests use a stub; no real DataForge commit, proxy streaming path or setup time has been qualified. See `integrations/dataforge/COMPATIBILITY.md`. | Integrate a pinned DataForge revision and pass its published release gates, including unchanged execution/transaction behavior. |
+| NP-05 | P1; **adapter checked against a real harness, DataForge checkout owed** | DataForge adapter tests used only a stub; no real DataForge commit, proxy streaming path or setup time has been qualified. `python -m tests.dataforge_live run` now starts a disposable harness process and runs the real adapter and route code against it over real HTTP, and `test/proxy-streaming.test.ts` shows a buffering proxy is distinguishable from a passthrough one. See `integrations/dataforge/COMPATIBILITY.md`. | Integrate a pinned DataForge revision and pass its published release gates, including unchanged execution/transaction behavior. |
 | NP-06 | P1; **browser run prepared, pilot run owed** | Keycloak sign-in is tested under Node; browser redirect and the pilot identity registration have not been exercised. `python -m tests.browser` now drives Chromium through sign-in, callback, API access, refused identities, sign-out and expiry, in `rehearsal`, `fixture` (CI, Keycloak) and `pilot` modes; only `pilot` can report QUALIFIED. | Complete sign-in through the deployed console in a browser and verify API authorization, token expiry and rejected identities. |
 | NP-07 | P1; **runner prepared, thresholds and run owed** | Ten concurrent users over three databases is a release target with no measurements. `python -m tests.capacity` and docs/capacity.md now define the run; its thresholds are proposals, and it has rehearsed only against the stand-in, where it found two defects (below). | Measure mixed-workload load, connection limits, queueing, cancellation and recovery; prove no cross-user or cross-target contamination. |
 | NP-08 | P2 | The historical MVP milestone/backlog text still says no Oracle environment was obtained, contrary to the 2026-09-11 evidence. The adapter compatibility file repeats the old claim. | Reconcile current annotations and link this plan; keep the original scope and acceptance criteria visible. Addressed by this planning change. |
@@ -551,6 +551,44 @@ measurement of anything a pilot runs.
 - Owed: a load deployment on PostgreSQL with the pilot's limits, three independent
   non-production databases with the marker table, ten accounts and credentials, the network
   baseline, agreed thresholds, the run itself with host metrics, and a bounded soak.
+
+### 2026-09-14, adapter-against-a-real-harness preparation (NP-05)
+
+Run locally on Windows, branch `qual/np07-capacity`. **No OracleDataForge checkout, no
+Oracle database and no model provider were used**, so nothing below is DataForge
+integration evidence: it is local preparation, the same kind already recorded for
+NP-01/03, NP-06 and NP-07, for the one P1 gate that had none yet.
+
+- New: `tests/dataforge_live` starts a disposable harness API (fake Oracle backend,
+  fixture copilot provider), registers an administrator directly on its throwaway
+  store, and issues a real `dataforge` integration credential over HTTP. Against that
+  process it runs two new Node test files - `integrations/dataforge/test/live-harness.test.ts`
+  (skipped without the harness) and `test/proxy-streaming.test.ts` (self-contained,
+  always runs) - using this repository's own adapter and route-registration code
+  from `integrations/dataforge/src`, unstubbed, for the first time.
+- `python -m tests.dataforge_live run`: 6 passed, 0 failed - real capability
+  negotiation, a real streamed assist response with distinct `start`/`delta`/`done`
+  events, and a real `/api/ai/chat` round trip served by a raw `http.Server` standing
+  in for DataForge's own Express app. `npm --prefix integrations/dataforge test`
+  (which now also runs `proxy-streaming.test.ts` and, skipped, `live-harness.test.ts`):
+  22 passed, 4 skipped.
+- The proxy test's point is the negative control: a proxy that reads the whole
+  response before writing anything, which is what a compressing or buffering proxy
+  does, is asserted to collapse a streamed response into what looks like one
+  end-of-request delivery - proof that the passthrough assertion is not passing by
+  accident, ahead of trusting a real deployment's proxy not to do the same.
+- Full suite **564 passed, 72 skipped** (up from 555; nine new checks in
+  `tests/unit/test_dataforge_live_prerequisites.py`, deterministic checks of the
+  orchestrator's own prerequisite reporting and credential redaction, not of the
+  harness or the adapter). `ruff check`, `ruff format --check` and `mypy` (adding
+  `tests/dataforge_live`) are clean; the adapter's own `tsc --noEmit` is clean.
+- CI's `adapter` job now also runs `python -m tests.dataforge_live run`, so this
+  becomes a check on every build rather than a one-off local run.
+- Owed for this preparation to become NP-05 evidence: a real OracleDataForge
+  checkout and its published release gates, a real model provider, a real Oracle
+  database behind the connections DataForge would use, and a real network/compression
+  proxy in front of a real deployment - the proxy test above only shows the mechanism
+  is detectable, not that any specific real proxy is configured correctly.
 
 ### Not validated
 
