@@ -16,6 +16,7 @@ from harness_worker.types import ExecutionLimits
 from tests import oracle_config as qual_config
 from tests.oracle_fixtures import apply_fixtures, drop_fixtures
 from tests.qualification.evidence import Evidence
+from tests.qualification.requirements import skip_or_fail
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -58,6 +59,19 @@ def backend(oracle_config: qual_config.OracleTestConfig) -> Iterator[OracleBacke
 @pytest.fixture(scope="session")
 def evidence(oracle_config: qual_config.OracleTestConfig) -> Iterator[Evidence]:
     record = Evidence(config=oracle_config)
+    # Written up front, so the report names what this run could never have reached even
+    # when the suite stops early.
+    if oracle_config.admin is None:
+        record.gap(
+            "Connection loss (killed sessions)",
+            f"{qual_config.ENV_ADMIN_DSN} not set; no privileged account to end a session.",
+        )
+    if oracle_config.second is None:
+        record.gap("Second target", qual_config.NO_SECOND_TARGET_REASON)
+    if oracle_config.restricted is None:
+        record.gap("Restricted account", qual_config.NO_RESTRICTED_ACCOUNT_REASON)
+    if oracle_config.driver_mode == "thin":
+        record.gap("Thick mode", "This run is thin mode; thick needs a separate process.")
     try:
         yield record
     finally:
@@ -140,11 +154,48 @@ def admin_connection(
 ) -> Iterator[OracleConnection]:
     spec = oracle_config.admin_spec()
     if spec is None:
-        pytest.skip(
+        skip_or_fail(
+            oracle_config,
+            "admin",
             f"{qual_config.ENV_ADMIN_DSN} is not set. A connection cannot be lost "
             "honestly from inside itself, so these checks need a privileged session "
-            "that can run ALTER SYSTEM KILL SESSION."
+            "that can run ALTER SYSTEM KILL SESSION.",
         )
+    assert spec is not None
+    session = backend.connect(spec)
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+@pytest.fixture
+def second_target_connection(
+    backend: OracleBackend,
+    oracle_config: qual_config.OracleTestConfig,
+) -> Iterator[OracleConnection]:
+    """A session on the second configured database. Needs no fixture objects."""
+
+    spec = oracle_config.second_spec()
+    if spec is None:
+        skip_or_fail(oracle_config, "second_target", qual_config.NO_SECOND_TARGET_REASON)
+    assert spec is not None
+    session = backend.connect(spec)
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+@pytest.fixture
+def restricted_connection(
+    backend: OracleBackend,
+    oracle_config: qual_config.OracleTestConfig,
+) -> Iterator[OracleConnection]:
+    spec = oracle_config.restricted_spec()
+    if spec is None:
+        skip_or_fail(oracle_config, "restricted_account", qual_config.NO_RESTRICTED_ACCOUNT_REASON)
+    assert spec is not None
     session = backend.connect(spec)
     try:
         yield session

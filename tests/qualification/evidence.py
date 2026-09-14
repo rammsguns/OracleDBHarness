@@ -16,6 +16,7 @@ import json
 import platform
 import subprocess
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from tests.oracle_config import OracleTestConfig
@@ -66,9 +67,21 @@ class Evidence:
     started: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.UTC))
     database: dict[str, Any] = field(default_factory=dict)
     observations: dict[str, str] = field(default_factory=dict)
+    #: Areas this run could not reach, and why. Written into the report so a missing
+    #: environment reads as a gap rather than as an absence nobody noticed.
+    not_exercised: dict[str, str] = field(default_factory=dict)
+    #: What kind of run the block records. Different suites write different reports.
+    title: str = "Run"
+    #: Where to write, when not the configured report itself.
+    path: Path | None = None
 
     def record_database(self, values: dict[str, Any]) -> None:
         self.database.update(values)
+
+    def gap(self, area: str, reason: str) -> None:
+        """Record that an area was not exercised, and why."""
+
+        self.not_exercised[area] = reason
 
     def note(self, key: str, value: str) -> None:
         """Record something only a real database could have told us.
@@ -82,7 +95,7 @@ class Evidence:
 
     def as_markdown(self) -> str:
         lines = [
-            f"### Run {self.started:%Y-%m-%d %H:%M} UTC",
+            f"### {self.title} {self.started:%Y-%m-%d %H:%M} UTC",
             "",
             f"- Harness build: `{_harness_build()}`",
             f"- Target: `{self.config.dsn}` as `{self.config.username}`, "
@@ -114,6 +127,12 @@ class Evidence:
                 "No behavioural observations were recorded, which means the suite did "
                 "not get far enough to make any. Treat this run as incomplete."
             )
+        if self.not_exercised:
+            lines.append("")
+            lines.append("Not exercised by this run:")
+            lines.append("")
+            for area, reason in sorted(self.not_exercised.items()):
+                lines.append(f"- {area}: {reason}")
         lines.append("")
         return "\n".join(lines)
 
@@ -124,7 +143,7 @@ class Evidence:
         regression between two database versions.
         """
 
-        path = self.config.report_path
+        path = self.path or self.config.report_path
         if path is None:
             return
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -143,5 +162,6 @@ class Evidence:
             "driver": driver_versions(self.config.driver_mode),
             "database": self.database,
             "observations": self.observations,
+            "notExercised": self.not_exercised,
         }
         sidecar.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")

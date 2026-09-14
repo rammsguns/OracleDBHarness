@@ -48,7 +48,9 @@ jobs:
       - name: Format
         run: uv run ruff format --check .
       - name: Types
-        run: uv run mypy services/api/harness_api services/worker/harness_worker tests/copilot/eval
+        # The process-death tooling and the Oracle switch mostly run against Oracle, so
+        # type checking is the only thing that looks at all of them before a qualification run.
+        run: uv run mypy services/api/harness_api services/worker/harness_worker tests/copilot/eval tests/process_death tests/oracle_config.py
       - name: Tests
         run: uv run pytest -q
       - name: Contracts are current
