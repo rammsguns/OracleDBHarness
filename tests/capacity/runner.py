@@ -461,7 +461,11 @@ class CapacityRun:
         with peer.probe_lock:
             try:
                 session = peer.probe_session(target)
-            except SessionUnavailable:
+            except SessionUnavailable as unavailable:
+                self.verification.incomplete.append(
+                    f"{peer.subject} could not open a probe session on {target.name} "
+                    f"({unavailable}), so probe {seq} for {owner.subject} did not run"
+                )
                 return
             seen = peer.execute(
                 session,
@@ -469,6 +473,10 @@ class CapacityRun:
                 {"run_id": self.run_id, "user_name": owner.subject, "seq": seq},
             )
         if seen.status != 200 or seen.code:
+            self.verification.incomplete.append(
+                f"probe for {owner.subject}'s marker {seq} on {target.name} failed "
+                f"({seen.code or seen.status}), so it proves nothing"
+            )
             return
         rows = ((seen.outcome.get("resultSet") or {}).get("rows")) or [[None]]
         self.verification.probes += 1
@@ -551,11 +559,24 @@ class CapacityRun:
                     self.verification.contaminations.append(
                         f"{subject} ran a statement in {other.subject}'s session on {target_name}"
                     )
+                elif attempt.status not in (403, 404):
+                    # Neither a proven refusal nor a proven breach - a 500 or a dropped
+                    # connection is not evidence that ownership was checked at all.
+                    self.verification.incomplete.append(
+                        f"{subject}'s attempt on {other.subject}'s session on {target_name} "
+                        f"got {attempt.status} ({attempt.code}), not a refusal - proves nothing"
+                    )
             for execution_id in other.execution_ids[-3:]:
                 seen = user.request("GET", f"/api/v1/executions/{execution_id}")
                 if seen.status == 200:
                     self.verification.contaminations.append(
                         f"{subject} could read {other.subject}'s execution record"
+                    )
+                elif seen.status not in (403, 404):
+                    self.verification.incomplete.append(
+                        f"{subject}'s attempt to read {other.subject}'s execution "
+                        f"{execution_id} got {seen.status} ({seen.code}), not a refusal - "
+                        "proves nothing"
                     )
 
     # -- verification --------------------------------------------------------------------
@@ -635,8 +656,23 @@ class CapacityRun:
                             f"committed marker {seq} of {subject} is missing from {target.name}"
                         )
                 if self.workload.cleanup:
-                    first.execute(session, target.sql["deleteMarkers"], {"run_id": self.run_id})
-                    first.request("POST", f"/api/v1/worksheets/{session}/commit")
+                    cleanup_deleted = first.execute(
+                        session, target.sql["deleteMarkers"], {"run_id": self.run_id}
+                    )
+                    if cleanup_deleted.status != 200 or cleanup_deleted.code:
+                        v.incomplete.append(
+                            f"cleanup delete failed on {target.name} "
+                            f"({cleanup_deleted.code or cleanup_deleted.status}); markers may remain"
+                        )
+                    else:
+                        cleanup_committed = first.request(
+                            "POST", f"/api/v1/worksheets/{session}/commit"
+                        )
+                        if cleanup_committed.status != 200:
+                            v.incomplete.append(
+                                f"cleanup commit failed on {target.name} "
+                                f"({cleanup_committed.status}); markers may remain"
+                            )
             finally:
                 first.request("DELETE", f"/api/v1/worksheets/{session}")
 
@@ -646,13 +682,18 @@ class CapacityRun:
             probe._token = user._token  # noqa: SLF001 - same credential, fresh connection
             user.close()
             listed = probe.request("GET", "/api/v1/worksheets")
-            sessions = (
-                (listed.body or {}).get("sessions", []) if isinstance(listed.body, dict) else []
-            )
-            for session in sessions:
-                self.verification.leaked_sessions.append(
-                    f"{user.subject}: {session.get('sessionId')}"
+            if listed.status != 200 or not isinstance(listed.body, dict):
+                # A failed listing is not evidence of zero leaks - it is evidence this
+                # check did not run.
+                self.verification.incomplete.append(
+                    f"could not list {user.subject}'s worksheets after closing "
+                    f"({listed.code or listed.status}); a leaked session there would not be seen"
                 )
+            else:
+                for session in listed.body.get("sessions", []):
+                    self.verification.leaked_sessions.append(
+                        f"{user.subject}: {session.get('sessionId')}"
+                    )
             probe.http.close()
 
 
@@ -690,6 +731,10 @@ def execute(
         run.prepare()
     except (Prerequisite, SessionUnavailable, httpx.HTTPError) as problem:
         report.prerequisite_failures.append(str(problem))
+        # prepare() can open sessions and connections (checking one target after another)
+        # before a later one fails; leaving those live would leak them off any report.
+        for user in run.users.values():
+            user.close()
         return report
 
     # Actual spans, not planned ones: a phase ends when its last in-flight request does.

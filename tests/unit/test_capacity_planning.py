@@ -96,7 +96,15 @@ def test_an_empty_workload_names_every_missing_section_at_once() -> None:
         ),
         (
             {"resourceLimits__maxInFlightRequests": "many"},
-            "resourceLimits.maxInFlightRequests must be a number",
+            "resourceLimits.maxInFlightRequests must be a whole number",
+        ),
+        (
+            {"phases__steady": {"seconds": 60, "streamsPerUser": 1.5, "thinkTimeScale": 1}},
+            "streamsPerUser must be a whole number",
+        ),
+        (
+            {"thresholds__steadyMaxErrorRate": 2},
+            "steadyMaxErrorRate must be at most 1",
         ),
         ({"workload__seed": "random"}, "can be reproduced"),
     ],
@@ -123,6 +131,15 @@ def test_a_latency_threshold_is_required_for_every_kind_in_the_mix() -> None:
         parse(document)
     document["workload"]["mix"]["cancellation"] = 0
     assert "cancellation" not in parse(document).thresholds.latency_ms
+
+
+def test_two_targets_cannot_share_a_name_even_with_distinct_profiles() -> None:
+    # The name, not the profile id, keys every session, stream and report identity - a
+    # duplicate silently overwrites one target's entry with another's.
+    document = _document()
+    document["targets"][1]["name"] = document["targets"][0]["name"]
+    with pytest.raises(WorkloadProblem, match="targets must have distinct names"):
+        parse(document)
 
 
 # -- the schedule --------------------------------------------------------------------------
@@ -270,12 +287,36 @@ def test_overhead_is_client_time_less_database_time_and_errors_are_kept_apart() 
 
 def test_recovery_is_the_point_after_which_every_window_meets_the_steady_thresholds() -> None:
     workload = load(EXAMPLE)
-    slow = workload.thresholds.latency_ms["boundedRead"]["p95"] + 1
-    samples = [_sample("recovery", "boundedRead", t, slow if t < 7 else 10) for t in range(0, 40)]
-    assert metrics.recovered_after(samples, workload, 0.0, 40.0) == 10.0
-    never = [_sample("recovery", "boundedRead", t, slow) for t in range(0, 40)]
-    assert metrics.recovered_after(never, workload, 0.0, 40.0) is None
-    assert metrics.recovered_after(samples, workload, 0.0, 5.0) is None
+    kinds = list(workload.thresholds.latency_ms)
+
+    def samples_until(cutoff: float) -> list[Sample]:
+        result = []
+        for kind in kinds:
+            slow = workload.thresholds.latency_ms[kind]["p95"] + 1
+            result += [
+                _sample("recovery", kind, t, slow if t < cutoff else 10) for t in range(0, 40)
+            ]
+        return result
+
+    assert metrics.recovered_after(samples_until(7), workload, 0.0, 40.0) == 10.0
+    assert metrics.recovered_after(samples_until(41), workload, 0.0, 40.0) is None  # never
+    assert metrics.recovered_after(samples_until(7), workload, 0.0, 5.0) is None  # too short
+
+
+def test_a_window_with_no_successful_sample_for_a_thresholded_kind_does_not_count_as_recovered() -> (
+    None
+):
+    # A recovery window judged only on the kinds that happened to have traffic would let
+    # a kind with zero successful samples - the worst possible outcome for it - pass by
+    # omission. Every thresholded kind must be represented by at least one good sample.
+    workload = load(EXAMPLE)
+    kinds = list(workload.thresholds.latency_ms)
+    assert len(kinds) > 1
+    missing = kinds[0]
+    samples = [
+        _sample("recovery", kind, t, 10) for kind in kinds if kind != missing for t in range(0, 40)
+    ]
+    assert metrics.recovered_after(samples, workload, 0.0, 40.0) is None
 
 
 # -- verdicts ------------------------------------------------------------------------------

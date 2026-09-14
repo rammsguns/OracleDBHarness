@@ -115,7 +115,13 @@ class Workload:
 
 
 def _number(
-    section: dict[str, Any], key: str, where: str, problems: list[str], *, minimum: float = 0
+    section: dict[str, Any],
+    key: str,
+    where: str,
+    problems: list[str],
+    *,
+    minimum: float = 0,
+    maximum: float | None = None,
 ) -> float:
     value = section.get(key)
     if isinstance(value, bool) or not isinstance(value, int | float):
@@ -123,7 +129,30 @@ def _number(
         return 0.0
     if value < minimum:
         problems.append(f"{where}.{key} must be at least {minimum}; it is {value}.")
+    if maximum is not None and value > maximum:
+        problems.append(f"{where}.{key} must be at most {maximum}; it is {value}.")
     return float(value)
+
+
+def _integer(
+    section: dict[str, Any], key: str, where: str, problems: list[str], *, minimum: int = 0
+) -> int:
+    """Like ``_number``, but truncating a fractional value would run a different load than
+    was declared - a ``streamsPerUser`` of 1.5 silently becoming 1 is not what was asked for.
+    """
+
+    value = section.get(key)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or (isinstance(value, float) and not value.is_integer())
+    ):
+        problems.append(f"{where}.{key} must be a whole number; it is {value!r}.")
+        return 0
+    whole = int(value)
+    if whole < minimum:
+        problems.append(f"{where}.{key} must be at least {minimum}; it is {whole}.")
+    return whole
 
 
 def _text(section: dict[str, Any], key: str, where: str, problems: list[str]) -> str:
@@ -202,6 +231,11 @@ def parse(document: dict[str, Any], source: Path | None = None) -> Workload:  # 
             )
         if len({target.profile_id for target in targets}) != len(targets):
             problems.append("targets must be distinct profiles.")
+        if len({target.name for target in targets}) != len(targets):
+            problems.append(
+                "targets must have distinct names: the name keys every session, stream and "
+                "report identity, and a duplicate silently overwrites another target's entry."
+            )
 
     workload = _section(document, "workload", problems)
     mix_raw = _object(workload.get("mix"))
@@ -237,14 +271,14 @@ def parse(document: dict[str, Any], source: Path | None = None) -> Workload:  # 
         if not isinstance(spec, dict):
             problems.append(f"{where} is required.")
             continue
-        streams = _number(spec, "streamsPerUser", where, problems, minimum=1)
+        streams = _integer(spec, "streamsPerUser", where, problems, minimum=1)
         if targets and streams > len(targets):
             problems.append(f"{where}.streamsPerUser cannot exceed the {len(targets)} target(s).")
         phases.append(
             PhaseSpec(
                 name,
                 _number(spec, "seconds", where, problems, minimum=1),
-                int(streams),
+                streams,
                 _number(spec, "thinkTimeScale", where, problems),
             )
         )
@@ -253,11 +287,11 @@ def parse(document: dict[str, Any], source: Path | None = None) -> Workload:  # 
     limits = ResourceLimits(
         api_cpus=_number(limits_raw, "apiCpus", "resourceLimits", problems, minimum=0.1),
         api_memory_mib=_number(limits_raw, "apiMemoryMiB", "resourceLimits", problems, minimum=64),
-        api_worker_processes=int(
-            _number(limits_raw, "apiWorkerProcesses", "resourceLimits", problems, minimum=1)
+        api_worker_processes=_integer(
+            limits_raw, "apiWorkerProcesses", "resourceLimits", problems, minimum=1
         ),
-        max_in_flight_requests=int(
-            _number(limits_raw, "maxInFlightRequests", "resourceLimits", problems, minimum=1)
+        max_in_flight_requests=_integer(
+            limits_raw, "maxInFlightRequests", "resourceLimits", problems, minimum=1
         ),
         request_timeout_seconds=_number(
             limits_raw, "requestTimeoutSeconds", "resourceLimits", problems, minimum=1
@@ -265,8 +299,8 @@ def parse(document: dict[str, Any], source: Path | None = None) -> Workload:  # 
         statement_deadline_seconds=_number(
             limits_raw, "statementDeadlineSeconds", "resourceLimits", problems, minimum=1
         ),
-        max_rows_per_read=int(
-            _number(limits_raw, "maxRowsPerRead", "resourceLimits", problems, minimum=1)
+        max_rows_per_read=_integer(
+            limits_raw, "maxRowsPerRead", "resourceLimits", problems, minimum=1
         ),
     )
 
@@ -315,16 +349,16 @@ def parse(document: dict[str, Any], source: Path | None = None) -> Workload:  # 
         application_overhead_p95_ms=_number(
             raw, "applicationOverheadP95Ms", "thresholds", problems, minimum=1
         ),
-        steady_max_error_rate=_number(raw, "steadyMaxErrorRate", "thresholds", problems),
+        steady_max_error_rate=_number(raw, "steadyMaxErrorRate", "thresholds", problems, maximum=1),
         saturation_max_error_rate=_number(
-            saturation, "maxErrorRate", "thresholds.saturation", problems
+            saturation, "maxErrorRate", "thresholds.saturation", problems, maximum=1
         ),
         saturation_allowed_error_codes=tuple(codes),
         recovery_within_seconds=_number(
             raw, "recoveryWithinSeconds", "thresholds", problems, minimum=1
         ),
-        max_outcome_unknown=int(_number(raw, "maxOutcomeUnknown", "thresholds", problems)),
-        max_contaminations=int(_number(raw, "maxContaminations", "thresholds", problems)),
+        max_outcome_unknown=_integer(raw, "maxOutcomeUnknown", "thresholds", problems),
+        max_contaminations=_integer(raw, "maxContaminations", "thresholds", problems),
     )
     if thresholds.max_contaminations != 0:
         problems.append(

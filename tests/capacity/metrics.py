@@ -133,7 +133,9 @@ def recovered_after(
             return False
         for kind, limit in thresholds.latency_ms.items():
             p95 = percentile([s.client_ms for s in chosen if s.kind == kind and s.ok], 0.95)
-            if p95 is not None and p95 > limit["p95"]:
+            # No successful sample for a thresholded kind is not evidence it recovered -
+            # it is evidence this window cannot vouch for that kind at all.
+            if p95 is None or p95 > limit["p95"]:
                 return False
         return True
 
