@@ -743,7 +743,7 @@ class FakeOracleConnection(OracleConnection):
             self._begin_if_needed(kind)
             cur.execute(translated, params)
         except sqlite3.Error as exc:
-            raise _as_oracle_error(exc) from exc
+            raise self._as_error(exc) from exc
 
         if cur.description is None:
             affected = cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else 0
@@ -760,7 +760,16 @@ class FakeOracleConnection(OracleConnection):
         truncated = False
         reason: str | None = None
         used_bytes = 0
-        for row in cur:
+        rows_read = iter(cur)
+        while True:
+            try:
+                row = next(rows_read)
+            except StopIteration:
+                break
+            except sqlite3.Error as exc:
+                # SQLite steps a query as its rows are read, so a break can land here as
+                # well as in execute(). Unmapped, it reached the engine as a bare error.
+                raise self._as_error(exc) from exc
             if self._cancel_requested.is_set():
                 cur.close()
                 from harness_worker.errors import CancelledError_
@@ -788,6 +797,22 @@ class FakeOracleConnection(OracleConnection):
                 truncationReason=reason,
             ),
         )
+
+    def _as_error(self, exc: sqlite3.Error) -> Exception:
+        """Map a SQLite failure, treating a requested break as Oracle's ORA-01013 does."""
+
+        if self._cancel_requested.is_set() and "interrupted" in str(exc).lower():
+            # Reported as the Oracle adapter reports ORA-01013. Left as an OracleError it
+            # came back ``failed``, so work a user cancelled on the stand-in looked like SQL
+            # the database had refused.
+            from harness_worker.errors import CancelledError_
+
+            return CancelledError_(
+                "The statement was cancelled before it finished. Oracle rolled it back; "
+                "any earlier work in this transaction is still pending.",
+                detail={"oracleCode": "ORA-01013", "statementStarted": True},
+            )
+        return _as_oracle_error(exc)
 
     def _execute_transaction_control(self, statement: str) -> StatementResult:
         head = statement.strip().split()[0].upper()

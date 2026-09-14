@@ -50,7 +50,7 @@ jobs:
       - name: Types
         # The process-death tooling and the Oracle switch mostly run against Oracle, so
         # type checking is the only thing that looks at all of them before a qualification run.
-        run: uv run mypy services/api/harness_api services/worker/harness_worker tests/copilot/eval tests/process_death tests/oracle_config.py tests/browser
+        run: uv run mypy services/api/harness_api services/worker/harness_worker tests/copilot/eval tests/process_death tests/oracle_config.py tests/browser tests/capacity tests/dataforge_live
       - name: Tests
         run: uv run pytest -q
       - name: Contracts are current
@@ -84,6 +84,17 @@ jobs:
       - run: npm --prefix integrations/dataforge install --no-audit --no-fund
       - run: npm --prefix integrations/dataforge run typecheck
       - run: npm --prefix integrations/dataforge test
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Adapter against a real, running harness (NP-05 preparation)
+        # No OracleDataForge and no model provider here: a disposable harness process
+        # with the fixture copilot provider, and this repository's own adapter code
+        # from integrations/dataforge/src, exercised over real HTTP for the first
+        # time instead of against adapter.test.ts's stubbed fetch. See
+        # tests/dataforge_live/__init__.py.
+        run: uv run python -m tests.dataforge_live run
 
   identity:
     name: Sign-in against Keycloak

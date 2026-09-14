@@ -378,30 +378,38 @@ class ExecutionService:
         )
         self._require_store_ownership("worksheet.open", profileId=profile.id)
         spec = self.connection_spec(profile, grant)
-        session = self._registry.open(
-            actor_id=principal.user_id or principal.subject,
-            target_id=profile.id,
-            spec=spec,
-        )
-        db.add(
-            WorksheetSessionRecord(
-                id=session.session_id,
-                user_id=principal.user_id or "",
-                profile_id=profile.id,
-                oracle_session_id=session.identity.session_id,
-                owner_id=self._runtime_id,
+        actor = principal.user_id or principal.subject
+        session = self._registry.open(actor_id=actor, target_id=profile.id, spec=spec)
+        try:
+            db.add(
+                WorksheetSessionRecord(
+                    id=session.session_id,
+                    user_id=principal.user_id or "",
+                    profile_id=profile.id,
+                    oracle_session_id=session.identity.session_id,
+                    owner_id=self._runtime_id,
+                )
             )
-        )
-        self._audit(
-            db,
-            principal=principal,
-            profile_id=profile.id,
-            operation_id="worksheet.open",
-            outcome="succeeded",
-            risk=RiskClass.READ,
-            detail={"sessionId": session.session_id},
-        )
-        db.commit()
+            self._audit(
+                db,
+                principal=principal,
+                profile_id=profile.id,
+                operation_id="worksheet.open",
+                outcome="succeeded",
+                risk=RiskClass.READ,
+                detail={"sessionId": session.session_id},
+            )
+            db.commit()
+        except Exception:
+            # The lease exists and its record does not, and the caller is about to be told
+            # the open failed without ever learning the session id. Kept, it would be a live
+            # database session nobody can reach or close. Nothing has run on it yet, so
+            # closing it loses nothing.
+            db.rollback()
+            self._registry.close(
+                session.session_id, actor, reason="its record could not be saved", force=True
+            )
+            raise
         return session
 
     def worksheet(self, principal: Principal, session_id: str) -> WorksheetSession:

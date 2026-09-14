@@ -7,7 +7,7 @@
   "main": "src/adapter.ts",
   "types": "src/adapter.ts",
   "scripts": {
-    "test": "node --test test/adapter.test.ts",
+    "test": "node --test test/adapter.test.ts test/proxy-streaming.test.ts test/live-harness.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

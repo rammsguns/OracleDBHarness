@@ -32,7 +32,7 @@ claim. Where something has not been tested, it says so.
 | Sign-in in a real browser | The console's sign-in code has run against Keycloak under Node, and the token endpoint's CORS answer has been checked. `tests/browser` now drives Chromium through the console's sign-in, callback, API access, sign-out and expiry: its fixture mode runs in the CI `identity` job against the Keycloak realm (first passed on pull request #16, CI run 34788083498: 24 checks passed, 2 observed), and a rehearsal against a local stand-in provider has passed. **No browser run against the pilot's registration, deployed origin or proxy has happened**, and a fixture run cannot stand in for one. See tests/identity/README.md, "Browser qualification". |
 | A real model provider | The Anthropic adapter is written against the current Messages API; no call has been made. |
 | OracleDataForge | Not integrated. See `integrations/dataforge/COMPATIBILITY.md`. |
-| Load | The pilot target is ten concurrent users across three databases. Not measured. |
+| Load | The pilot target is ten concurrent users across three databases. **Not measured.** The runner and runbook exist (`python -m tests.capacity`, docs/capacity.md) and have only rehearsed against the stand-in; the thresholds in the example workload are proposals nobody has agreed. |
 
 ## Why the stand-in is not evidence
 

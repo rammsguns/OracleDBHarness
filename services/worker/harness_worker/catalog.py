@@ -141,7 +141,7 @@ class QueryCatalog:
         return needed
 
 
-_SCRIPT_DIRECTORIES = frozenset({"grants", "qualification"})
+_SCRIPT_DIRECTORIES = frozenset({"capacity", "grants", "qualification"})
 
 
 def load_catalog(root: Path) -> QueryCatalog:
@@ -156,7 +156,8 @@ def load_catalog(root: Path) -> QueryCatalog:
         parts = path.relative_to(root).parts
         # These directories hold reviewed scripts a human runs against a database:
         # grants/ sets up the harness roles, qualification/ builds the Oracle 19c test
-        # fixtures. Neither is an operation the application dispatches.
+        # fixtures, capacity/ creates the load run's marker table. None is an operation
+        # the application dispatches.
         if path.name.startswith("_") or _SCRIPT_DIRECTORIES.intersection(parts):
             continue
         entry = parse_entry(path)
