@@ -8,15 +8,24 @@ what the evidence covers.
 
 ## Current execution plan
 
-The next implementation milestone is **real-provider evaluation readiness** (NP-04),
-followed by completing the external pilot qualification gates. Keep the existing
-recovery and deployment work as the baseline.
+Local preparation is now complete for every remaining gate. NP-04's runner and
+scoring fixes, NP-01/03's process-death and isolation checks, NP-05's
+adapter-against-a-real-harness checks, NP-06's browser sign-in harness and NP-07's
+capacity runner all exist and pass against the stand-in — see the dated
+`### Validation` entries below, the last two of which merged as
+[#17](https://github.com/rammsguns/OracleDBHarness/pull/17). No further
+implementation is required to start a qualification run. What remains is the same
+for every gate: a real environment and a named owner, then the run itself.
 
-CI for `598870a` is green: [run 34709372347](https://github.com/rammsguns/OracleDBHarness/actions/runs/34709372347).
-This verifies the configured CI jobs, including PostgreSQL checks and the Compose
-install/restore drill. It does not establish Oracle restart behavior, browser login,
-real-provider quality or DataForge integration. Earlier validation entries below
-remain historical run records.
+CI for `3ab648b` is green: [run 34909514087](https://github.com/rammsguns/OracleDBHarness/actions/runs/34909514087),
+five jobs (API and worker, web console, DataForge adapter, sign-in against
+Keycloak, Compose install and restore). This verifies the configured CI jobs,
+including PostgreSQL checks, the Compose install/restore drill, the DataForge
+adapter run against a disposable live harness process, and the browser sign-in
+fixture run against Keycloak. It does not establish Oracle restart behavior,
+browser login against the pilot's own identity provider, real-provider quality or
+DataForge integration itself. Earlier validation entries below remain historical
+run records.
 
 ### First milestone: real-provider evaluation
 
