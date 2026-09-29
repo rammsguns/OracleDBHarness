@@ -243,3 +243,9 @@ named tests in `tests/copilot/test_kiwi_evaluation.py`.
 **Status:** the cases, runner checks and rehearsal exist and pass against scripted turns.
 The paid real-provider run and the DBA review have **not** been done, so
 `HARNESS_KIWI_ENABLED` stays off by default.
+
+### Compile on development targets (K-8, proposed)
+
+Not built. [ADR-0011](decisions.md) proposes that Kiwi's draft may be compiled on a
+target marked `development`, by the user's confirmation, in a separate session. Until
+it is accepted, Kiwi cannot compile and applying a proposal is still not running it.

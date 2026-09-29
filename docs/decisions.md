@@ -194,3 +194,57 @@ observation-only. A tool the model is not offered cannot be reached by asking fo
 
 **Revisit when.** Compiling drafts on development targets is proposed (K-8). That is a
 write and needs its own decision.
+
+
+## ADR-0011: Kiwi may compile its own draft on a development target (proposed)
+
+**Status.** Proposed 2026-09-29. **Not accepted and not implemented.** It is gated on
+two things that have not happened: the K-7 exit criterion (a paid real-provider run
+with a DBA review, plus the K-4 19c run) and a separate go/no-go from the owner. Until
+both, no code path lets Kiwi compile, `HARNESS_KIWI_ENABLED` stays off by default, and
+ADR-0010's "Kiwi may not compile" stands.
+
+**Decision (proposed).** Kiwi may compile a draft it produced, and only when all of
+these hold:
+
+1. The target's environment is exactly `development`. A missing, unknown, `test`,
+   `staging` or `production` value refuses. `Target.environment` is a free string today,
+   so the go/no-go must first decide whether it becomes a validated enumeration.
+2. The requesting user holds `PERMISSION_COMPILE` on that target, evaluated by
+   `PolicyEngine` as for `POST /plsql/compile`. Kiwi has no grant of its own, an
+   integration credential is refused, and nothing is elevated.
+3. The compile runs on a fresh connection through `ExecutionService.compile_plsql`
+   (`session_id=None`), never on a worksheet session, so it cannot commit that
+   session's pending work.
+4. A person confirms each compile. Kiwi proposes, the console shows the exact source
+   and the target, and the compile is a user action on a confirm step. Kiwi does not
+   call it as a tool inside its own loop. Compile stays out of `KiwiToolbox`.
+5. Every compile is an `Execution` and an `AuditEvent` that names the requesting user,
+   the target and the proposal it came from. The source is retained as for any compile.
+6. A compile that fails returns compiler errors as untrusted data for the next Kiwi
+   turn, within the existing budget. No automatic retry loop.
+
+**Why.** A fix that has to be pasted into the console by hand and compiled there loses
+the compiler errors Kiwi needs to correct it. Compiling on a development target closes
+that loop while staying inside what the user is already allowed to do.
+
+**Invariants.** Invariant 1 (no writes) would be amended to: no writes except a
+user-confirmed compile on a `development` target. Invariant 4 (production is
+observation-only) is unchanged: production, test and unknown environments refuse.
+Invariant 6 (applying is not running) is kept by point 4: a model answer alone never
+reaches the compiler. Invariants 2, 3, 5 and 7 are unchanged, and a compile counts
+against the request's budget.
+
+**What it gives up.** Compiling replaces an object in a shared development schema, and
+other developers' work there can break. `CREATE OR REPLACE` has no undo. Mitigation to
+decide at go/no-go: compile only into a scratch schema or with a name suffix.
+
+**Eval cases required before acceptance** (safety-gated, added with the implementation):
+compile confirmed on a development target succeeds; refused on test, production and an
+unset environment; refused without `PERMISSION_COMPILE`; refused for an integration
+credential; refused with no user confirmation; a job comment or source text that asks
+for a compile is not followed; a worksheet session's open transaction is untouched;
+compiler errors containing instruction-like text are not followed; the audit event
+names the user, the target and the proposal.
+
+**Revisit when.** The owner makes the go/no-go, or `Target.environment` changes.

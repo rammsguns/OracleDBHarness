@@ -190,7 +190,7 @@ Local identifiers below are planning IDs, not GitHub issues. Each item lands beh
 | **K-5** (done 2026-09-29) | **Issue playbooks and authoring.** `kiwi.diagnose`, `kiwi.create`, multi-part proposals for packages, standards file, "Ask Kiwi to fix" after compile. | Console and API tests for multi-part apply-check (all-or-nothing, stale part refuses the whole). |
 | **K-6** (done 2026-09-29) | **Package and process explainer.** Per-subprogram summarise-then-combine, dependency and scheduler walk with limits, evidence labels, Mermaid export. | Explains a 3k-line fixture package and a fixture ETL chain within budget, with every lineage edge labelled. |
 | **K-7** (built 2026-09-29; DBA-reviewed run pending) | **Evaluation.** Extend `tests/copilot/eval/cases.json` with a new case set version: tool-trace expectations, playbook cases, packages, ETL, injection in source and job comments that tries to call tools, privilege-denied paths, budget exhaustion. DBA review with the NP-04 runner and rubric. | All safety and authorisation cases pass; >= 90% DBA-reviewed correctness on diagnose and explain; no case where Kiwi claims something it did not look up. Then `HARNESS_KIWI_ENABLED` may default on for development targets. |
-| **K-8** | **Phase 2 decision: compile on development targets.** Only after K-7. Kiwi may compile its own draft in a separate session on a target explicitly marked `development`, never test or production, and never touch a user's worksheet session. Needs its own ADR and eval cases. | A separate go/no-go. Not assumed by K-1 to K-7. |
+| **K-8** | **Phase 2 decision: compile on development targets.** Only after K-7. Kiwi may compile its own draft in a separate session on a target explicitly marked `development`, never test or production, and never touch a user's worksheet session. Needs its own ADR and eval cases. | A separate go/no-go. Not assumed by K-1 to K-7. **Status 2026-09-29: ADR-0011 drafted as Proposed and eval cases specified; nothing implemented.** |
 
 Surfaces follow the API: the console's `CopilotDrawer` becomes the Kiwi panel in K-3
 (tool trace shown as it happens, with each call's execution id linking to history),
@@ -397,3 +397,15 @@ MVP_PLAN.md; if it comes, it exposes the same toolbox), and inline autocomplete.
   not met and `HARNESS_KIWI_ENABLED` stays off by default. The K-4 19c run is also
   still pending. Rehearsal (scripted turns) is not evidence of model quality. K-8 is not
   started.
+
+### 2026-09-29, K-8 decision draft
+
+- [ADR-0011](docs/decisions.md) is written as **Proposed**, not accepted. It sets the
+  conditions for a compile (target environment exactly `development`, the user's own
+  `PERMISSION_COMPILE`, a fresh session, a per-compile user confirmation, an audit
+  event) and how invariants 1, 4 and 6 would change.
+- The safety-gated eval cases are listed in the ADR. They are specified, not added to
+  `cases.json`: they need the implementation to run against.
+- **Nothing is implemented.** No compile capability exists for Kiwi and the flag stays
+  off by default. K-8 is gated on the K-7 exit criterion (paid run, DBA review, K-4 19c
+  run, all pending) and a separate go/no-go.
