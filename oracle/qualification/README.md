@@ -222,6 +222,31 @@ the stand-in keep a `HARNESS_` prefix: `HARNESS_TYPES`, `HARNESS_LOBS`,
 `HARNESS_BURN`. **The setup drops every one of these before creating it.** Use a
 schema that holds nothing else.
 
+Kiwi's K-4 lookups have their own fixtures: a trigger on `EMPLOYEES`
+(`HARNESS_EMP_EMAIL_TRG`), a function compiled with PL/Scope
+(`HARNESS_DEPT_HEADCOUNT`, `IDENTIFIERS:ALL, STATEMENTS:ALL`), and a scheduler
+program, chain and job (`HARNESS_NOOP_PROG`, `HARNESS_CHAIN`, `HARNESS_NOOP_JOB`).
+The job is scheduled for 2035 and run once in the setup session, so it has run
+history and never fires on its own. `EMPLOYEE_REPORT` stays compiled without PL/Scope,
+which is the absence case. These need grants the product roles in
+`oracle/grants/harness_roles.sql` deliberately do not include. Grant them to the
+qualification schema only:
+
+```sql
+GRANT CREATE TRIGGER TO harness_app;
+GRANT CREATE JOB TO harness_app;
+BEGIN
+  DBMS_RULE_ADM.GRANT_SYSTEM_PRIVILEGE(DBMS_RULE_ADM.CREATE_RULE_OBJ, 'HARNESS_APP');
+  DBMS_RULE_ADM.GRANT_SYSTEM_PRIVILEGE(DBMS_RULE_ADM.CREATE_RULE_SET_OBJ, 'HARNESS_APP');
+  DBMS_RULE_ADM.GRANT_SYSTEM_PRIVILEGE(DBMS_RULE_ADM.CREATE_EVALUATION_CONTEXT_OBJ, 'HARNESS_APP');
+END;
+/
+```
+
+No database link is created: that would need a second database and a stored password.
+On 19c `schema.db_links_referenced` is therefore checked for its columns and returns no
+rows; only the stand-in exercises a populated result.
+
 The slow-query fixture is 400,000 rows. Building it takes a minute or two on the first
 run and is the reason the setup budget is 15 minutes rather than the interactive 30
 seconds.

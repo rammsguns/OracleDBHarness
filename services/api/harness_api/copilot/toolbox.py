@@ -31,7 +31,9 @@ from harness_worker.errors import HarnessError, NotFoundError, PolicyError, Vali
 from harness_worker.types import RiskClass
 
 # Parameters bound as numbers; everything else is text.
-_INTEGER_PARAMETERS = frozenset({"child_number", "row_limit", "row_offset"})
+_INTEGER_PARAMETERS = frozenset(
+    {"child_number", "end_line", "row_limit", "row_offset", "start_line"}
+)
 # Row limits the model may ask for are clamped to the per-tool cap.
 _ROW_LIMIT_PARAMETER = "row_limit"
 _WHY = "why"

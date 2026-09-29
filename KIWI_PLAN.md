@@ -102,8 +102,8 @@ Existing catalog entries Kiwi can use from day one:
 | Tuning | `tuning.cursor_search`, `cursor_statistics`, `cursor_plan`, `explain_plan_rows` |
 | DBA (DBA role only) | `dba.invalid_objects`, `scheduler_jobs`, `scheduler_failures`, `blocking`, `sessions`, `tablespace_usage` |
 
-New reviewed catalog entries Kiwi needs (K-4), each with its privileges and minimum
-version in the header like the rest:
+New reviewed catalog entries Kiwi needs (K-4, added), each with its privileges and
+minimum version in the header like the rest:
 
 | Operation | Source view | Why |
 | --- | --- | --- |
@@ -185,7 +185,7 @@ Local identifiers below are planning IDs, not GitHub issues. Each item lands beh
 | **K-1** (done 2026-09-29) | **Identity and docs.** Name Kiwi in the console, the system prompt and the capabilities endpoint (`assistant: "Kiwi"`). Keep module paths, route paths and protocol ids as they are, to avoid churn. Write ADR-0010 (read-only tool use). Rewrite docs/copilot.md for tool calls. Check how the DataForge adapter treats unknown stream events. | Docs reviewed by whoever approves provider data sharing. No behaviour change. |
 | **K-2** (done 2026-09-29) | **Provider tool use.** Extend the provider interface and the Anthropic adapter to multi-turn tool use with usage per turn. Scripted tool calls in the fake provider. | Unit tests for tool-use turns, stop reasons, usage accounting and provider failure mid-loop. |
 | **K-3** (done 2026-09-29) | **Toolbox and agent loop.** `KiwiToolbox` over the catalog with the `@kiwi: allowed` header; policy per call; wrapping and caps on results; budgets for steps, tool calls, tokens and wall time; new stream events; history records every tool call's execution id. | Invariant tests 1-7 pass against the stand-in. A request that runs out of budget ends with a partial answer marked as partial. |
-| **K-4** | **New catalog entries** from the table above, with privileges and minimum versions, qualification fixtures in `oracle/qualification/`, and PL/Scope absence handled. | Run against the stand-in and against the 19c instance used for the earlier qualification. |
+| **K-4** (done 2026-09-29, stand-in only; 19c run pending) | **New catalog entries** from the table above, with privileges and minimum versions, qualification fixtures in `oracle/qualification/`, and PL/Scope absence handled. | Run against the stand-in and against the 19c instance used for the earlier qualification. |
 | **K-5** | **Issue playbooks and authoring.** `kiwi.diagnose`, `kiwi.create`, multi-part proposals for packages, standards file, "Ask Kiwi to fix" after compile. | Console and API tests for multi-part apply-check (all-or-nothing, stale part refuses the whole). |
 | **K-6** | **Package and process explainer.** Per-subprogram summarise-then-combine, dependency and scheduler walk with limits, evidence labels, Mermaid export. | Explains a 3k-line fixture package and a fixture ETL chain within budget, with every lineage edge labelled. |
 | **K-7** | **Evaluation.** Extend `tests/copilot/eval/cases.json` with a new case set version: tool-trace expectations, playbook cases, packages, ETL, injection in source and job comments that tries to call tools, privilege-denied paths, budget exhaustion. DBA review with the NP-04 runner and rubric. | All safety and authorisation cases pass; >= 90% DBA-reviewed correctness on diagnose and explain; no case where Kiwi claims something it did not look up. Then `HARNESS_KIWI_ENABLED` may default on for development targets. |
@@ -284,3 +284,38 @@ MVP_PLAN.md; if it comes, it exposes the same toolbox), and inline autocomplete.
 - Invariants 1-7 are covered in `tests/copilot/test_kiwi.py` (28 tests) against the
   stand-in provider. No real provider was called. Full suite: 625 passed, 71 skipped;
   adapter 23 node tests; web 45 tests.
+
+### 2026-09-29, K-4 catalog entries
+
+- Ten entries added with `-- @kiwi: allowed`, `risk: read`, `@privileges` and
+  `@min_version: 12`: `schema.object_referenced_by`, `package_subprograms`,
+  `object_source_range`, `plscope_identifiers`, `plscope_statements`, `triggers`,
+  `db_links_referenced`, and `dba.scheduler_job_detail`, `scheduler_chain`,
+  `scheduler_run_history`. Kiwi now has 29 tools. `start_line` and `end_line` are
+  integer parameters.
+- PL/Scope absence is reported, not guessed around: both PL/Scope lookups return one
+  row per unit whose `PLSCOPE_STATUS` is `COLLECTED`, `NOT COLLECTED: compiled with
+  PLSCOPE_SETTINGS=...`, `NONE RECORDED: ...` or `UNKNOWN: ...`, with the data columns
+  empty when nothing was collected. `plscope_statements` needs 12.2 (`ALL_STATEMENTS`);
+  the version gate compares majors only, so on 12.1 it fails with ORA-00942 and says so
+  in its description.
+- `db_links_referenced` returns link names, owners and remote objects, never
+  `USERNAME` or `HOST`; a link the user cannot see shows as `NOT VISIBLE`.
+  `scheduler_run_history` returns `ADDITIONAL_INFO` inside the untrusted markers.
+- The stand-in seeds a trigger, a PL/Scope-compiled function, `EMPLOYEE_REPORT`
+  compiled without PL/Scope, two remote synonyms, a scheduler program, chain and two
+  jobs, and a run log carrying an injection attempt. `tests/copilot/test_kiwi_catalog.py`
+  (13 tests) runs every new entry through the toolbox.
+- `oracle/qualification/01_fixtures.sql` and `02_teardown.sql` build and drop the same
+  trigger, function (compiled with `IDENTIFIERS:ALL, STATEMENTS:ALL`), scheduler
+  program, chain and job; `tests/qualification/test_kiwi_catalog.py` runs the shipped
+  SQL against them. They need `CREATE TRIGGER`, `CREATE JOB` and the rules-engine
+  privileges for chains, which the product grants do not include (see
+  `oracle/qualification/README.md`). No database link is created, so on 19c
+  `db_links_referenced` is checked for its shape and returns no rows.
+- **Exit criterion only half met.** Run against the stand-in only: full suite 638
+  passed, 74 skipped (the 19c tests among the skips, three of them new). **The 19c run has not been done**:
+  no Oracle instance was reachable from this session. Writing the qualification test
+  found one column that would have failed there (`ALL_STATEMENTS.TEXT`, which the
+  stand-in had seeded as `SQL_TEXT`), so the 19c run is still needed before K-4 counts
+  as closed.

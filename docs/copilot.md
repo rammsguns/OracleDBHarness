@@ -68,6 +68,11 @@ before and the model is offered no tool. So, when it is on:
   mid-request stops the next lookup. Production stays observation-only.
 - **A tool the model is not offered cannot be reached.** Asking for a runbook, the
   worksheet, `explain_plan` or any name outside the list is refused and audited.
+- **PL/Scope and database links.** `schema.plscope_identifiers` and
+  `plscope_statements` say when PL/Scope data is missing (`PLSCOPE_STATUS` is
+  `NOT COLLECTED`, `NONE RECORDED` or `UNKNOWN`, with the compile settings), and Kiwi
+  is told to report that instead of inferring a call graph. `schema.db_links_referenced`
+  returns link names and remote objects only, never the link's user or host.
 - **Results are data.** Rows go to the model as JSON inside
   `BEGIN/END UNTRUSTED TOOL_RESULT` markers, capped per lookup in rows and bytes, with
   a note when they were cut.

@@ -20,6 +20,15 @@ BEGIN EXECUTE IMMEDIATE 'DROP TABLE scratch_ddl_guard PURGE'; EXCEPTION WHEN OTH
 --# drop_scratch_guard
 BEGIN EXECUTE IMMEDIATE 'DROP PROCEDURE scratch_guard'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -4043 THEN RAISE; END IF; END;
 
+--# drop_scheduler_job
+BEGIN DBMS_SCHEDULER.DROP_JOB('HARNESS_NOOP_JOB', force => TRUE); EXCEPTION WHEN OTHERS THEN IF SQLCODE NOT IN (-27475, -27476) THEN RAISE; END IF; END;
+
+--# drop_scheduler_chain
+BEGIN DBMS_SCHEDULER.DROP_CHAIN('HARNESS_CHAIN', force => TRUE); EXCEPTION WHEN OTHERS THEN IF SQLCODE NOT IN (-27475, -27476) THEN RAISE; END IF; END;
+
+--# drop_scheduler_program
+BEGIN DBMS_SCHEDULER.DROP_PROGRAM('HARNESS_NOOP_PROG', force => TRUE); EXCEPTION WHEN OTHERS THEN IF SQLCODE NOT IN (-27475, -27476) THEN RAISE; END IF; END;
+
 --# drop_order_lines
 BEGIN EXECUTE IMMEDIATE 'DROP TABLE order_lines PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
 
@@ -246,6 +255,75 @@ BEGIN
     NULL;
   END LOOP;
 END harness_burn;
+
+-- Kiwi's K-4 lookups -------------------------------------------------------------
+--
+-- A trigger, a function compiled with PL/Scope and a scheduler chain, so each K-4
+-- catalog entry has something to find. EMPLOYEE_REPORT stays compiled without
+-- PL/Scope (the database default), which is the absence case. There is no database
+-- link here: creating one needs a second database and a password, so on 19c
+-- schema.db_links_referenced is expected to return no rows. The stand-in covers the
+-- populated case.
+
+--# trigger
+CREATE OR REPLACE TRIGGER harness_emp_email_trg
+  BEFORE UPDATE OF email ON employees
+  FOR EACH ROW
+  WHEN (new.email IS NOT NULL)
+BEGIN
+  NULL;
+END;
+
+--# plscope_function
+CREATE OR REPLACE FUNCTION harness_dept_headcount(p_department_id IN NUMBER) RETURN NUMBER IS
+  l_count NUMBER;
+BEGIN
+  SELECT COUNT(*) INTO l_count FROM employees WHERE department_id = p_department_id;
+  RETURN l_count;
+END harness_dept_headcount;
+
+-- Recompiling with the setting on the unit, rather than ALTER SESSION, keeps it off
+-- everything else this session compiles.
+--# plscope_function_compile
+ALTER FUNCTION harness_dept_headcount COMPILE
+  PLSCOPE_SETTINGS = 'IDENTIFIERS:ALL, STATEMENTS:ALL' REUSE SETTINGS
+
+--# scheduler_program
+BEGIN
+  DBMS_SCHEDULER.CREATE_PROGRAM(
+    program_name   => 'HARNESS_NOOP_PROG',
+    program_type   => 'PLSQL_BLOCK',
+    program_action => 'BEGIN NULL; END;',
+    enabled        => TRUE);
+END;
+
+--# scheduler_chain
+BEGIN
+  DBMS_SCHEDULER.CREATE_CHAIN(chain_name => 'HARNESS_CHAIN');
+  DBMS_SCHEDULER.DEFINE_CHAIN_STEP('HARNESS_CHAIN', 'STEP_ONE', 'HARNESS_NOOP_PROG');
+  DBMS_SCHEDULER.DEFINE_CHAIN_STEP('HARNESS_CHAIN', 'STEP_TWO', 'HARNESS_NOOP_PROG');
+  DBMS_SCHEDULER.DEFINE_CHAIN_RULE('HARNESS_CHAIN', 'TRUE', 'START STEP_ONE',
+                                   rule_name => 'HARNESS_START');
+  DBMS_SCHEDULER.DEFINE_CHAIN_RULE('HARNESS_CHAIN', 'STEP_ONE COMPLETED', 'START STEP_TWO',
+                                   rule_name => 'HARNESS_THEN');
+  DBMS_SCHEDULER.DEFINE_CHAIN_RULE('HARNESS_CHAIN', 'STEP_TWO COMPLETED', 'END',
+                                   rule_name => 'HARNESS_END');
+  DBMS_SCHEDULER.ENABLE('HARNESS_CHAIN');
+END;
+
+-- Scheduled far in the future so it never fires on its own; RUN_JOB in this session
+-- leaves the one run-history row schema.scheduler_run_history reads.
+--# scheduler_job
+BEGIN
+  DBMS_SCHEDULER.CREATE_JOB(
+    job_name     => 'HARNESS_NOOP_JOB',
+    program_name => 'HARNESS_NOOP_PROG',
+    start_date   => TIMESTAMP '2035-01-01 04:00:00 UTC',
+    auto_drop    => FALSE,
+    enabled      => TRUE,
+    comments     => 'Kiwi qualification fixture');
+  DBMS_SCHEDULER.RUN_JOB('HARNESS_NOOP_JOB', use_current_session => TRUE);
+END;
 
 --# commit
 COMMIT

@@ -73,11 +73,11 @@ def test_the_fixtures_and_the_teardown_agree_on_what_exists() -> None:
 
     created = _object_names(
         parse_script(qualification_dir() / "01_fixtures.sql"),
-        r"CREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|PACKAGE\s+BODY|PACKAGE|PROCEDURE|FUNCTION)\s+",
+        r"CREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|TRIGGER|PACKAGE\s+BODY|PACKAGE|PROCEDURE|FUNCTION)\s+",
     )
     dropped = _object_names(
         parse_script(qualification_dir() / "02_teardown.sql"),
-        r"DROP\s+(?:TABLE|PACKAGE\s+BODY|PACKAGE|PROCEDURE|FUNCTION)\s+",
+        r"DROP\s+(?:TABLE|TRIGGER|PACKAGE\s+BODY|PACKAGE|PROCEDURE|FUNCTION)\s+",
     )
     assert created, "No CREATE statements were found; the pattern is wrong."
     missing = created - dropped
