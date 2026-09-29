@@ -113,6 +113,7 @@ The reasoning behind the less obvious of these is in [docs/decisions.md](docs/de
 ## Plans
 
 - [NEXT_PHASE_PLAN.md](NEXT_PHASE_PLAN.md) - active pilot qualification plan and issue review
+- [KIWI_PLAN.md](KIWI_PLAN.md) - proposed plan for Kiwi, the Oracle database agent
 - [MVP_PLAN.md](MVP_PLAN.md) - product direction, scope, delivery sequence
 - [ORACLEDATAFORGE_INTEGRATION.md](ORACLEDATAFORGE_INTEGRATION.md) - the first IDE
   integration

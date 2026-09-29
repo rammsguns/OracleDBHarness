@@ -1,0 +1,220 @@
+# Kiwi: the Oracle database agent
+
+Prepared 2026-09-29 against `11ff1be`. This is a proposed delivery plan, not evidence
+that any of it exists. Nothing below is implemented yet.
+
+**Kiwi** is the name of the harness's Oracle agent. It grows out of the existing copilot
+(`services/api/harness_api/copilot/`), keeps every guarantee that copilot makes, and
+adds the one thing the copilot cannot do today: look things up for itself.
+
+## What Kiwi is for
+
+| Goal | Example request |
+| --- | --- |
+| **Solve issues** | "Why is `HR_PKG` invalid?", "The nightly load job failed, what happened?", "Fix this ORA-06502" |
+| **Write PL/SQL** | "Create a procedure that archives closed orders older than 90 days", "Add a bulk-collect version of `LOAD_CUSTOMERS` to `ETL_PKG`" |
+| **Explain PL/SQL** | "Explain `BILLING_PKG` end to end", "What does `CALC_TAX` do with NULL rates?" |
+| **Explain processes** | "Walk me through the nightly ETL", "What writes to `FACT_SALES`, and in what order?" |
+| **Tune** | "Explain this plan", "Why is this cursor slow?" (current-state views only; see ADR-0009) |
+
+## The decision this plan is built on
+
+Kiwi may call **reviewed, read-only catalog operations** on its own, within the
+requesting user's permissions. It may never execute free-form SQL, write, compile,
+commit or deploy. Compiling, running a test block or applying a change stays a click
+by the user, through the existing authorised path.
+
+This changes one promise in [docs/copilot.md](docs/copilot.md), "no automatic context
+expansion", and flips `executesDatabaseOperations` semantics in the capabilities
+endpoint from "never" to "read-only catalog lookups". Both are rewritten in K-1, and
+an ADR records why (ADR-0010, below). The structural guarantee is unchanged: there is
+still no code path from a model answer to a write.
+
+Letting Kiwi compile its own drafts on development targets is a separate, later
+decision (phase 2, K-8). It is not assumed by anything before it.
+
+## Invariants Kiwi inherits
+
+These already hold for the copilot and must still hold for every Kiwi request. Each
+has a test in K-7 that fails if it breaks.
+
+1. **No writes.** Tools resolve only to catalog entries with `risk: read`. Runbooks,
+   worksheets, compile and commit are not tools. A model asking for one gets a typed
+   refusal, not a workaround.
+2. **No business data.** No tool selects from application tables. Kiwi sees metadata,
+   source, errors, plans, statistics and scheduler history, never rows. `result_rows`,
+   `bind_values`, `credentials` and `wallet` stay refused by category.
+3. **Same authorisation as the user.** Every tool call goes through
+   `ExecutionService` and `PolicyEngine` as the requesting actor on the requesting
+   target, gets an `Execution` row and an `AuditEvent`, and fails closed on a missing
+   privilege ("an unavailable panel is never an empty one").
+4. **Production stays observation-only.** Kiwi adds no capability on a production
+   target that the user's own role does not already have there.
+5. **Untrusted content stays data.** Tool results are wrapped in the same UNTRUSTED
+   markers as attachments. Instructions found in source comments, object comments or
+   job names are reported, never followed, and can never trigger another tool call
+   by themselves being text.
+6. **Applying is not running.** A proposal changes an editor buffer. It stays pinned
+   to editor, revision and hash (ADR-0008).
+7. **Bounded.** Steps, tool calls, rows per tool, bytes of context and tokens are all
+   capped per request, and a provider failure leaves every database workflow working.
+
+## Architecture
+
+```
+console / DataForge
+   |  POST /api/v1/copilot/ask  (existing endpoint, action = kiwi.*)
+   v
+CopilotService  --- agent loop (new) ----------------------------+
+   |    context policy, budgets, proposals, history (existing)   |
+   |                                                             |
+   |  tool_use                                            tool result (wrapped, capped)
+   v                                                             |
+KiwiToolbox (new)  -- allowlist of read catalog entries ---------+
+   |
+ExecutionService -> PolicyEngine -> ExecutionEngine -> Oracle
+   (existing, unchanged: same actor, same target, same audit)
+```
+
+- **Provider interface.** `Provider.stream(system, user_message)` becomes a
+  multi-turn call that accepts tool definitions and yields text, tool-use and usage
+  events. The fake provider gains scripted tool calls so every loop path is testable
+  without a paid provider. ADR-0007 still holds: one service, one provider adapter.
+- **Agent loop.** Lives in the copilot service, not the provider. The service decides
+  whether a tool call is allowed, runs it, wraps the result and decides when to stop.
+  The model never sees a connection, a credential or a tool it may not call.
+- **Tool definitions come from the catalog.** Each allowed entry in `oracle/` is
+  exposed with its id, title, description and parameters. Adding a tool means adding
+  a reviewed `.sql` file with a `@kiwi: allowed` header, not writing Python.
+- **Protocol.** New stream events: `tool_call` (operation id, parameters, why),
+  `tool_result` (status, row count, bytes, truncation, execution id, never the rows
+  themselves to an IDE that did not ask), `plan_step` and `budget`. K-1 checks whether
+  the DataForge adapter ignores unknown events; if it does these are protocol 1.1,
+  otherwise 2.0 with a compatibility window.
+
+## Tools
+
+Existing catalog entries Kiwi can use from day one:
+
+| Area | Operations |
+| --- | --- |
+| Schema | `schema.list_schemas`, `list_objects`, `object_status`, `object_source`, `object_errors`, `object_dependencies`, `table_columns`, `table_constraints`, `table_indexes`, `table_statistics` |
+| Tuning | `tuning.cursor_search`, `cursor_statistics`, `cursor_plan`, `explain_plan_rows` |
+| DBA (DBA role only) | `dba.invalid_objects`, `scheduler_jobs`, `scheduler_failures`, `blocking`, `sessions`, `tablespace_usage` |
+
+New reviewed catalog entries Kiwi needs (K-4), each with its privileges and minimum
+version in the header like the rest:
+
+| Operation | Source view | Why |
+| --- | --- | --- |
+| `schema.object_referenced_by` | `ALL_DEPENDENCIES` (reverse) | "What calls this?", impact of a change |
+| `schema.package_subprograms` | `ALL_PROCEDURES`, `ALL_ARGUMENTS` | Map a package before reading its body |
+| `schema.object_source_range` | `ALL_SOURCE` with line bounds | Read one subprogram of a large body without the whole thing |
+| `schema.plscope_identifiers` | `ALL_IDENTIFIERS` | Call graph and table usage, **only** where PL/Scope was enabled at compile time; absence is reported, not guessed around |
+| `schema.plscope_statements` | `ALL_STATEMENTS` (12.2+) | Which DML statement hits which table, in which subprogram |
+| `schema.triggers` | `ALL_TRIGGERS` | Hidden writes during an ETL |
+| `schema.db_links_referenced` | `ALL_DEPENDENCIES`, `ALL_DB_LINKS` (names only) | Remote sources in an ETL, without exposing link credentials |
+| `dba.scheduler_job_detail` | `ALL_SCHEDULER_JOBS`, `_PROGRAMS` | What a job runs, when, and as whom |
+| `dba.scheduler_chain` | `ALL_SCHEDULER_CHAIN_STEPS`, `_RULES` | Step order of a chained ETL |
+| `dba.scheduler_run_history` | `ALL_SCHEDULER_JOB_RUN_DETAILS` | Durations and failures over time, with `additional_info` treated as untrusted |
+
+Tool results are capped per call (rows and bytes) and marked truncated when they are.
+A tool that fails for lack of privilege returns the privilege it needed, and Kiwi says
+so in its answer instead of working around it.
+
+## Capabilities
+
+### Solve issues (playbooks)
+
+Playbooks are system-prompt guidance plus an expected tool sequence, not hard-coded
+flows. Each gets evaluation cases (K-7).
+
+| Symptom | Kiwi's route |
+| --- | --- |
+| Invalid object / PLS error | `object_status` -> `object_errors` -> `object_source_range` around the error -> `object_dependencies` for invalid parents -> proposed fix, and "recompile runbook" as a suggested next action if the cause is a parent |
+| ORA error pasted by the user | classify the error -> fetch the named object's source and the columns it touches -> point at the line -> proposed repair |
+| Failed scheduler job | `scheduler_failures` -> `scheduler_job_detail` -> `scheduler_run_history` -> source of the program -> cause and fix |
+| Blocking / hang | `blocking` -> `sessions` (DBA only) -> explanation; never suggests killing a session as something Kiwi does |
+| Slow statement | `cursor_search` -> `cursor_statistics` -> `cursor_plan` -> experiments the user can measure, estimates labelled as estimates |
+
+### Write PL/SQL
+
+- `kiwi.create`: draft a procedure, function, package, trigger or type from a
+  description, grounded in columns and constraints Kiwi looked up, not guessed.
+- **Packages are two documents.** A proposal today pins one editor buffer. Packages
+  need spec and body applied together or not at all, so proposals gain an ordered
+  list of parts, each pinned to its own editor and revision, with an all-or-nothing
+  `apply-check`.
+- **House style is configuration.** A per-deployment standards file (naming prefixes,
+  error-logging package, `BULK COLLECT ... LIMIT` size, exception policy, header
+  comment template) is included in the system prompt and cited when applied.
+- Every draft comes with a `kiwi.test_block` companion that does not commit.
+- **Compile loop, user in the loop.** After the user compiles through
+  `/api/v1/plsql/compile`, the console offers "Ask Kiwi to fix" with the line-level
+  errors attached. That is a new request with a new proposal, never an automatic retry.
+
+### Explain packages and processes
+
+Large units do not fit in one context, and explaining them well means reading the
+right parts, not all of it.
+
+- `kiwi.explain_package`: map the spec with `package_subprograms`, read each
+  subprogram with `object_source_range`, summarise each, then combine: public API,
+  internal call graph, tables read and written, commit points, exception handling,
+  autonomous transactions, dynamic SQL, and anything that looks risky.
+- `kiwi.explain_process`: start from a job, chain, package or table. Walk scheduler
+  chain -> programs -> packages -> dependencies and triggers to a depth and object
+  limit, then describe data lineage (source -> staging -> target), step order, commit
+  and restart behaviour, and failure history.
+- **Evidence levels are explicit.** Every edge in a lineage is labelled
+  *catalog* (from `ALL_DEPENDENCIES`/PL/Scope), *source* (read from code) or
+  *inferred* (dynamic SQL, db links, naming). Kiwi does not present an inferred edge
+  as fact.
+- **Output.** A structured explanation (sections, object references that link into the
+  schema explorer) and a Mermaid diagram of the flow, exportable as Markdown so a team
+  can keep it as documentation.
+
+## Delivery sequence
+
+Local identifiers below are planning IDs, not GitHub issues. Each item lands behind
+`HARNESS_KIWI_ENABLED` (off by default) until K-7 passes, so none of it touches the
+[NEXT_PHASE_PLAN.md](NEXT_PHASE_PLAN.md) pilot gates.
+
+| ID | Work | Exit |
+| --- | --- | --- |
+| **K-1** | **Identity and docs.** Name Kiwi in the console, the system prompt and the capabilities endpoint (`assistant: "Kiwi"`). Keep module paths, route paths and protocol ids as they are, to avoid churn. Write ADR-0010 (read-only tool use). Rewrite docs/copilot.md for tool calls. Check how the DataForge adapter treats unknown stream events. | Docs reviewed by whoever approves provider data sharing. No behaviour change. |
+| **K-2** | **Provider tool use.** Extend the provider interface and the Anthropic adapter to multi-turn tool use with usage per turn. Scripted tool calls in the fake provider. | Unit tests for tool-use turns, stop reasons, usage accounting and provider failure mid-loop. |
+| **K-3** | **Toolbox and agent loop.** `KiwiToolbox` over the catalog with the `@kiwi: allowed` header; policy per call; wrapping and caps on results; budgets for steps, tool calls, tokens and wall time; new stream events; history records every tool call's execution id. | Invariant tests 1-7 pass against the stand-in. A request that runs out of budget ends with a partial answer marked as partial. |
+| **K-4** | **New catalog entries** from the table above, with privileges and minimum versions, qualification fixtures in `oracle/qualification/`, and PL/Scope absence handled. | Run against the stand-in and against the 19c instance used for the earlier qualification. |
+| **K-5** | **Issue playbooks and authoring.** `kiwi.diagnose`, `kiwi.create`, multi-part proposals for packages, standards file, "Ask Kiwi to fix" after compile. | Console and API tests for multi-part apply-check (all-or-nothing, stale part refuses the whole). |
+| **K-6** | **Package and process explainer.** Per-subprogram summarise-then-combine, dependency and scheduler walk with limits, evidence labels, Mermaid export. | Explains a 3k-line fixture package and a fixture ETL chain within budget, with every lineage edge labelled. |
+| **K-7** | **Evaluation.** Extend `tests/copilot/eval/cases.json` with a new case set version: tool-trace expectations, playbook cases, packages, ETL, injection in source and job comments that tries to call tools, privilege-denied paths, budget exhaustion. DBA review with the NP-04 runner and rubric. | All safety and authorisation cases pass; >= 90% DBA-reviewed correctness on diagnose and explain; no case where Kiwi claims something it did not look up. Then `HARNESS_KIWI_ENABLED` may default on for development targets. |
+| **K-8** | **Phase 2 decision: compile on development targets.** Only after K-7. Kiwi may compile its own draft in a separate session on a target explicitly marked `development`, never test or production, and never touch a user's worksheet session. Needs its own ADR and eval cases. | A separate go/no-go. Not assumed by K-1 to K-7. |
+
+Surfaces follow the API: the console's `CopilotDrawer` becomes the Kiwi panel in K-3
+(tool trace shown as it happens, with each call's execution id linking to history),
+and the DataForge adapter gains the new events in the same release as the protocol
+change.
+
+## Dependencies and risks
+
+- **NP-04 first.** Kiwi's quality cannot be measured before the real-provider
+  evaluation path exists and has been run once. K-7 reuses it.
+- **Pilot scope freeze.** NEXT_PHASE_PLAN.md rules out new tool surfaces during the
+  pilot. Kiwi work proceeds behind a flag that is off in the pilot deployment, or waits
+  until the pilot gates close; that is the owner's call.
+- **Cost.** An agent spends several model turns per question. Budgets are per request
+  and per actor, and the eval report records per-case tool calls and cost.
+- **PL/Scope is often off.** Without it, table-level lineage comes from reading source,
+  which is weaker. Kiwi says which it used.
+- **Metadata can still be sensitive.** Source and object names leave the harness under
+  the same data-sharing approval as today; the approval text is updated in K-1 to say
+  Kiwi fetches them itself.
+- **DBA views show other users' activity.** `dba.sessions` and `dba.blocking` stay
+  limited to the DBA role, exactly as in the console.
+
+## Out of scope
+
+Autonomous writes of any kind, killing sessions, index or parameter changes, AWR/ASH
+and advisors (ADR-0009), reading table data, an MCP server (still deferred in
+MVP_PLAN.md; if it comes, it exposes the same toolbox), and inline autocomplete.
