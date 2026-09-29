@@ -83,7 +83,7 @@ def test_the_typescript_client_lists_the_same_actions_and_exclusions() -> None:
     from harness_api.copilot.context import ACTIONS, FORBIDDEN_CATEGORIES
 
     source = (CONTRACTS / "src" / "index.ts").read_text(encoding="utf-8")
-    declared = set(re.findall(r'\|\s*"([a-z_]+)"', source))
+    declared = set(re.findall(r'\|\s*"([a-z_.]+)"', source))
     assert set(ACTIONS) <= declared
     for category in FORBIDDEN_CATEGORIES:
         assert f'"{category}"' in source, category

@@ -7,7 +7,7 @@
  * fails if the API stops matching them.
  */
 
-export const PROTOCOL_VERSION = "1.1";
+export const PROTOCOL_VERSION = "1.2";
 export const SUPPORTED_PROTOCOL_MAJOR = 1;
 
 // -- shared shapes ----------------------------------------------------------------
@@ -185,7 +185,11 @@ export type CopilotAction =
   | "propose"
   | "test_block"
   | "explain_plan"
-  | "validate";
+  | "validate"
+  /** Kiwi playbooks (protocol 1.2). */
+  | "kiwi.diagnose"
+  | "kiwi.create"
+  | "kiwi.test_block";
 
 export type ContextCategory =
   | "selected_source"
@@ -217,6 +221,12 @@ export interface EditorReference {
   text: string;
 }
 
+/** One buffer of a multi-part request, such as a package spec or body (protocol 1.2). */
+export interface EditorPart extends EditorReference {
+  /** Letters, digits, "_" and "-"; unique within the request. */
+  part: string;
+}
+
 export interface CopilotRequest {
   protocolVersion?: string;
   action: CopilotAction;
@@ -227,6 +237,8 @@ export interface CopilotRequest {
   schema?: string;
   attachments: ContextAttachment[];
   editor?: EditorReference;
+  /** Up to eight buffers edited together. Each needs its own name and editor. */
+  parts?: EditorPart[];
   /** Which of the adapter's own users is acting. Never a role. */
   actorReference?: string;
   actorIsDurable?: boolean;
@@ -262,6 +274,19 @@ export interface ProposalEvent {
   rationale: string;
   appliesToEditorOnly: true;
   note: string;
+  /** Present on a multi-part proposal. Then proposedText is "" and parts carry the text. */
+  multiPart?: true;
+  parts?: ProposalPart[];
+}
+
+export interface ProposalPart {
+  part: string;
+  editorId: string;
+  baseRevision: string;
+  baseHash: string;
+  proposedText: string;
+  /** False when the model left this part alone; it is still pinned and checked. */
+  changed: boolean;
 }
 
 /** Why a Kiwi request stopped early. */
@@ -319,8 +344,19 @@ export interface ApplyCheckResult {
   canApply: boolean;
   reasons: string[];
   proposedText?: string;
+  /** Multi-part: every part's new text, only when all of them may be applied. */
+  parts?: Array<{ part: string; editorId: string; proposedText: string }>;
+  /** Multi-part: why each part was refused. Any entry refuses the whole proposal. */
+  partReasons?: Record<string, string[]>;
   executesDatabaseOperations: false;
   note?: string;
+}
+
+export interface ApplyCheckPart {
+  part: string;
+  editorId: string;
+  revision: string;
+  currentText: string;
 }
 
 export interface IntegrationCapabilities {
@@ -354,6 +390,9 @@ export interface IntegrationCapabilities {
       maxResultBytes: number;
       maxToolBytes: number;
     };
+    /** The team standards file (protocol 1.2). error is set when it could not be used. */
+    standards?: { configured: boolean; keys: string[]; error?: string };
+    multiPartProposals?: boolean;
   };
 }
 
@@ -509,9 +548,12 @@ export class HarnessClient {
   applyCheck(
     proposalId: string,
     body: {
-      editorId: string;
-      revision: string;
-      currentText: string;
+      /** Single-part proposals. */
+      editorId?: string;
+      revision?: string;
+      currentText?: string;
+      /** Multi-part proposals: every part's current buffer. */
+      parts?: ApplyCheckPart[];
       targetReference: string;
       actorReference?: string;
     },

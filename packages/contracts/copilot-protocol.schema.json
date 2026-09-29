@@ -9,7 +9,10 @@
         "propose",
         "test_block",
         "explain_plan",
-        "validate"
+        "validate",
+        "kiwi.diagnose",
+        "kiwi.create",
+        "kiwi.test_block"
       ]
     },
     "contextCategory": {
@@ -55,7 +58,7 @@
           "type": "object"
         },
         {
-          "description": "A reviewable editor diff, pinned to the document revision and hash it was generated from. Applying it changes the editor buffer only.",
+          "description": "A reviewable editor diff, pinned to the document revision and hash it was generated from. Applying it changes the editor buffer only. A multi-part proposal (multiPart: true) pins each part to its own editor, revision and hash, and carries the text in parts.",
           "required": [
             "proposalId",
             "editorId",
@@ -147,12 +150,13 @@
   "guarantees": [
     "Applying a proposal updates an editor buffer. It never runs, compiles, commits, or pushes anything.",
     "A proposal is rejected if the document, its revision, the editor, or the target changed since it was generated.",
+    "A multi-part proposal applies every part or none: one stale, missing or extra part refuses the whole.",
     "An actor reference asserted by an adapter is namespaced by integration instance and is never treated as a role.",
     "A partially delivered request is never replayed automatically.",
     "Kiwi's lookups are reviewed read-only catalog entries, authorised as the requesting user on every call and recorded as Executions; there is no free-form SQL, write, compile or commit.",
     "Adapters ignore stream events they do not know, so a minor version may add events."
   ],
-  "protocolVersion": "1.1",
+  "protocolVersion": "1.2",
   "supportedProtocolMajors": [
     1
   ],

@@ -398,6 +398,26 @@ class ProposedEdit(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class ProposedEditPart(Base):
+    """One part of a multi-part proposal, such as a package spec or its body.
+
+    Each part is pinned to its own editor, revision and hash. The parent proposal is
+    applied all at once or not at all.
+    """
+
+    __tablename__ = "proposed_edit_parts"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("edp"))
+    proposal_id: Mapped[str] = mapped_column(ForeignKey("proposed_edits.id"), index=True)
+    sequence: Mapped[int] = mapped_column(Integer, default=0)
+    part_name: Mapped[str] = mapped_column(String(60), default="")
+    editor_id: Mapped[str] = mapped_column(String(120), default="")
+    base_revision: Mapped[str] = mapped_column(String(120), default="")
+    base_hash: Mapped[str] = mapped_column(String(64), default="")
+    original_text: Mapped[str] = mapped_column(Text, default="")
+    proposed_text: Mapped[str] = mapped_column(Text, default="")
+
+
 class CopilotBudget(Base):
     """Per-actor request counters backing the configured daily limit."""
 

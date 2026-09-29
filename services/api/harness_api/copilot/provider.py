@@ -601,6 +601,9 @@ _INJECTION_MARKERS = re.compile(
 )
 
 
+_MULTI_PART = re.compile(r"This is a multi-part request\. Parts, in order: ([^.\n]+)\.")
+
+
 def _fixture_answer(user_message: str) -> str:
     """A canned answer that still reacts to the shape of the request.
 
@@ -620,7 +623,24 @@ def _fixture_answer(user_message: str) -> str:
         lines.append("")
 
     lowered = user_message.lower()
-    if "ora-00942" in lowered or "table or view does not exist" in lowered:
+    multi_part = _MULTI_PART.search(user_message)
+    if multi_part:
+        names = [name.strip() for name in multi_part.group(1).split(",") if name.strip()]
+        lines += [
+            "This is a canned multi-part proposal from the fixture provider. Each part "
+            "below is labelled; they are applied together or not at all.",
+            "",
+        ]
+        for name in names:
+            lines += [
+                f"```plsql part={name}",
+                f"-- {name}: reviewed by the fixture provider",
+                "-- (canned text; a configured model would propose a real change here)",
+                "```",
+                "",
+            ]
+        lines.append("I have not compiled this. Compile each part yourself after applying.")
+    elif "ora-00942" in lowered or "table or view does not exist" in lowered:
         lines += [
             "The error is ORA-00942, raised where the unit selects from a table the "
             "compiling schema cannot see.",

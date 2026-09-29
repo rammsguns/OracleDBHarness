@@ -40,7 +40,9 @@ STREAM_EVENTS = {
     "proposal": {
         "description": (
             "A reviewable editor diff, pinned to the document revision and hash it was "
-            "generated from. Applying it changes the editor buffer only."
+            "generated from. Applying it changes the editor buffer only. A multi-part "
+            "proposal (multiPart: true) pins each part to its own editor, revision and "
+            "hash, and carries the text in parts."
         ),
         "required": [
             "proposalId",
@@ -141,6 +143,8 @@ def copilot_protocol_schema() -> dict:
             "commits, or pushes anything.",
             "A proposal is rejected if the document, its revision, the editor, or the "
             "target changed since it was generated.",
+            "A multi-part proposal applies every part or none: one stale, missing or "
+            "extra part refuses the whole.",
             "An actor reference asserted by an adapter is namespaced by integration "
             "instance and is never treated as a role.",
             "A partially delivered request is never replayed automatically.",

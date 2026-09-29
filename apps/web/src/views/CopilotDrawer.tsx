@@ -9,7 +9,33 @@ const ACTIONS = [
   { id: "test_block", label: "Write a test block" },
   { id: "explain_plan", label: "Explain a plan" },
   { id: "validate", label: "Review" },
+  { id: "kiwi.diagnose", label: "Fix a failure (playbook)" },
+  { id: "kiwi.create", label: "Create a unit (playbook)" },
+  { id: "kiwi.test_block", label: "Test block (playbook)" },
 ] as const;
+
+export type CopilotActionId = (typeof ACTIONS)[number]["id"];
+
+/** What the drawer opens with: the code, and optionally an action and an error. */
+export interface CopilotSeed {
+  text: string;
+  action?: CopilotActionId;
+  errorText?: string;
+}
+
+/**
+ * One buffer of a multi-part edit, such as a package spec or body. The revision goes
+ * up on every edit, so a proposal made against older text is refused on apply.
+ */
+interface PartBuffer {
+  name: string;
+  text: string;
+  revision: number;
+}
+
+const PART_NAME = /^[A-Za-z0-9_-]+$/;
+
+const partEditor = (name: string) => `console:${name}`;
 
 interface TraceEntry {
   callId: string;
@@ -29,6 +55,14 @@ interface Proposal {
   proposedText: string;
   rationale: string;
   note: string;
+  multiPart?: true;
+  parts?: Array<{
+    part: string;
+    editorId: string;
+    baseRevision: string;
+    proposedText: string;
+    changed: boolean;
+  }>;
 }
 
 /**
@@ -44,12 +78,17 @@ export function CopilotDrawer({
   onClose,
 }: {
   target: Target | null;
-  seed: string;
+  seed: CopilotSeed;
   onClose: () => void;
 }) {
-  const [action, setAction] = useState<(typeof ACTIONS)[number]["id"]>("explain");
-  const [selection, setSelection] = useState(seed);
-  const [errorText, setErrorText] = useState("");
+  const [action, setAction] = useState<CopilotActionId>(seed.action ?? "explain");
+  const [selection, setSelection] = useState(seed.text);
+  const [errorText, setErrorText] = useState(seed.errorText ?? "");
+  // Multi-part mode edits several buffers together, e.g. a package spec and body, and
+  // applies Kiwi's proposal to all of them or to none.
+  const [multiPart, setMultiPart] = useState(false);
+  const [parts, setParts] = useState<PartBuffer[]>([]);
+  const [newPartName, setNewPartName] = useState("");
   const [question, setQuestion] = useState("");
   const [preview, setPreview] = useState<{
     totalBytes: number;
@@ -78,7 +117,17 @@ export function CopilotDrawer({
 
   const attachments = () => {
     const list: ContextAttachment[] = [];
-    if (selection.trim()) {
+    if (multiPart) {
+      for (const part of parts) {
+        if (!part.text.trim()) continue;
+        list.push({
+          category: "selected_source",
+          name: `part:${part.name}`,
+          content: part.text,
+          provenance: "console part",
+        });
+      }
+    } else if (selection.trim()) {
       list.push({
         category: "selected_source",
         name: "selection",
@@ -113,7 +162,49 @@ export function CopilotDrawer({
       .then(setPreview)
       .catch(() => setPreview(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selection, errorText, targetReference]);
+  }, [selection, errorText, targetReference, multiPart, parts]);
+
+  const startMultiPart = () => {
+    setMultiPart(true);
+    setProposal(null);
+    setApplied(null);
+    setParts((current) =>
+      current.length > 0
+        ? current
+        : [
+            { name: "spec", text: selection, revision: 1 },
+            { name: "body", text: "", revision: 1 },
+          ],
+    );
+  };
+
+  const editPart = (name: string, text: string) =>
+    setParts((current) =>
+      current.map((part) =>
+        part.name === name
+          ? { ...part, text, revision: part.revision + 1 }
+          : part,
+      ),
+    );
+
+  const partNameProblem = (() => {
+    const name = newPartName.trim();
+    if (!name) return null;
+    if (!PART_NAME.test(name)) return "Use letters, digits, _ and - only.";
+    if (parts.some((part) => part.name === name))
+      return "That part already exists.";
+    return null;
+  })();
+
+  const addPart = () => {
+    const name = newPartName.trim();
+    if (!name || partNameProblem || parts.length >= 8) return;
+    setParts((current) => [...current, { name, text: "", revision: 1 }]);
+    setNewPartName("");
+  };
+
+  const removePart = (name: string) =>
+    setParts((current) => current.filter((part) => part.name !== name));
 
   const ask = async () => {
     setRunning(true);
@@ -135,7 +226,18 @@ export function CopilotDrawer({
           databaseVersion: target?.identity?.version ?? "",
           schema: target?.defaultSchema ?? "",
           attachments: attachments(),
-          editor: { editorId: "console", revision: "1", text: selection },
+          ...(multiPart
+            ? {
+                parts: parts.map((part) => ({
+                  part: part.name,
+                  editorId: partEditor(part.name),
+                  revision: String(part.revision),
+                  text: part.text,
+                })),
+              }
+            : {
+                editor: { editorId: "console", revision: "1", text: selection },
+              }),
         },
         abort.current.signal,
       );
@@ -180,8 +282,47 @@ export function CopilotDrawer({
     if (event.event === "error") setError(`${event.data.code}: ${event.data.message}`);
   };
 
+  const applyParts = async () => {
+    if (!proposal) return;
+    try {
+      const result = await api.applyCheck(proposal.proposalId, {
+        parts: parts.map((part) => ({
+          part: part.name,
+          editorId: partEditor(part.name),
+          revision: String(part.revision),
+          currentText: part.text,
+        })),
+        targetReference,
+      });
+      if (result.canApply && result.parts) {
+        const next = new Map(
+          result.parts.map((part) => [part.part, part.proposedText]),
+        );
+        // Applying is an edit too: each part moves to a new revision.
+        setParts((current) =>
+          current.map((part) =>
+            next.has(part.name)
+              ? {
+                  ...part,
+                  text: next.get(part.name) ?? part.text,
+                  revision: part.revision + 1,
+                }
+              : part,
+          ),
+        );
+        setApplied(result.note ?? "Applied to every part's editor text only.");
+      } else {
+        // The reasons already name the part each one is about ("body: ...").
+        setApplied(`Refused, nothing was changed: ${result.reasons.join(" ")}`);
+      }
+    } catch (cause) {
+      setError(cause instanceof HarnessError ? cause.message : String(cause));
+    }
+  };
+
   const apply = async () => {
     if (!proposal) return;
+    if (proposal.multiPart) return applyParts();
     try {
       const result = await api.applyCheck(proposal.proposalId, {
         editorId: "console",
@@ -227,14 +368,75 @@ export function CopilotDrawer({
         </label>
 
         <label>
-          Selected code
-          <textarea
-            className="editor-fallback"
-            style={{ minHeight: 140 }}
-            value={selection}
-            onChange={(event) => setSelection(event.target.value)}
-          />
+          <input
+            type="checkbox"
+            checked={multiPart}
+            onChange={(event) =>
+              event.target.checked ? startMultiPart() : setMultiPart(false)
+            }
+          />{" "}
+          Edit several parts together (e.g. spec and body)
         </label>
+
+        {multiPart ? (
+          <div className="stack">
+            {parts.map((part) => (
+              <label key={part.name}>
+                <span
+                  className="row"
+                  style={{ justifyContent: "space-between" }}
+                >
+                  <span>
+                    Part <code>{part.name}</code>{" "}
+                    <span className="muted">revision {part.revision}</span>
+                  </span>
+                  <button
+                    onClick={() => removePart(part.name)}
+                    disabled={parts.length <= 1}
+                  >
+                    Remove {part.name}
+                  </button>
+                </span>
+                <textarea
+                  aria-label={`Part ${part.name}`}
+                  className="editor-fallback"
+                  style={{ minHeight: 100 }}
+                  value={part.text}
+                  onChange={(event) => editPart(part.name, event.target.value)}
+                />
+              </label>
+            ))}
+            <div className="row">
+              <input
+                aria-label="New part name"
+                placeholder="part name"
+                value={newPartName}
+                onChange={(event) => setNewPartName(event.target.value)}
+              />
+              <button
+                onClick={addPart}
+                disabled={
+                  !newPartName.trim() ||
+                  partNameProblem !== null ||
+                  parts.length >= 8
+                }
+              >
+                Add part
+              </button>
+            </div>
+            {partNameProblem && <p className="muted">{partNameProblem}</p>}
+          </div>
+        ) : (
+          <label>
+            Selected code
+            <textarea
+              className="editor-fallback"
+              style={{ minHeight: 140 }}
+              value={selection}
+              onChange={(event) => setSelection(event.target.value)}
+            />
+          </label>
+        )}
 
         <label>
           Error or compiler output (optional)
@@ -310,7 +512,41 @@ export function CopilotDrawer({
         </section>
       )}
 
-      {proposal && (
+      {proposal?.multiPart && (
+        <section className="card">
+          <h3>Proposed change to {proposal.parts?.length ?? 0} parts</h3>
+          {(proposal.parts ?? []).map((part) => (
+            <div key={part.part}>
+              <p className="meta">
+                <code>{part.part}</code> based on revision {part.baseRevision}
+                {part.changed ? "" : " (unchanged)"}
+              </p>
+              {part.changed && (
+                <div className="diff">
+                  <div>
+                    <p className="muted">current</p>
+                    <pre>
+                      {parts.find((buffer) => buffer.name === part.part)
+                        ?.text ?? ""}
+                    </pre>
+                  </div>
+                  <div>
+                    <p className="muted">proposed</p>
+                    <pre>{part.proposedText}</pre>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+          <div className="notice">{proposal.note}</div>
+          <button className="primary" onClick={apply}>
+            Apply all parts
+          </button>
+          {applied && <div className="notice">{applied}</div>}
+        </section>
+      )}
+
+      {proposal && !proposal.multiPart && (
         <section className="card">
           <h3>Proposed change</h3>
           <p className="meta">

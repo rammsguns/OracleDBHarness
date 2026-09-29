@@ -2,6 +2,7 @@ import { useState } from "react";
 import { HarnessError, api } from "../api";
 import type { ObjectDetail, Target } from "../api";
 import { SqlEditor } from "../components/SqlEditor";
+import type { CopilotSeed } from "./CopilotDrawer";
 
 const STARTER = `CREATE OR REPLACE PACKAGE BODY employee_report AS
   FUNCTION headcount(p_department_id IN NUMBER) RETURN NUMBER IS
@@ -21,7 +22,7 @@ export function PlsqlView({
   onAsk,
 }: {
   target: Target;
-  onAsk: (seed: string) => void;
+  onAsk: (seed: string | CopilotSeed) => void;
 }) {
   const [owner, setOwner] = useState(target.defaultSchema || "");
   const [name, setName] = useState("EMPLOYEE_REPORT");
@@ -94,6 +95,24 @@ export function PlsqlView({
           {busy ? "Compiling..." : "Compile"}
         </button>
         <button onClick={() => onAsk(source)}>Ask Kiwi about this unit</button>
+        {result && !result.compiled && (
+          <button
+            onClick={() =>
+              onAsk({
+                text: source,
+                action: "kiwi.diagnose",
+                errorText: result.errors
+                  .map(
+                    (compilerError) =>
+                      `${compilerError.line}:${compilerError.position} ${compilerError.text}`,
+                  )
+                  .join("\n"),
+              })
+            }
+          >
+            Ask Kiwi to fix
+          </button>
+        )}
       </div>
 
       {storedErrors && !storedErrors.available && (

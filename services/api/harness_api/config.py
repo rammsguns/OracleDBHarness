@@ -90,6 +90,9 @@ class Settings(BaseSettings):
     kiwi_max_rows_per_tool: int = 200
     kiwi_max_result_bytes: int = 16 * 1024
     kiwi_max_tool_bytes: int = 96 * 1024
+    # Optional JSON file of team PL/SQL standards (K-5), given to Kiwi in its system
+    # prompt. See harness_api/copilot/standards.py for the accepted keys.
+    kiwi_standards_file: str = ""
 
     cors_origins: str = "http://localhost:5173"
 

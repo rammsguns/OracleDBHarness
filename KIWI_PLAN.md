@@ -186,7 +186,7 @@ Local identifiers below are planning IDs, not GitHub issues. Each item lands beh
 | **K-2** (done 2026-09-29) | **Provider tool use.** Extend the provider interface and the Anthropic adapter to multi-turn tool use with usage per turn. Scripted tool calls in the fake provider. | Unit tests for tool-use turns, stop reasons, usage accounting and provider failure mid-loop. |
 | **K-3** (done 2026-09-29) | **Toolbox and agent loop.** `KiwiToolbox` over the catalog with the `@kiwi: allowed` header; policy per call; wrapping and caps on results; budgets for steps, tool calls, tokens and wall time; new stream events; history records every tool call's execution id. | Invariant tests 1-7 pass against the stand-in. A request that runs out of budget ends with a partial answer marked as partial. |
 | **K-4** (done 2026-09-29, stand-in only; 19c run pending) | **New catalog entries** from the table above, with privileges and minimum versions, qualification fixtures in `oracle/qualification/`, and PL/Scope absence handled. | Run against the stand-in and against the 19c instance used for the earlier qualification. |
-| **K-5** | **Issue playbooks and authoring.** `kiwi.diagnose`, `kiwi.create`, multi-part proposals for packages, standards file, "Ask Kiwi to fix" after compile. | Console and API tests for multi-part apply-check (all-or-nothing, stale part refuses the whole). |
+| **K-5** (done 2026-09-29) | **Issue playbooks and authoring.** `kiwi.diagnose`, `kiwi.create`, multi-part proposals for packages, standards file, "Ask Kiwi to fix" after compile. | Console and API tests for multi-part apply-check (all-or-nothing, stale part refuses the whole). |
 | **K-6** | **Package and process explainer.** Per-subprogram summarise-then-combine, dependency and scheduler walk with limits, evidence labels, Mermaid export. | Explains a 3k-line fixture package and a fixture ETL chain within budget, with every lineage edge labelled. |
 | **K-7** | **Evaluation.** Extend `tests/copilot/eval/cases.json` with a new case set version: tool-trace expectations, playbook cases, packages, ETL, injection in source and job comments that tries to call tools, privilege-denied paths, budget exhaustion. DBA review with the NP-04 runner and rubric. | All safety and authorisation cases pass; >= 90% DBA-reviewed correctness on diagnose and explain; no case where Kiwi claims something it did not look up. Then `HARNESS_KIWI_ENABLED` may default on for development targets. |
 | **K-8** | **Phase 2 decision: compile on development targets.** Only after K-7. Kiwi may compile its own draft in a separate session on a target explicitly marked `development`, never test or production, and never touch a user's worksheet session. Needs its own ADR and eval cases. | A separate go/no-go. Not assumed by K-1 to K-7. |
@@ -319,3 +319,35 @@ MVP_PLAN.md; if it comes, it exposes the same toolbox), and inline autocomplete.
   found one column that would have failed there (`ALL_STATEMENTS.TEXT`, which the
   stand-in had seeded as `SQL_TEXT`), so the 19c run is still needed before K-4 counts
   as closed.
+
+### 2026-09-29, K-5 playbooks and authoring
+
+- Three new actions: `kiwi.diagnose`, `kiwi.create` and `kiwi.test_block`. They are
+  playbooks written into the action instructions, not fixed flows. The model chooses
+  its lookups and names the playbook it followed. When no lookups are available, it
+  says which lookups it would have made. The blocking playbook never suggests that
+  Kiwi kill a session. `kiwi.create` returns a test block that ends in `ROLLBACK`.
+- **Multi-part proposals.** A request can send up to 8 named `parts` instead of one
+  `editor`, for example a package spec and its body. Each part is pinned to its own
+  editor, revision and SHA-256 and stored as a `ProposedEditPart`. The model labels
+  each part's replacement with ```` ```plsql part=<name> ````.
+- **All-or-nothing apply-check.** If any part is stale, missing or unknown, the whole
+  proposal is refused with "Nothing was applied: a multi-part proposal applies all
+  parts or none." The refusal lists reasons per part.
+- **Standards file.** `HARNESS_KIWI_STANDARDS_FILE` holds at most 16 KB of JSON with
+  five allowed keys. Its contents are added to the system prompt, and Kiwi cites
+  `(standard: <key>)`. An unknown key, a bad value or an unreadable file returns a
+  `configuration_error`.
+- **Console.** The copilot drawer has an "Edit several parts together" mode with a
+  diff per part and "Apply all parts". The PL/SQL view shows "Ask Kiwi to fix" after
+  a failed compile, which seeds `kiwi.diagnose` with the compiler errors.
+- **Protocol 1.2.** The copilot protocol is now 1.2. The DataForge adapter stays on
+  1.1 because it sends no parts.
+- **Exit criterion met.** The API tests are in `tests/copilot/test_kiwi_authoring.py`.
+  The console tests are in `apps/web/src/views/CopilotDrawer.test.tsx`. Both cover
+  all parts applying together and a stale part refusing the whole proposal.
+- **Test results.** pytest: 674 passed, 74 skipped. Web: 51 passed, 3 skipped. The
+  adapter: 23 passed.
+- **Still pending.** There has been no run against a real provider. Playbook
+  behaviour is covered with the scripted provider only. The K-4 19c run is still
+  pending.

@@ -29,7 +29,7 @@ qualification needs more than one 19c configuration. See [docs/compatibility.md]
 | Runbooks: health report, recompile, gather statistics, with verification | Implemented, tested |
 | Execution records and append-only audit | Implemented, tested |
 | Copilot: context policy, streaming, proposals, budgets, one provider adapter | Implemented, tested against a fixture provider |
-| Kiwi agent: read-only catalog lookups ([KIWI_PLAN.md](KIWI_PLAN.md)) | **Implemented behind `HARNESS_KIWI_ENABLED`, off by default** (K-1 to K-3). 19 reviewed read catalog lookups, run as the user, bounded and recorded; tested against a stand-in provider only, no real-provider run yet (ADR-0010) |
+| Kiwi agent: read-only catalog lookups ([KIWI_PLAN.md](KIWI_PLAN.md)) | **Implemented behind `HARNESS_KIWI_ENABLED`, off by default** (K-1 to K-5). 29 reviewed read catalog lookups (the K-4 19c run is still pending), issue playbooks, all-or-nothing multi-part proposals for packages, and a team standards file, run as the user, bounded and recorded; tested against a stand-in provider only, no real-provider run yet (ADR-0010) |
 | DataForge adapter: contract, bridge, routes, fixtures | Implemented, tested against a stubbed harness and a disposable live harness process; **not integrated with DataForge** |
 | Oracle 19c qualification | **Run on one instance, passing.** 19c EE 19.9.1, non-CDB, python-oracledb 4.0.2 thin, 2026-09-11. Not yet: a PDB, thick mode, a second target, a restricted account. Findings and the run record are in [docs/compatibility.md](docs/compatibility.md) |
 | Copilot answer-quality evaluation | **Not started** |

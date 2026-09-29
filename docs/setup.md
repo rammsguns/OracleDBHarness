@@ -182,6 +182,11 @@ stops asking the model for lookups and ends with what it has, marked as partial.
 contain literals. Remove their `@kiwi: allowed` header if that is not acceptable.
 `explain_plan_rows` is not offered: its PLAN_TABLE belongs to one session.
 
+`HARNESS_KIWI_STANDARDS_FILE` (empty by default) points at a JSON file of team PL/SQL
+standards that Kiwi follows and cites. See [copilot.md](copilot.md#playbooks-and-standards)
+for the accepted keys. A file that cannot be read or parsed shows as an error in the
+capabilities endpoint and fails each Kiwi request with `configuration_error`.
+
 ## Connecting OracleDataForge
 
 See `integrations/dataforge/README.md`. In short: issue an integration credential with

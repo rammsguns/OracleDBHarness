@@ -95,6 +95,12 @@ DataForge adapter (`integrations/dataforge/src/adapter.ts`) now drops any event 
 it does not know before relaying the stream, so a later minor version cannot surprise
 the DataForge frontend; a 1.0 client that ignores unknown events keeps working.
 
+Protocol 1.2 (K-5) adds the playbook actions, `parts` on a request, `multiPart` and
+`parts` on the `proposal` event, and `parts`/`partReasons` on apply-check. All of it is
+additive: a request without `parts` behaves exactly as in 1.1. The DataForge adapter
+still announces 1.1 on purpose. A minor version is compatible, and the adapter never
+sends `parts`, so it never receives a multi-part proposal.
+
 ## Untrusted content
 
 Source comments, object comments, error text and anything else retrieved from a
@@ -136,6 +142,44 @@ A proposal is pinned to the editor id, revision and SHA-256 of the text it was
 generated from. `apply-check` refuses if the document changed, the revision moved, the
 editor or target changed, the actor differs, or it was already applied. Refusing costs
 one re-ask; overwriting someone's work costs more.
+
+### Multi-part proposals
+
+A package spec and body change together, so a request may carry up to eight named
+`parts` instead of one `editor`. Each part has its own editor id, revision and text,
+and names and editors must be unique. The model is asked to return one fenced block
+per part it changes, labelled ```` ```plsql part=<name> ````; labels that name no part
+are ignored, and with no labelled block there is no proposal. Every part is pinned,
+including those the model left alone (`changed: false`), so an edit to any of them
+makes the proposal stale.
+
+Apply-check takes `parts` with each part's current revision and text and applies **all
+or none**. A missing, extra, duplicated or re-pointed part, a changed hash or revision
+in any one of them, a changed target or a second apply refuses the whole proposal:
+`canApply: false`, `reasons` with each part's reasons prefixed `<part>: `,
+`partReasons` per part, and no `parts` in the response. Nothing is marked applied, so
+after fixing the stale buffer (or re-asking) the proposal can still be applied once.
+The console's multi-part mode ("Edit several parts together") works this way, with one
+"Apply all parts" button.
+
+## Playbooks and standards
+
+`kiwi.diagnose`, `kiwi.create` and `kiwi.test_block` are playbook actions. Their
+instructions (`copilot/context.py`) name the catalog lookups to use for invalid objects
+and PLS- errors, pasted ORA- errors, failed scheduler jobs, blocking and slow
+statements; the model still chooses its lookups, and without lookups it says which it
+would have made. Drafts ground every column in the context or a lookup, and test
+blocks report through DBMS_OUTPUT and end with ROLLBACK. After a failed compile the
+PL/SQL view offers "Ask Kiwi to fix", which opens Kiwi on `kiwi.diagnose` with the
+source and the compiler errors as `line:column text`.
+
+`HARNESS_KIWI_STANDARDS_FILE` points at a JSON file (at most 16 KB) with the team's
+standards. Only `namingPrefixes`, `errorLoggingPackage`, `bulkCollectLimit`,
+`exceptionPolicy` and `headerTemplate` are accepted, so a typo fails loudly. The
+standards go into the system prompt under "Team standards", and Kiwi cites each one it
+applies as `(standard: <key>)`. The capabilities endpoint reports
+`kiwi.standards {configured, keys}`, or `error` when the file cannot be read or parsed;
+in that case each request fails with `configuration_error` before any provider call.
 
 ## The fixture provider
 

@@ -115,7 +115,7 @@ def test_capabilities_describe_kiwi_without_claiming_to_execute(
 ) -> None:
     headers = integration_headers(client, administrator)
     body = client.get("/api/v1/integrations/capabilities", headers=headers).json()
-    assert body["protocolVersion"] == "1.1"
+    assert body["protocolVersion"] == "1.2"
     assert body["executesDatabaseOperations"] is False
     kiwi = body["kiwi"]
     assert kiwi["enabled"] is True

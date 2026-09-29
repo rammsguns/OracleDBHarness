@@ -273,6 +273,39 @@ ACTION_INSTRUCTIONS: dict[str, str] = {
         "review is advisory: unless Oracle diagnostics were supplied in the context, "
         "say plainly that you have not compiled or run anything."
     ),
+    # Kiwi's playbooks (KIWI_PLAN.md K-5). They are guidance, not fixed flows: the
+    # model chooses its lookups, and without lookups it works from the context alone.
+    "kiwi.diagnose": (
+        "Diagnose the problem using the playbook that fits it, and say which one you "
+        "followed. Invalid object or PLS- error: schema.object_status, then "
+        "schema.object_errors, then schema.object_source_range around the failing lines, "
+        "then schema.object_dependencies; if the cause is an invalid parent, say so and "
+        "suggest the recompile runbook rather than editing this unit. Pasted ORA- error: "
+        "classify it, fetch the source and the columns of the tables it names, point at "
+        "the line, and propose a repair. Failed scheduler job: dba.scheduler_failures, "
+        "dba.scheduler_job_detail, dba.scheduler_run_history, then the program's source. "
+        "Blocking: dba.blocking, then dba.sessions if you are allowed it, then explain "
+        "who is waiting on whom; never suggest that you kill a session, and if a session "
+        "has to be ended say the user or their DBA decides. Slow statement: "
+        "tuning.cursor_search, tuning.cursor_statistics, tuning.cursor_plan, then "
+        "propose experiments the user can measure, labelling optimizer figures as "
+        "estimates. When lookups are not available, say which you would have made."
+    ),
+    "kiwi.create": (
+        "Draft the requested procedure, function, package or statement. Ground every "
+        "table, column and constraint in the context or in schema.table_columns and "
+        "schema.table_constraints lookups; never invent a column. Return the complete "
+        "text in one fenced code block (one per part for a multi-part request), then a "
+        "second fenced block containing an anonymous PL/SQL test block for it that "
+        "reports through DBMS_OUTPUT and ends with ROLLBACK, never COMMIT. Say what "
+        "you assumed."
+    ),
+    "kiwi.test_block": (
+        "Write an anonymous PL/SQL test block that exercises the selected unit's "
+        "public behaviour, including one failing input. Look up its signature with "
+        "schema.package_subprograms when you can. Report through DBMS_OUTPUT, never "
+        "commit, and end with ROLLBACK so the block leaves no data behind."
+    ),
 }
 
 ACTIONS = tuple(ACTION_INSTRUCTIONS)

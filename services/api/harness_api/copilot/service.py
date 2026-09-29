@@ -56,6 +56,7 @@ from harness_api.copilot.provider import (
     TurnEnd,
     create_provider,
 )
+from harness_api.copilot.standards import Standards, load_standards
 from harness_api.copilot.toolbox import KiwiToolbox, ToolOutcome
 from harness_api.execution import ExecutionService, load_grant, load_profile
 from harness_api.models import (
@@ -63,6 +64,7 @@ from harness_api.models import (
     CopilotRequest,
     CopilotToolCall,
     ProposedEdit,
+    ProposedEditPart,
     new_id,
 )
 from harness_api.secrets import SecretResolver
@@ -78,8 +80,9 @@ from harness_worker.errors import (
 )
 
 # 1.1 added the Kiwi events (tool_call, tool_result, plan_step, budget) and
-# done.partial. A 1.0 client that ignores events it does not know keeps working.
-PROTOCOL_VERSION = "1.1"
+# done.partial. 1.2 added multi-part requests and proposals (parts) and the kiwi.*
+# actions. A 1.0 client that ignores fields and events it does not know keeps working.
+PROTOCOL_VERSION = "1.2"
 # The name users see. Module, route and protocol identifiers keep saying "copilot".
 ASSISTANT_NAME = "Kiwi"
 SUPPORTED_PROTOCOL_MAJOR = 1
@@ -88,6 +91,10 @@ SUPPORTED_PROTOCOL_MAJOR = 1
 _MAX_EVENT_PARAMETER_BYTES = 2048
 
 _FENCED_BLOCK = re.compile(r"```(?:sql|plsql)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
+# A block labelled for one part of a multi-part proposal: ```plsql part=spec
+_PART_BLOCK = re.compile(
+    r"```(?:sql|plsql)?[ \t]+part=([A-Za-z0-9_-]+)[ \t]*\n(.*?)```", re.DOTALL | re.IGNORECASE
+)
 
 
 @dataclass
@@ -97,6 +104,8 @@ class EditorReference:
     editor_id: str = ""
     revision: str = ""
     text: str = ""
+    # The part name, for one buffer of a multi-part request ("spec", "body").
+    part: str = ""
 
     @property
     def hash(self) -> str:
@@ -114,6 +123,9 @@ class CopilotAsk:
     protocol_version: str = PROTOCOL_VERSION
     # The target Kiwi may look things up on. Ignored unless HARNESS_KIWI_ENABLED.
     profile_id: str = ""
+    # A multi-part request, such as a package spec and body. Each part is its own
+    # editor buffer; a proposal built from them applies all at once or not at all.
+    parts: list[EditorReference] = field(default_factory=list)
 
 
 @dataclass
@@ -196,6 +208,7 @@ class CopilotService:
         self._secrets = SecretResolver(settings.secret_dir)
         self._execution = execution
         self._toolbox: KiwiToolbox | None = None
+        self._standards: tuple[Standards | None] | None = None
 
     # -- capabilities ---------------------------------------------------------------
 
@@ -300,7 +313,24 @@ class CopilotService:
                 "maxResultBytes": settings.kiwi_max_result_bytes,
                 "maxToolBytes": settings.kiwi_max_tool_bytes,
             },
+            "standards": self._standards_capabilities(),
+            "multiPartProposals": True,
         }
+
+    def standards(self) -> Standards | None:
+        """The team standards file, read once. A bad file fails every request."""
+
+        if self._standards is None:
+            loaded = load_standards(self._settings.kiwi_standards_file)
+            self._standards = (loaded,)
+        return self._standards[0]
+
+    def _standards_capabilities(self) -> dict[str, Any]:
+        try:
+            standards = self.standards()
+        except HarnessError as exc:
+            return {"configured": True, "keys": [], "error": exc.message}
+        return {"configured": standards is not None, "keys": standards.keys if standards else []}
 
     def check_protocol(self, version: str) -> None:
         major = version.split(".", 1)[0]
@@ -348,6 +378,8 @@ class CopilotService:
 
         try:
             self._validate(principal, ask)
+            # A bad standards file fails here, as a typed error, before anything is spent.
+            standards = self.standards()
         except HarnessError as exc:
             yield ("error", exc.as_dict())
             return
@@ -394,6 +426,8 @@ class CopilotService:
         done_extra: dict[str, Any] = {}
         try:
             system = KIWI_SYSTEM_PROMPT if kiwi else SYSTEM_PROMPT
+            if standards is not None:
+                system += "\n" + standards.render()
             user_message = _build_user_message(ask)
             if self._settings.copilot_log_prompts:
                 with self._sessions() as db:
@@ -711,6 +745,19 @@ class CopilotService:
             raise ValidationError(
                 f"Unknown copilot action {ask.action!r}.", detail={"actions": list(ACTIONS)}
             )
+        if ask.parts:
+            names = [part.part for part in ask.parts]
+            if len(set(names)) != len(names):
+                raise ValidationError(
+                    "Each part of a multi-part request needs its own name.",
+                    detail={"parts": names},
+                )
+            editors = [part.editor_id for part in ask.parts]
+            if len(set(editors)) != len(editors):
+                raise ValidationError(
+                    "Each part of a multi-part request needs its own editor buffer.",
+                    detail={"editors": editors},
+                )
         if principal.is_integration and "copilot:assist" not in principal.integration_scopes:
             raise PolicyError(
                 "This integration credential does not carry the copilot:assist scope.",
@@ -724,6 +771,8 @@ class CopilotService:
     ) -> dict[str, Any] | None:
         """Turn a fenced code block into a reviewable, revision-pinned edit."""
 
+        if ask.parts:
+            return self._capture_multi_part(request_id, ask, answer)
         if not ask.editor.editor_id:
             return None
         match = _FENCED_BLOCK.search(answer)
@@ -762,6 +811,75 @@ class CopilotService:
             ),
         }
 
+    def _capture_multi_part(
+        self, request_id: str, ask: CopilotAsk, answer: str
+    ) -> dict[str, Any] | None:
+        """One labelled block per part. Labels that name no part are dropped."""
+
+        by_name = {part.part: part for part in ask.parts}
+        blocks: dict[str, str] = {}
+        for match in _PART_BLOCK.finditer(answer):
+            name, text = match.group(1), match.group(2).rstrip()
+            if name in by_name and name not in blocks and text.strip():
+                blocks[name] = text
+        if not blocks:
+            return None
+        rationale = _PART_BLOCK.sub("", answer).strip()
+        # Parts the model left alone are still pinned, unchanged, so that applying the
+        # proposal checks every buffer the request was made from.
+        ordered = [(part, blocks.get(part.part, part.text)) for part in ask.parts]
+        with self._sessions() as db:
+            edit = ProposedEdit(
+                copilot_request_id=request_id,
+                editor_id="",
+                target_reference=ask.target_reference,
+                rationale=rationale,
+            )
+            db.add(edit)
+            db.flush()
+            for sequence, (part, proposed) in enumerate(ordered):
+                db.add(
+                    ProposedEditPart(
+                        proposal_id=edit.id,
+                        sequence=sequence,
+                        part_name=part.part,
+                        editor_id=part.editor_id,
+                        base_revision=part.revision,
+                        base_hash=part.hash,
+                        original_text=part.text,
+                        proposed_text=proposed,
+                    )
+                )
+            db.commit()
+            proposal_id = edit.id
+        first = ask.parts[0]
+        return {
+            "proposalId": proposal_id,
+            "editorId": first.editor_id,
+            "baseRevision": first.revision,
+            "baseHash": first.hash,
+            "targetReference": ask.target_reference,
+            "proposedText": "",
+            "multiPart": True,
+            "parts": [
+                {
+                    "part": part.part,
+                    "editorId": part.editor_id,
+                    "baseRevision": part.revision,
+                    "baseHash": part.hash,
+                    "proposedText": proposed,
+                    "changed": part.part in blocks,
+                }
+                for part, proposed in ordered
+            ],
+            "rationale": rationale,
+            "appliesToEditorOnly": True,
+            "note": (
+                "Applying this changes every part's editor buffer together, or none of "
+                "them. It does not run, compile, or commit anything in Oracle."
+            ),
+        }
+
     # -- applying a proposal ---------------------------------------------------------
 
     def check_apply(
@@ -774,8 +892,13 @@ class CopilotService:
         revision: str,
         current_text: str,
         target_reference: str,
+        parts: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
-        """Decide whether a proposal may still be applied to this buffer."""
+        """Decide whether a proposal may still be applied to this buffer.
+
+        A multi-part proposal is checked as a whole: one stale, missing or extra part
+        refuses every part, and nothing is marked applied.
+        """
 
         edit = db.get(ProposedEdit, proposal_id)
         if edit is None:
@@ -784,6 +907,23 @@ class CopilotService:
         if request is None or request.actor_key != principal.actor_key:
             # Same shape as a missing proposal, so identifiers cannot be probed.
             raise NotFoundError("No such proposal.", detail={"proposalId": proposal_id})
+
+        stored_parts = list(
+            db.scalars(
+                select(ProposedEditPart)
+                .where(ProposedEditPart.proposal_id == edit.id)
+                .order_by(ProposedEditPart.sequence)
+            )
+        )
+        if stored_parts:
+            return self._check_apply_parts(
+                db, edit, stored_parts, parts or [], target_reference=target_reference
+            )
+        if parts:
+            raise ValidationError(
+                "This proposal has a single part; send editorId and currentText instead.",
+                detail={"proposalId": proposal_id},
+            )
 
         reasons: list[str] = []
         if edit.applied:
@@ -822,6 +962,85 @@ class CopilotService:
             ),
         }
 
+    def _check_apply_parts(
+        self,
+        db: Session,
+        edit: ProposedEdit,
+        stored: list[ProposedEditPart],
+        supplied: list[dict[str, str]],
+        *,
+        target_reference: str,
+    ) -> dict[str, Any]:
+        reasons: list[str] = []
+        part_reasons: dict[str, list[str]] = {part.part_name: [] for part in stored}
+        if edit.applied:
+            reasons.append("This proposal has already been applied.")
+        if target_reference != edit.target_reference:
+            reasons.append("The selected target has changed since the proposal was generated.")
+
+        by_name: dict[str, dict[str, str]] = {}
+        for entry in supplied:
+            name = entry.get("part", "")
+            if name in by_name:
+                reasons.append(f"Part {name!r} was sent more than once.")
+            by_name[name] = entry
+        extra = sorted(set(by_name) - set(part_reasons))
+        if extra:
+            reasons.append(f"The proposal has no part named {', '.join(map(repr, extra))}.")
+
+        for part in stored:
+            sent = by_name.get(part.part_name)
+            mine = part_reasons[part.part_name]
+            if sent is None:
+                mine.append("This part's current buffer was not sent.")
+                continue
+            if sent.get("editorId", "") != part.editor_id:
+                mine.append("The part was generated for a different editor buffer.")
+            text = sent.get("currentText", "")
+            if hashlib.sha256(text.encode("utf-8")).hexdigest() != part.base_hash:
+                mine.append("The document changed since the proposal was generated.")
+            elif (
+                sent.get("revision")
+                and part.base_revision
+                and sent.get("revision") != part.base_revision
+            ):
+                mine.append("The document revision changed since the proposal was generated.")
+        for name, mine in part_reasons.items():
+            reasons.extend(f"{name}: {reason}" for reason in mine)
+
+        if reasons:
+            edit.rejected_reason = reasons[0][:200]
+            db.commit()
+            return {
+                "proposalId": edit.id,
+                "canApply": False,
+                "reasons": reasons,
+                "partReasons": part_reasons,
+                "executesDatabaseOperations": False,
+                "note": "Nothing was applied: a multi-part proposal applies all parts or none.",
+            }
+
+        edit.applied = True
+        db.commit()
+        return {
+            "proposalId": edit.id,
+            "canApply": True,
+            "reasons": [],
+            "parts": [
+                {
+                    "part": part.part_name,
+                    "editorId": part.editor_id,
+                    "proposedText": part.proposed_text,
+                }
+                for part in stored
+            ],
+            "executesDatabaseOperations": False,
+            "note": (
+                "Every part's editor buffer is updated together. Compiling or running the "
+                "result is a separate action that you have to invoke yourself."
+            ),
+        }
+
 
 def _build_user_message(ask: CopilotAsk) -> str:
     parts = [
@@ -832,6 +1051,16 @@ def _build_user_message(ask: CopilotAsk) -> str:
         "",
         ask.context.render(),
     ]
+    if ask.parts:
+        names = ", ".join(part.part for part in ask.parts)
+        parts += [
+            "",
+            f"This is a multi-part request. Parts, in order: {names}.",
+            "If you propose a change, give one fenced block per part you change, labelled "
+            "with its part name on the opening fence, for example ```plsql part="
+            f"{ask.parts[0].part}. Leave out parts you do not change. The parts are "
+            "applied together or not at all.",
+        ]
     if ask.user_message.strip():
         parts += [
             "",
