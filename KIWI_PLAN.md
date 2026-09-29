@@ -183,7 +183,7 @@ Local identifiers below are planning IDs, not GitHub issues. Each item lands beh
 | ID | Work | Exit |
 | --- | --- | --- |
 | **K-1** (done 2026-09-29) | **Identity and docs.** Name Kiwi in the console, the system prompt and the capabilities endpoint (`assistant: "Kiwi"`). Keep module paths, route paths and protocol ids as they are, to avoid churn. Write ADR-0010 (read-only tool use). Rewrite docs/copilot.md for tool calls. Check how the DataForge adapter treats unknown stream events. | Docs reviewed by whoever approves provider data sharing. No behaviour change. |
-| **K-2** | **Provider tool use.** Extend the provider interface and the Anthropic adapter to multi-turn tool use with usage per turn. Scripted tool calls in the fake provider. | Unit tests for tool-use turns, stop reasons, usage accounting and provider failure mid-loop. |
+| **K-2** (done 2026-09-29) | **Provider tool use.** Extend the provider interface and the Anthropic adapter to multi-turn tool use with usage per turn. Scripted tool calls in the fake provider. | Unit tests for tool-use turns, stop reasons, usage accounting and provider failure mid-loop. |
 | **K-3** | **Toolbox and agent loop.** `KiwiToolbox` over the catalog with the `@kiwi: allowed` header; policy per call; wrapping and caps on results; budgets for steps, tool calls, tokens and wall time; new stream events; history records every tool call's execution id. | Invariant tests 1-7 pass against the stand-in. A request that runs out of budget ends with a partial answer marked as partial. |
 | **K-4** | **New catalog entries** from the table above, with privileges and minimum versions, qualification fixtures in `oracle/qualification/`, and PL/Scope absence handled. | Run against the stand-in and against the 19c instance used for the earlier qualification. |
 | **K-5** | **Issue playbooks and authoring.** `kiwi.diagnose`, `kiwi.create`, multi-part proposals for packages, standards file, "Ask Kiwi to fix" after compile. | Console and API tests for multi-part apply-check (all-or-nothing, stale part refuses the whole). |
@@ -235,3 +235,22 @@ MVP_PLAN.md; if it comes, it exposes the same toolbox), and inline autocomplete.
   adapter before any new event is emitted, and the events can then ship as 1.1.
 - The system prompt changed by one sentence. NP-04 has not had its paid run, so there
   is no earlier real-provider result it invalidates.
+
+### 2026-09-29, K-2 provider tool use
+
+- `Provider.start_conversation` returns a `ToolConversation`: each `turn()` streams
+  text and ends with a `TurnEnd` carrying the stop reason, the requested tool calls
+  and that turn's usage. The provider never runs a tool; the caller answers every
+  pending call exactly once with `add_tool_results` before the next turn, or the
+  conversation refuses.
+- Tool calls are honoured only on a `tool_use` stop. A `max_tokens` stop drops them
+  (a truncated call may be incomplete); a `refusal` stop records its usage and raises
+  `ProviderError`. A failed or abandoned turn ends the conversation, keeps the usage of
+  the turns that completed, and marks the total `complete: false`.
+- The Anthropic adapter sends `tools`, keeps its own transcript and resends each
+  assistant turn unchanged, thinking blocks included. It is tested against a stand-in
+  client only; no real provider was called. `FakeProvider` takes a script of turns.
+- Nothing calls it yet: `CopilotService` still uses `stream()`, so behaviour is
+  unchanged. Tool names must match `^[A-Za-z0-9_-]{1,64}$`, so K-3 maps catalog ids
+  such as `schema.object_status` to tool names.
+- `tests/copilot/test_tool_use.py`: 28 tests.

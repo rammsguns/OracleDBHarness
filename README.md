@@ -29,7 +29,7 @@ qualification needs more than one 19c configuration. See [docs/compatibility.md]
 | Runbooks: health report, recompile, gather statistics, with verification | Implemented, tested |
 | Execution records and append-only audit | Implemented, tested |
 | Copilot: context policy, streaming, proposals, budgets, one provider adapter | Implemented, tested against a fixture provider |
-| Kiwi agent: read-only catalog lookups ([KIWI_PLAN.md](KIWI_PLAN.md)) | **Planned.** K-1 done: the copilot is shown as Kiwi; tool use accepted in ADR-0010, not implemented |
+| Kiwi agent: read-only catalog lookups ([KIWI_PLAN.md](KIWI_PLAN.md)) | **Planned.** K-1 and K-2 done: the copilot is shown as Kiwi, and providers support tool-use turns; nothing offers Kiwi a tool yet (ADR-0010, K-3) |
 | DataForge adapter: contract, bridge, routes, fixtures | Implemented, tested against a stubbed harness and a disposable live harness process; **not integrated with DataForge** |
 | Oracle 19c qualification | **Run on one instance, passing.** 19c EE 19.9.1, non-CDB, python-oracledb 4.0.2 thin, 2026-09-11. Not yet: a PDB, thick mode, a second target, a restricted account. Findings and the run record are in [docs/compatibility.md](docs/compatibility.md) |
 | Copilot answer-quality evaluation | **Not started** |

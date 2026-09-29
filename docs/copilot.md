@@ -51,8 +51,9 @@ the user takes, through the ordinary authorised path.
 
 [ADR-0010](decisions.md) accepts one change to the section above, and
 [KIWI_PLAN.md](../KIWI_PLAN.md) delivers it behind `HARNESS_KIWI_ENABLED`, off by
-default. **None of it is implemented yet; everything else on this page describes the
-harness as it runs today.**
+default. **None of it is enabled yet; everything else on this page describes the
+harness as it runs today.** The provider layer can carry tool-use turns (K-2), but no
+request offers the model a tool.
 
 When it is enabled, Kiwi may call reviewed catalog operations marked `risk: read` --
 object status, errors, source, dependencies, columns, cursor statistics, scheduler
