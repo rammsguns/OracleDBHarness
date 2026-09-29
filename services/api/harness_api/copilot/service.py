@@ -661,6 +661,16 @@ class CopilotService:
                     yield ("budget", state.event())
                     return
 
+                no_more_turns = state.out_of_turns()
+                if no_more_turns is not None:
+                    # The results could not reach another model turn, so do not read them.
+                    state.exhaust(no_more_turns)
+                    conversation.add_tool_results(
+                        [self._budget_refusal(call) for call in end.tool_calls]
+                    )
+                    yield ("budget", state.event())
+                    return
+
                 results = []
                 for call in end.tool_calls:
                     spent = state.out_of_lookups()
@@ -824,6 +834,13 @@ class CopilotService:
             raise PolicyError(
                 "This integration credential does not carry the copilot:assist scope.",
                 detail={"scopes": list(principal.integration_scopes)},
+            )
+        if ask.action in EXPLAIN_ACTIONS and not (self.kiwi_enabled and ask.profile_id):
+            # Harness-driven: without Kiwi's catalog lookups the model would explain a
+            # named object from memory, so the request is refused rather than degraded.
+            raise ValidationError(
+                f"{ask.action} needs Kiwi enabled and a target profile to read from.",
+                detail={"kiwiEnabled": self.kiwi_enabled, "profileId": bool(ask.profile_id)},
             )
         explaining = ask.action in EXPLAIN_ACTIONS and bool(_explain_subject(ask))
         if not explaining and not ask.context.attachments and not ask.user_message.strip():

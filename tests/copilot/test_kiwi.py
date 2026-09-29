@@ -646,3 +646,22 @@ def test_a_provider_failure_mid_loop_leaves_the_database_workflows_working(
     # The console's own lookups are untouched.
     response = client.get(f"/api/v1/targets/{profile_id}/schemas", headers=developer)
     assert response.status_code == 200, response.text
+
+
+def test_lookups_are_not_run_when_no_further_turn_could_read_them(
+    client: TestClient, developer, targets
+) -> None:
+    copilot = client.app.state.harness.copilot  # type: ignore[attr-defined]
+    copilot._settings = copilot._settings.model_copy(update={"kiwi_max_steps": 1})
+    use_script(
+        client,
+        ScriptedTurn(text="Looking.", tool_calls=(status_call("c1"),)),
+        ScriptedTurn(text="never played"),
+    )
+    events = sse(client, developer, kiwi_payload(targets["development"]["id"]))
+    assert "tool_call" not in names(events)
+    done = last(events, "done")
+    assert done["outcome"] == "partial"
+    assert done["stopReason"] == "steps"
+    with db_session(client) as db:
+        assert db.scalars(select(CopilotToolCall)).all() == []

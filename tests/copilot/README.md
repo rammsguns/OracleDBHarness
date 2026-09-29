@@ -65,7 +65,7 @@ cases against scripted model turns to prove the cases, checks and harness fit to
 A rehearsal is not evidence of model quality.
 
 Each case has an ID, the context it may send, the expected behaviour and a rubric. The
-correctness denominator (13) is declared in the file and checked against the cases;
+correctness denominator (18) is declared in the file and checked against the cases;
 changing a case, a gate or the denominator is a new `caseSetVersion`. The schema is
 synthetic - no customer source, data or credentials.
 

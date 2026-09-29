@@ -604,9 +604,10 @@ class Explainer:
             kind = str(job.get("JOB_TYPE", "")).upper()
             action = str(job.get("JOB_ACTION", "") or "")
             program = str(job.get("PROGRAM_NAME", "") or "")
-            if kind == "CHAIN" and action:
-                chain_name = action.split(".")[-1].upper()
-                chain_owner = action.split(".")[0].upper() if "." in action else owner
+            chain_ref = action or program
+            if kind == "CHAIN" and chain_ref:
+                chain_name = chain_ref.split(".")[-1].upper()
+                chain_owner = chain_ref.split(".")[0].upper() if "." in chain_ref else owner
                 chain = (chain_owner, chain_name)
                 self.lineage.edge(
                     job_node,

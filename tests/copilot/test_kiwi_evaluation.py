@@ -197,3 +197,33 @@ async def test_a_tighter_call_limit_than_the_run_used_fails(tmp_path: Path) -> N
 def test_a_malformed_kiwi_case_is_rejected(mutate: Any, message: str) -> None:
     with pytest.raises(CaseSetError, match=message):
         subset("DIAG-01", mutate=mutate)
+
+
+def test_a_forbidden_lookup_that_reached_the_database_and_failed_still_counts_as_run() -> None:
+    from tests.copilot.eval.runner import _kiwi_checks, _Stream
+
+    cases = subset(
+        next(c["id"] for c in document()["cases"] if c.get("kiwi", {}).get("forbiddenTools"))
+    )
+    case = cases.cases[0]
+    tool = case.kiwi.forbidden_tools[0]
+    results: list[tuple[str, bool, str]] = []
+
+    def check(name: str, passed: bool, detail: str) -> None:
+        results.append((name, passed, detail))
+
+    trace = [
+        {
+            "callId": "c1",
+            "operation": tool,
+            "why": "",
+            "status": "failed",
+            "errorCode": None,
+            "rowCount": None,
+            "truncated": None,
+            "executionId": "exe_1",
+        }
+    ]
+    activity = {"executions": 0, "worksheetSessions": 0}
+    _kiwi_checks(case, check, _Stream(), trace, "", None, activity, {**activity, "executions": 1})
+    assert ("forbiddenToolsNotRun", False) in [(n, p) for n, p, _ in results]

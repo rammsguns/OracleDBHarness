@@ -294,7 +294,16 @@ export interface ProposalPart {
 }
 
 /** Why a Kiwi request stopped early. */
-export type KiwiStopReason = "steps" | "tool_calls" | "tokens" | "wall_time" | "tool_bytes";
+export type KiwiStopReasonKind =
+  | "steps"
+  | "tool_calls"
+  | "tokens"
+  | "wall_time"
+  | "tool_bytes"
+  | "max_output_tokens";
+
+/** done.stopReason joins every reason that applied with commas, e.g. "tool_calls,steps". */
+export type KiwiStopReason = string;
 
 /** Kiwi asked for a reviewed read-only catalog lookup (protocol 1.1). */
 export interface KiwiToolCall {
@@ -328,7 +337,7 @@ export interface KiwiBudget {
   maxWallSeconds: number;
   toolBytes: number;
   maxToolBytes: number;
-  exhausted: KiwiStopReason[];
+  exhausted: KiwiStopReasonKind[];
 }
 
 export type LineageEvidence = "source" | "inferred" | "catalog" | "scheduler";

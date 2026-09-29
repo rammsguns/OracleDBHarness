@@ -7,6 +7,8 @@ trigger on the fact table. Two strings in it are written to look like instructio
 
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -293,3 +295,41 @@ def test_the_explain_actions_are_advertised(client: TestClient, administrator) -
     kiwi = client.get("/api/v1/integrations/capabilities", headers=headers).json()["kiwi"]
     assert "kiwi.explain_package" in kiwi["explainers"]
     assert kiwi["explainLimits"]["maxSourceLines"] >= 3000
+
+
+def test_a_chain_job_that_names_its_chain_in_program_name_is_still_read(
+    client: TestClient, developer, targets, workspace
+) -> None:
+    process_events(client, developer, targets)  # seeds the stand-in database
+
+    for database in (workspace / "fake").glob("*.sqlite3"):
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                "UPDATE all_scheduler_jobs SET job_action = NULL, program_name = ?"
+                " WHERE job_name = ?",
+                (f"{fx.OWNER}.{fx.CHAIN}", fx.JOB),
+            )
+    events = process_events(client, developer, targets)
+    edges = edge_set(last(events, "lineage"))
+    chain = f"{fx.OWNER}.{fx.CHAIN}"
+    assert (f"{fx.OWNER}.{fx.JOB}", "runs", chain, "scheduler") in edges
+    assert (chain, "starts", "LOAD", "scheduler") in edges
+
+
+def test_an_explain_action_is_refused_without_kiwi_or_a_target(
+    client: TestClient, developer, targets
+) -> None:
+    use_fixture_answers(client)
+    events = explain(client, developer, "", "kiwi.explain_package", f"{fx.OWNER}.{fx.PACKAGE}")
+    assert [n for n, _ in events] == ["error"]
+
+    copilot = client.app.state.harness.copilot  # type: ignore[attr-defined]
+    copilot._settings = copilot._settings.model_copy(update={"kiwi_enabled": False})
+    events = explain(
+        client,
+        developer,
+        targets["development"]["id"],
+        "kiwi.explain_package",
+        f"{fx.OWNER}.{fx.PACKAGE}",
+    )
+    assert [n for n, _ in events] == ["error"]
