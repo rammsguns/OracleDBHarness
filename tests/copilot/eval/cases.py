@@ -40,6 +40,35 @@ Top level: ``format`` (1), ``caseSetVersion``, ``correctnessDenominator``, ``def
     that satisfies them still needs its review.
 ``expectedBehavior`` and ``rubric``
     What the reviewer judges the answer against.
+
+Kiwi cases (case set 2026-09-29.1 onward)
+-----------------------------------------
+
+A case that exercises the Kiwi agent adds ``request.target`` (``development``,
+``production`` or ``unknown``, resolved to a profile id at run time; it becomes ``profileId``),
+optionally ``request.subject`` for the explain actions, and a ``kiwi`` block:
+
+``requiredTools`` / ``forbiddenTools``
+    Operation ids the run must, or must not, have called. A forbidden tool that was
+    *asked for* is fine and expected; it must not have *run*.
+``maxToolCalls``
+    An upper bound checked against the recorded tool calls.
+``outcome`` and ``stopReason``
+    The ``done`` outcome expected (default ``succeeded``; ``partial`` for a budget
+    case) and, for a partial run, a substring of ``stopReason``.
+``claims``
+    ``{pattern, tools}`` pairs. An answer that matches ``pattern`` is asserting
+    something Kiwi can only know from a lookup, so at least one of ``tools`` must have
+    succeeded first. This is the "claims nothing it did not look up" check.
+``injection``
+    Regular expressions naming the imperative text planted in the source data. The
+    answer may quote it; no forbidden tool may have run because of it.
+``refusedTools``
+    Operation ids Kiwi is expected to be *refused* when the scripted model asks for
+    them (rehearsal), with the error code.
+``rehearsal``
+    A script for the fixture provider, so the runner's Kiwi checks are exercised without
+    a paid provider. Ignored by a qualification run.
 """
 
 from __future__ import annotations
@@ -68,14 +97,59 @@ CATEGORIES = (
     "stale_source",
     "embedded_instructions",
     "authorization",
+    "diagnose",
+    "kiwi_create",
+    "explain_package",
+    "explain_process",
+    "kiwi_injection",
+    "kiwi_authorization",
+    "kiwi_budget",
 )
 
 # Categories whose answers are judged on content. They can never be marked automated.
 REVIEWED_CATEGORIES = frozenset(
-    {"explain", "fix", "draft", "test_block", "tuning", "inaccessible", "embedded_instructions"}
+    {
+        "explain",
+        "fix",
+        "draft",
+        "test_block",
+        "tuning",
+        "inaccessible",
+        "embedded_instructions",
+        "diagnose",
+        "kiwi_create",
+        "explain_package",
+        "explain_process",
+        "kiwi_injection",
+    }
 )
-CORRECTNESS_CATEGORIES = frozenset({"explain", "fix"})
-SAFETY_CATEGORIES = frozenset({"authorization", "stale_source", "embedded_instructions"})
+CORRECTNESS_CATEGORIES = frozenset(
+    {"explain", "fix", "diagnose", "explain_package", "explain_process"}
+)
+SAFETY_CATEGORIES = frozenset(
+    {
+        "authorization",
+        "stale_source",
+        "embedded_instructions",
+        "kiwi_injection",
+        "kiwi_authorization",
+        "kiwi_budget",
+    }
+)
+KIWI_CATEGORIES = frozenset(
+    {
+        "diagnose",
+        "kiwi_create",
+        "explain_package",
+        "explain_process",
+        "kiwi_injection",
+        "kiwi_authorization",
+        "kiwi_budget",
+    }
+)
+# "unknown" is a profile id that does not exist, to show a wrong target is refused.
+KIWI_TARGETS = ("development", "production", "unknown")
+KIWI_OUTCOMES = ("succeeded", "partial", "failed")
 CREDENTIALS = ("developer", "integration", "integration_without_scope")
 PROPOSAL_EXPECTATIONS = ("required", "forbidden", "optional")
 APPLY_CHANGES = ("none", "text", "revision", "target")
@@ -105,6 +179,25 @@ class Expectation:
 
 
 @dataclass(frozen=True)
+class Claim:
+    pattern: str
+    tools: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class KiwiExpectation:
+    required_tools: tuple[str, ...] = ()
+    forbidden_tools: tuple[str, ...] = ()
+    max_tool_calls: int | None = None
+    outcome: str = "succeeded"
+    stop_reason: str = ""
+    claims: tuple[Claim, ...] = ()
+    injection: tuple[str, ...] = ()
+    refused_tools: dict[str, str] = field(default_factory=dict)
+    rehearsal: tuple[dict[str, Any], ...] = ()
+
+
+@dataclass(frozen=True)
 class EvalCase:
     id: str
     category: str
@@ -122,6 +215,9 @@ class EvalCase:
     target_reference: str
     database_version: str
     schema: str
+    target: str = ""
+    subject: str = ""
+    kiwi: KiwiExpectation | None = None
 
     @property
     def dispatches(self) -> bool:
@@ -153,6 +249,11 @@ class EvalCase:
             payload["editor"] = dict(self.editor)
         if self.credential.startswith("integration"):
             payload["actorReference"] = "evaluation-user"
+        if self.kiwi is not None:
+            # The runner replaces the placeholder with the target's profile id.
+            payload["profileId"] = f"@target:{self.target}"
+            if self.subject:
+                payload["subject"] = self.subject
         return payload
 
 
@@ -244,11 +345,14 @@ def _parse_case(raw: Any, defaults: dict[str, Any]) -> EvalCase:
     if not gates <= {"correctness", "safety"}:
         raise CaseSetError(f"{where}: unknown gate in {sorted(gates)}.")
     if ("correctness" in gates) != (category in CORRECTNESS_CATEGORIES):
-        raise CaseSetError(f"{where}: the correctness gate is exactly the explain and fix cases.")
+        raise CaseSetError(
+            f"{where}: the correctness gate is exactly the explain, fix, diagnose and "
+            "package and process explain cases."
+        )
     if ("safety" in gates) != (category in SAFETY_CATEGORIES):
         raise CaseSetError(
-            f"{where}: the safety gate is exactly the authorization, stale-source and "
-            "embedded-instruction cases."
+            f"{where}: the safety gate is exactly the authorization, stale-source, "
+            "embedded-instruction and Kiwi injection, authorization and budget cases."
         )
 
     review = _text(raw, "review", where=where)
@@ -303,6 +407,15 @@ def _parse_case(raw: Any, defaults: dict[str, Any]) -> EvalCase:
     if not permitted <= known:
         raise CaseSetError(f"{where}: permittedContext names unknown categories.")
 
+    kiwi = _parse_kiwi(raw.get("kiwi"), where=where)
+    target = str(request.get("target", ""))
+    if (kiwi is None) != (not target):
+        raise CaseSetError(f"{where}: a Kiwi case has both request.target and a kiwi block.")
+    if kiwi is not None and target not in KIWI_TARGETS:
+        raise CaseSetError(f"{where}: request.target must be one of {KIWI_TARGETS}.")
+    if kiwi is None and category in KIWI_CATEGORIES:
+        raise CaseSetError(f"{where}: {category} is a Kiwi category and needs a kiwi block.")
+
     case = EvalCase(
         id=case_id,
         category=category,
@@ -320,6 +433,9 @@ def _parse_case(raw: Any, defaults: dict[str, Any]) -> EvalCase:
         target_reference=str(request.get("targetReference", defaults.get("targetReference", ""))),
         database_version=str(request.get("databaseVersion", defaults.get("databaseVersion", ""))),
         schema=str(request.get("schema", defaults.get("schema", ""))),
+        target=target,
+        subject=str(request.get("subject", "")),
+        kiwi=kiwi,
     )
 
     if case.dispatches:
@@ -392,6 +508,45 @@ def _parse_expectation(raw: Any, *, where: str, has_editor: bool) -> Expectation
         apply_check=apply_check,
         answer_must_not_match=patterns["answerMustNotMatch"],
         proposal_must_not_match=patterns["proposalMustNotMatch"],
+    )
+
+
+def _parse_kiwi(raw: Any, *, where: str) -> KiwiExpectation | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise CaseSetError(f"{where}: kiwi is an object.")
+    outcome = str(raw.get("outcome", "succeeded"))
+    if outcome not in KIWI_OUTCOMES:
+        raise CaseSetError(f"{where}: kiwi.outcome must be one of {KIWI_OUTCOMES}.")
+    max_calls = raw.get("maxToolCalls")
+    if max_calls is not None and (not isinstance(max_calls, int) or max_calls < 0):
+        raise CaseSetError(f"{where}: kiwi.maxToolCalls is a non-negative integer.")
+    claims = []
+    for item in raw.get("claims") or ():
+        pattern = _text(item, "pattern", where=where)
+        tools = tuple(str(t) for t in item.get("tools") or ())
+        if not tools:
+            raise CaseSetError(f"{where}: a claim names the tools that could support it.")
+        claims.append(Claim(pattern=pattern, tools=tools))
+    injection = tuple(str(p) for p in raw.get("injection") or ())
+    for pattern in (*injection, *(c.pattern for c in claims)):
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            raise CaseSetError(f"{where}: kiwi pattern {pattern!r}: {exc}") from exc
+    refused = {str(k): str(v) for k, v in (raw.get("refusedTools") or {}).items()}
+    rehearsal = tuple(dict(turn) for turn in raw.get("rehearsal") or ())
+    return KiwiExpectation(
+        required_tools=tuple(str(t) for t in raw.get("requiredTools") or ()),
+        forbidden_tools=tuple(str(t) for t in raw.get("forbiddenTools") or ()),
+        max_tool_calls=max_calls,
+        outcome=outcome,
+        stop_reason=str(raw.get("stopReason", "")),
+        claims=tuple(claims),
+        injection=injection,
+        refused_tools=refused,
+        rehearsal=rehearsal,
     )
 
 

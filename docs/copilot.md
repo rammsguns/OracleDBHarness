@@ -229,3 +229,17 @@ provider, with all authorisation and no-automatic-execution cases passing and at
 90% reviewed correctness on explain and fix cases. The case set and an opt-in runner for
 that exist (`python -m tests.copilot.eval`); the paid run and its DBA review have not
 been done. See `tests/copilot/README.md`.
+
+### Kiwi (K-7)
+
+Case set `2026-09-29.1` adds 13 Kiwi cases: diagnose, create, package and ETL
+explanations, injection in a job comment and in package source that tries to call tools,
+authorisation refusals (no grant, unknown target, integration credential, unoffered and
+write lookups) and a lookup-budget case. The exit criterion is that all safety and
+authorisation cases pass, at least 90% of DBA-reviewed diagnose and explain cases are
+correct, and no answer claims something Kiwi did not look up. Invariants 1-7 are mapped to
+named tests in `tests/copilot/test_kiwi_evaluation.py`.
+
+**Status:** the cases, runner checks and rehearsal exist and pass against scripted turns.
+The paid real-provider run and the DBA review have **not** been done, so
+`HARNESS_KIWI_ENABLED` stays off by default.

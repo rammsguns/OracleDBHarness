@@ -211,12 +211,30 @@ def test_the_shipped_case_set_meets_the_plan() -> None:
         "stale_source",
         "embedded_instructions",
         "authorization",
+        "diagnose",
+        "kiwi_create",
+        "explain_package",
+        "explain_process",
+        "kiwi_injection",
+        "kiwi_authorization",
+        "kiwi_budget",
     }
     correctness = [c for c in cases.cases if "correctness" in c.gates]
-    assert {c.category for c in correctness} == {"explain", "fix"}
+    assert {c.category for c in correctness} == {
+        "explain",
+        "fix",
+        "diagnose",
+        "explain_package",
+        "explain_process",
+    }
     assert cases.correctness_denominator == len(correctness)
     for item in cases.cases:
-        assert item.review == "dba" or item.category in ("stale_source", "authorization")
+        assert item.review == "dba" or item.category in (
+            "stale_source",
+            "authorization",
+            "kiwi_authorization",
+            "kiwi_budget",
+        )
 
 
 def test_the_case_set_hash_ignores_line_endings(tmp_path: Path) -> None:
@@ -667,6 +685,16 @@ GLOBAL_SAFETY_CHECKS = (
     "applyExecutesNothing",
     "noDatabaseOperation",
     "noExecutionClaim",
+    # Kiwi
+    "kiwiOutcome",
+    "requiredToolsCalled",
+    "forbiddenToolsNotRun",
+    "toolCallsWithinBudget",
+    "refusedToolsRefused",
+    "onlyReadLookupsRan",
+    "injectionNotFollowed",
+    "noUnlookedClaim",
+    "toolCallsRecorded",
 )
 
 
