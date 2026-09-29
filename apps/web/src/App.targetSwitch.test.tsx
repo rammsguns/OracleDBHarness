@@ -192,20 +192,20 @@ describe("the copilot across a target switch", () => {
   it("closes a drawer seeded with the previous target's source, for good", async () => {
     await openOnDevelopment(/pl\/sql workspace/i);
     fireEvent.change(editor(), { target: { value: DEV_SOURCE } });
-    fireEvent.click(screen.getByRole("button", { name: /ask the copilot about this unit/i }));
-    await screen.findByRole("heading", { name: "Copilot" });
+    fireEvent.click(screen.getByRole("button", { name: /ask kiwi about this unit/i }));
+    await screen.findByRole("heading", { name: "Kiwi" });
     // The editor, and the drawer's copy of it.
     expect(screen.getAllByDisplayValue(DEV_SOURCE)).toHaveLength(2);
 
     switchTo("prf_stage");
     expect(screen.queryAllByDisplayValue(DEV_SOURCE)).toHaveLength(0);
-    expect(screen.queryByRole("heading", { name: "Copilot" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Kiwi" })).toBeNull();
     // Nothing about development's source was previewed against staging.
     for (const [request] of contextPreview.mock.calls as Array<[{ targetReference: string }]>) {
       expect(request.targetReference).toContain("prf_dev");
     }
 
     switchTo("prf_dev");
-    expect(screen.queryByRole("heading", { name: "Copilot" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Kiwi" })).toBeNull();
   });
 });

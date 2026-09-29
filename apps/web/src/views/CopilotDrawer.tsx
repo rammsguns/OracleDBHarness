@@ -21,7 +21,7 @@ interface Proposal {
 }
 
 /**
- * The copilot panel.
+ * The Kiwi panel (the copilot).
  *
  * Two things this panel is careful about: the user sees exactly what context will be
  * sent before it is sent, and accepting a proposal changes the editor text only -
@@ -167,7 +167,7 @@ export function CopilotDrawer({
   return (
     <aside className="drawer">
       <div className="row" style={{ justifyContent: "space-between" }}>
-        <h3 style={{ margin: 0 }}>Copilot</h3>
+        <h3 style={{ margin: 0 }}>Kiwi</h3>
         <button onClick={onClose}>Close</button>
       </div>
 

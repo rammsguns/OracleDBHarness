@@ -158,3 +158,37 @@ them can create a licensing problem for the customer. The tuning workbench uses
 
 **Revisit when.** A per-target entitlement configuration exists and has been reviewed
 against the applicable Oracle terms.
+
+---
+
+## ADR-0010: Kiwi may run reviewed read-only catalog operations
+
+**Status.** Accepted 2026-09-29. Not implemented: the copilot still has no tools. It
+takes effect with K-3 in [KIWI_PLAN.md](../KIWI_PLAN.md), behind
+`HARNESS_KIWI_ENABLED`, off by default.
+
+**Decision.** Kiwi, the harness's Oracle assistant, may call catalog operations with
+`risk: read` that are explicitly marked for it, as the requesting actor, on the
+requesting target, through `ExecutionService` and `PolicyEngine`. Each call is an
+`Execution` with an `AuditEvent`, like the same operation run from the console. Kiwi
+may not run free-form SQL, runbooks, compile, commit or read application tables. Tool
+results are untrusted data, wrapped and capped like attachments.
+
+**Why.** Diagnosing an invalid package, a failed job or an ETL chain means looking up
+errors, dependencies, source and scheduler history. Today the user has to fetch each
+of those and paste it in, and the answer is only as good as what they guessed to
+paste. The catalog already holds reviewed, privilege-documented, bounded read queries;
+letting the model choose among them adds no statement the user could not already run.
+
+**What it gives up.** docs/copilot.md promised "no automatic context expansion". With
+Kiwi's tools enabled, what leaves the harness is no longer limited to what the user
+selected or pasted: it includes what Kiwi fetched, from the same allowed categories,
+shown in the stream as it happens and recorded in history. The data-sharing approval
+has to cover that before the flag is turned on.
+
+**What does not change.** There is still no code path from a model answer to a write,
+a compile or a commit (ADR-0008 and the proposal rules stand), and production stays
+observation-only. A tool the model is not offered cannot be reached by asking for it.
+
+**Revisit when.** Compiling drafts on development targets is proposed (K-8). That is a
+write and needs its own decision.

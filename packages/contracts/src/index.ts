@@ -280,6 +280,8 @@ export interface ApplyCheckResult {
 }
 
 export interface IntegrationCapabilities {
+  /** The name to show users. Absent from harnesses older than Kiwi. */
+  assistant?: string;
   protocolVersion: string;
   supportedProtocolMajors: number[];
   enabled: boolean;

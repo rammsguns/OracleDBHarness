@@ -84,6 +84,7 @@ def integration_headers(client: TestClient, administrator: dict) -> dict:
 def test_capabilities_report_readiness_without_secrets(client: TestClient, administrator) -> None:
     headers = integration_headers(client, administrator)
     body = client.get("/api/v1/integrations/capabilities", headers=headers).json()
+    assert body["assistant"] == "Kiwi"
     assert body["protocolVersion"] == "1.0"
     assert body["enabled"] is True
     assert body["isFixtureProvider"] is True

@@ -93,7 +93,7 @@ export function PlsqlView({
         <button className="primary" onClick={compile} disabled={busy}>
           {busy ? "Compiling..." : "Compile"}
         </button>
-        <button onClick={() => onAsk(source)}>Ask the copilot about this unit</button>
+        <button onClick={() => onAsk(source)}>Ask Kiwi about this unit</button>
       </div>
 
       {storedErrors && !storedErrors.available && (

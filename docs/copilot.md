@@ -1,4 +1,8 @@
-# Copilot: what is shared, and what the model can do
+# Kiwi: what is shared, and what the model can do
+
+Kiwi is the name users see for the harness's Oracle assistant. In code, routes and the
+integration protocol it is still the copilot (`harness_api.copilot`,
+`/api/v1/copilot/...`); those identifiers are not renamed.
 
 Read this before enabling the copilot. It is the document to show whoever has to
 approve sending source code to a model provider.
@@ -42,6 +46,42 @@ It cannot connect to a database, run a statement, commit, compile, deploy, or ca
 tool. There is no code path from a model answer to a database operation. Applying a
 proposal replaces text in an editor buffer; running the result is a separate action
 the user takes, through the ordinary authorised path.
+
+## Planned: read-only lookups (accepted, not enabled)
+
+[ADR-0010](decisions.md) accepts one change to the section above, and
+[KIWI_PLAN.md](../KIWI_PLAN.md) delivers it behind `HARNESS_KIWI_ENABLED`, off by
+default. **None of it is implemented yet; everything else on this page describes the
+harness as it runs today.**
+
+When it is enabled, Kiwi may call reviewed catalog operations marked `risk: read` --
+object status, errors, source, dependencies, columns, cursor statistics, scheduler
+history and the like -- as the requesting user, on the requesting target. So:
+
+- **Context is no longer only what the user selected.** It includes what Kiwi fetched,
+  from the same allowed categories. Each lookup appears in the stream as it happens
+  and is recorded in history with its execution id. Approve that before turning the
+  flag on.
+- **Every lookup is an ordinary operation.** It goes through the same authorisation,
+  privilege checks, limits and audit as running it from the console. A lookup the user
+  could not run, Kiwi cannot run.
+- **Still never:** free-form SQL, application table rows, bind values, runbooks,
+  compile, commit or deploy. The categories under *What never leaves* stay refused.
+
+### Stream events and existing adapters
+
+Lookups will be reported with new stream events (`tool_call`, `tool_result`,
+`plan_step`, `budget`). Checked on 2026-09-29 against this repository:
+
+- The console ignores any event it does not handle, so new events are harmless to it.
+- The DataForge adapter (`integrations/dataforge/src/adapter.ts`, `readSse`) passes
+  every event through unfiltered, whatever its name, and its route relays it verbatim
+  to DataForge. What the DataForge frontend does with an unknown event is outside this
+  repository and has not been checked.
+
+So the new events can be protocol 1.1 only if the adapter filters to the events its
+version knows, or the DataForge frontend is shown to ignore unknown ones. K-3 does the
+first.
 
 ## Untrusted content
 

@@ -49,6 +49,8 @@ from harness_worker.errors import (
 )
 
 PROTOCOL_VERSION = "1.0"
+# The name users see. Module, route and protocol identifiers keep saying "copilot".
+ASSISTANT_NAME = "Kiwi"
 SUPPORTED_PROTOCOL_MAJOR = 1
 
 _FENCED_BLOCK = re.compile(r"```(?:sql|plsql)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
@@ -142,6 +144,7 @@ class CopilotService:
             except HarnessError as exc:
                 provider_detail = exc.message
         return {
+            "assistant": ASSISTANT_NAME,
             "protocolVersion": PROTOCOL_VERSION,
             "supportedProtocolMajors": [SUPPORTED_PROTOCOL_MAJOR],
             "enabled": self.enabled,

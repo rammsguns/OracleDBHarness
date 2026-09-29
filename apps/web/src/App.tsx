@@ -139,10 +139,10 @@ export function App() {
         </nav>
         <div className="spacer" />
         {info?.copilotEnabled ? (
-          <button onClick={() => askCopilot("")}>Ask the copilot</button>
+          <button onClick={() => askCopilot("")}>Ask Kiwi</button>
         ) : (
           <p className="muted" style={{ fontSize: 12 }}>
-            The copilot is disabled on this harness.
+            Kiwi is disabled on this harness.
           </p>
         )}
         <button

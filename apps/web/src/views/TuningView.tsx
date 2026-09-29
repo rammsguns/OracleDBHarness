@@ -89,7 +89,7 @@ export function TuningView({
                 )
               }
             >
-              Ask the copilot about this plan
+              Ask Kiwi about this plan
             </button>
           )}
         </div>

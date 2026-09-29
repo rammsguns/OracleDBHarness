@@ -182,7 +182,7 @@ Local identifiers below are planning IDs, not GitHub issues. Each item lands beh
 
 | ID | Work | Exit |
 | --- | --- | --- |
-| **K-1** | **Identity and docs.** Name Kiwi in the console, the system prompt and the capabilities endpoint (`assistant: "Kiwi"`). Keep module paths, route paths and protocol ids as they are, to avoid churn. Write ADR-0010 (read-only tool use). Rewrite docs/copilot.md for tool calls. Check how the DataForge adapter treats unknown stream events. | Docs reviewed by whoever approves provider data sharing. No behaviour change. |
+| **K-1** (done 2026-09-29) | **Identity and docs.** Name Kiwi in the console, the system prompt and the capabilities endpoint (`assistant: "Kiwi"`). Keep module paths, route paths and protocol ids as they are, to avoid churn. Write ADR-0010 (read-only tool use). Rewrite docs/copilot.md for tool calls. Check how the DataForge adapter treats unknown stream events. | Docs reviewed by whoever approves provider data sharing. No behaviour change. |
 | **K-2** | **Provider tool use.** Extend the provider interface and the Anthropic adapter to multi-turn tool use with usage per turn. Scripted tool calls in the fake provider. | Unit tests for tool-use turns, stop reasons, usage accounting and provider failure mid-loop. |
 | **K-3** | **Toolbox and agent loop.** `KiwiToolbox` over the catalog with the `@kiwi: allowed` header; policy per call; wrapping and caps on results; budgets for steps, tool calls, tokens and wall time; new stream events; history records every tool call's execution id. | Invariant tests 1-7 pass against the stand-in. A request that runs out of budget ends with a partial answer marked as partial. |
 | **K-4** | **New catalog entries** from the table above, with privileges and minimum versions, qualification fixtures in `oracle/qualification/`, and PL/Scope absence handled. | Run against the stand-in and against the 19c instance used for the earlier qualification. |
@@ -218,3 +218,20 @@ change.
 Autonomous writes of any kind, killing sessions, index or parameter changes, AWR/ASH
 and advisors (ADR-0009), reading table data, an MCP server (still deferred in
 MVP_PLAN.md; if it comes, it exposes the same toolbox), and inline autocomplete.
+
+## Validation
+
+### 2026-09-29, K-1 identity and docs
+
+- The console heading, buttons and disabled notice say Kiwi; the system prompt opens
+  "You are Kiwi"; `GET /api/v1/integrations/capabilities` carries
+  `"assistant": "Kiwi"` (optional in the TypeScript contract, so older harnesses stay
+  valid). Module paths, routes, action ids and protocol 1.0 are unchanged.
+- ADR-0010 records the read-only tool decision; docs/copilot.md describes it as
+  accepted and not enabled.
+- Unknown stream events: the console ignores them; the DataForge adapter's `readSse`
+  forwards every event verbatim and its route relays it. The DataForge frontend's
+  behaviour is not in this repository. K-3 therefore adds an event filter to the
+  adapter before any new event is emitted, and the events can then ship as 1.1.
+- The system prompt changed by one sentence. NP-04 has not had its paid run, so there
+  is no earlier real-provider result it invalidates.
