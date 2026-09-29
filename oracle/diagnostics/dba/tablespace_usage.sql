@@ -3,6 +3,7 @@
 -- @description: Used and allocated space per tablespace, converted to megabytes.
 -- @capabilities: dba_tablespaces
 -- @risk: read
+-- @kiwi: allowed
 -- @min_version: 12
 -- @privileges: SELECT on DBA_TABLESPACE_USAGE_METRICS, DBA_TABLESPACES
 SELECT m.tablespace_name,

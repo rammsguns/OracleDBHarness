@@ -4,6 +4,7 @@
 --               Oracle recorded for past executions, not estimates.
 -- @capabilities: v_sql
 -- @risk: read
+-- @kiwi: allowed
 -- @min_version: 12
 -- @parameters: sql_id, child_number
 -- @privileges: SELECT on V_$SQL

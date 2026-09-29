@@ -130,6 +130,9 @@ implementation in the IDE. Keeping the provider boundary narrow means the IDE
 adapter, the console and any future adapter get the same context rules and the same
 limits, and adding a provider cannot accidentally add a way around them.
 
+The Kiwi tool loop (ADR-0010) lives in the same service and uses the same providers
+through `start_conversation`; tools are the harness's catalog, never the provider's.
+
 **Revisit when.** More than one provider is configured at once, which needs a routing
 policy this design does not have.
 
@@ -163,9 +166,8 @@ against the applicable Oracle terms.
 
 ## ADR-0010: Kiwi may run reviewed read-only catalog operations
 
-**Status.** Accepted 2026-09-29. Not implemented: the copilot still has no tools. It
-takes effect with K-3 in [KIWI_PLAN.md](../KIWI_PLAN.md), behind
-`HARNESS_KIWI_ENABLED`, off by default.
+**Status.** Accepted 2026-09-29. Implemented in K-3 of [KIWI_PLAN.md](../KIWI_PLAN.md)
+behind `HARNESS_KIWI_ENABLED`, off by default. Tested against a stand-in provider only.
 
 **Decision.** Kiwi, the harness's Oracle assistant, may call catalog operations with
 `risk: read` that are explicitly marked for it, as the requesting actor, on the

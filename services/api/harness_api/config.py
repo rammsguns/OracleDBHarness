@@ -78,6 +78,19 @@ class Settings(BaseSettings):
     copilot_user_daily_requests: int = 100
     copilot_log_prompts: bool = False
 
+    # Kiwi's read-only catalog lookups (ADR-0010, KIWI_PLAN.md K-3). Off by default:
+    # turning it on widens what leaves the harness, see docs/copilot.md.
+    kiwi_enabled: bool = False
+    # Per request. A step is one model turn; tokens are prompt plus completion summed
+    # over every turn; bytes are what tool results add to the context.
+    kiwi_max_steps: int = 8
+    kiwi_max_tool_calls: int = 12
+    kiwi_max_tokens: int = 200_000
+    kiwi_max_wall_seconds: float = 180.0
+    kiwi_max_rows_per_tool: int = 200
+    kiwi_max_result_bytes: int = 16 * 1024
+    kiwi_max_tool_bytes: int = 96 * 1024
+
     cors_origins: str = "http://localhost:5173"
 
     # Set by tests and the demo seed; never enable in a shared deployment.
@@ -148,6 +161,12 @@ class Settings(BaseSettings):
             warnings.append(
                 "HARNESS_COPILOT_LOG_PROMPTS is on. Prompt text can contain database "
                 "source and user-supplied errors; keep it off outside debugging."
+            )
+        if self.kiwi_enabled and self.copilot_enabled:
+            warnings.append(
+                "HARNESS_KIWI_ENABLED is on. Kiwi may run reviewed read-only catalog "
+                "lookups as the requesting user, and what it fetches is sent to the "
+                "model provider. The data-sharing approval has to cover that."
             )
         return warnings
 

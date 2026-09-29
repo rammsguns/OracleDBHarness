@@ -161,6 +161,27 @@ With `HARNESS_COPILOT_PROVIDER=fake` the harness answers with fixtures and calls
 provider. Everything says so - the capabilities endpoint, the stream's `start` event
 and the console banner - so a demonstration is never mistaken for a model.
 
+### Kiwi's read-only lookups
+
+`HARNESS_KIWI_ENABLED=true` (off by default, and only with the copilot on) lets Kiwi
+run reviewed catalog operations marked `-- @kiwi: allowed` while it answers: object
+status, errors, source, dependencies, columns, cursor statistics, scheduler history
+and the like. Each lookup runs as the requesting user on the target the request
+names (`profileId`), through the same authorisation, limits and audit as the console.
+What Kiwi fetches is sent to the provider, so the data-sharing approval has to cover
+it; the startup log warns while the flag is on. See `docs/copilot.md`.
+
+One request is bounded by `HARNESS_KIWI_MAX_STEPS` (8 model turns),
+`HARNESS_KIWI_MAX_TOOL_CALLS` (12), `HARNESS_KIWI_MAX_TOKENS` (200000, input and
+output together), `HARNESS_KIWI_MAX_WALL_SECONDS` (180), `HARNESS_KIWI_MAX_ROWS_PER_TOOL`
+(200), `HARNESS_KIWI_MAX_RESULT_BYTES` (16384 per lookup) and
+`HARNESS_KIWI_MAX_TOOL_BYTES` (98304 per request). A request that reaches one of them
+stops asking the model for lookups and ends with what it has, marked as partial.
+
+`cursor_search` and `cursor_plan` can return SQL text from the shared pool, which may
+contain literals. Remove their `@kiwi: allowed` header if that is not acceptable.
+`explain_plan_rows` is not offered: its PLAN_TABLE belongs to one session.
+
 ## Connecting OracleDataForge
 
 See `integrations/dataforge/README.md`. In short: issue an integration credential with

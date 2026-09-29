@@ -3,6 +3,7 @@
 -- @description: Sessions waiting on another session, paired with the holder.
 -- @capabilities: v_session
 -- @risk: read
+-- @kiwi: allowed
 -- @min_version: 12
 -- @privileges: SELECT on V_$SESSION
 SELECT w.sid                AS waiting_sid,

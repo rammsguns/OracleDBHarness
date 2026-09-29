@@ -2,6 +2,7 @@
 -- @title: Stored source for a program unit
 -- @capabilities: all_objects
 -- @risk: read
+-- @kiwi: allowed
 -- @min_version: 11
 -- @parameters: owner, object_name, object_type
 -- @privileges: SELECT on ALL_SOURCE

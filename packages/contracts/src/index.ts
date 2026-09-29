@@ -7,7 +7,7 @@
  * fails if the API stops matching them.
  */
 
-export const PROTOCOL_VERSION = "1.0";
+export const PROTOCOL_VERSION = "1.1";
 export const SUPPORTED_PROTOCOL_MAJOR = 1;
 
 // -- shared shapes ----------------------------------------------------------------
@@ -230,6 +230,8 @@ export interface CopilotRequest {
   /** Which of the adapter's own users is acting. Never a role. */
   actorReference?: string;
   actorIsDurable?: boolean;
+  /** A target the user can open. With Kiwi enabled, allows read-only lookups on it. */
+  profileId?: string;
 }
 
 export interface ContextPreview {
@@ -262,12 +264,54 @@ export interface ProposalEvent {
   note: string;
 }
 
+/** Why a Kiwi request stopped early. */
+export type KiwiStopReason = "steps" | "tool_calls" | "tokens" | "wall_time" | "tool_bytes";
+
+/** Kiwi asked for a reviewed read-only catalog lookup (protocol 1.1). */
+export interface KiwiToolCall {
+  callId: string;
+  toolName: string;
+  operationId: string;
+  parameters: Record<string, unknown>;
+  why: string;
+}
+
+/** How a lookup ended. Counts only: the rows never reach the stream. */
+export interface KiwiToolResult {
+  callId: string;
+  operationId: string;
+  status: "succeeded" | "failed" | "refused" | "invalid";
+  rowCount: number | null;
+  bytes: number;
+  truncated: boolean;
+  executionId: string | null;
+  errorCode: string;
+}
+
+export interface KiwiBudget {
+  steps: number;
+  maxSteps: number;
+  toolCalls: number;
+  maxToolCalls: number;
+  tokens: number;
+  maxTokens: number;
+  elapsedSeconds: number;
+  maxWallSeconds: number;
+  toolBytes: number;
+  maxToolBytes: number;
+  exhausted: KiwiStopReason[];
+}
+
 export type CopilotEvent =
   | { event: "start"; data: { requestId: string; protocolVersion: string; action: string; provider: string; model: string; isFixtureProvider: boolean; contextPreview: ContextPreview } }
   | { event: "delta"; data: { text: string } }
   | { event: "proposal"; data: ProposalEvent }
   | { event: "usage"; data: { provider: string; model: string; promptTokens: number | null; completionTokens: number | null; stopReason: string } }
-  | { event: "done"; data: { requestId: string; outcome: string; latencyMs: number } }
+  | { event: "plan_step"; data: { step: number; maxSteps: number } }
+  | { event: "tool_call"; data: KiwiToolCall }
+  | { event: "tool_result"; data: KiwiToolResult }
+  | { event: "budget"; data: KiwiBudget }
+  | { event: "done"; data: { requestId: string; outcome: string; latencyMs: number; partial?: boolean; stopReason?: KiwiStopReason } }
   | { event: "error"; data: HarnessErrorBody };
 
 export interface ApplyCheckResult {
@@ -295,6 +339,22 @@ export interface IntegrationCapabilities {
   contextCategories: string[];
   executesDatabaseOperations: false;
   requiredAdapterVersion: string;
+  /** Read-only lookups. Absent from harnesses before protocol 1.1. */
+  kiwi?: {
+    enabled: boolean;
+    readOnlyLookups: true;
+    needsProfileId: boolean;
+    tools: string[];
+    limits: {
+      maxSteps: number;
+      maxToolCalls: number;
+      maxTokens: number;
+      maxWallSeconds: number;
+      maxRowsPerTool: number;
+      maxResultBytes: number;
+      maxToolBytes: number;
+    };
+  };
 }
 
 // -- client ---------------------------------------------------------------------------

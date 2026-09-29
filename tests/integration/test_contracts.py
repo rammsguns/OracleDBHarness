@@ -57,7 +57,18 @@ def test_the_copilot_protocol_schema_matches_the_implementation(client: TestClie
     assert schema["definitions"]["action"]["enum"] == list(ACTIONS)
     assert schema["definitions"]["forbiddenContextCategory"]["enum"] == list(FORBIDDEN_CATEGORIES)
     events = {entry["title"] for entry in schema["definitions"]["streamEvent"]["oneOf"]}
-    assert events == {"start", "delta", "proposal", "usage", "done", "error"}
+    assert events == {
+        "start",
+        "delta",
+        "plan_step",
+        "tool_call",
+        "tool_result",
+        "budget",
+        "proposal",
+        "usage",
+        "done",
+        "error",
+    }
 
 
 def test_the_typescript_client_declares_the_same_protocol_version() -> None:

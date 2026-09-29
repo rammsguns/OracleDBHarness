@@ -107,7 +107,7 @@ def copilot_history(
     operation an IDE performed on its own; those stay with the IDE.
     """
 
-    from harness_api.models import CopilotRequest
+    from harness_api.models import CopilotRequest, CopilotToolCall
 
     rows = db.scalars(
         select(CopilotRequest)
@@ -115,6 +115,30 @@ def copilot_history(
         .order_by(CopilotRequest.created_at.desc())
         .limit(limit)
     ).all()
+    # Kiwi's lookups, each pointing at the execution record of what actually ran.
+    tool_calls: dict[str, list[dict[str, Any]]] = {}
+    if rows:
+        for call in db.scalars(
+            select(CopilotToolCall)
+            .where(CopilotToolCall.copilot_request_id.in_([row.id for row in rows]))
+            .order_by(CopilotToolCall.copilot_request_id, CopilotToolCall.sequence)
+        ):
+            tool_calls.setdefault(call.copilot_request_id, []).append(
+                {
+                    "sequence": call.sequence,
+                    "callId": call.call_id,
+                    "toolName": call.tool_name,
+                    "operationId": call.operation_id,
+                    "parameters": call.parameters,
+                    "why": call.why,
+                    "status": call.status,
+                    "executionId": call.execution_id,
+                    "rowCount": call.row_count,
+                    "bytes": call.result_bytes,
+                    "truncated": call.truncated,
+                    "errorCode": call.error_code,
+                }
+            )
     return {
         "requests": [
             {
@@ -131,6 +155,7 @@ def copilot_history(
                 "outcome": row.outcome,
                 "errorCode": row.error_code,
                 "createdAt": row.created_at.isoformat(),
+                "toolCalls": tool_calls.get(row.id, []),
             }
             for row in rows
         ],

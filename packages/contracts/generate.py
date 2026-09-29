@@ -52,12 +52,44 @@ STREAM_EVENTS = {
             "appliesToEditorOnly",
         ],
     },
+    "plan_step": {
+        "description": (
+            "Kiwi only: a model turn is starting. Sent before each step of a request "
+            "that may make read-only lookups."
+        ),
+        "required": ["step", "maxSteps"],
+    },
+    "tool_call": {
+        "description": (
+            "Kiwi only: the model asked for a reviewed read-only catalog lookup. It runs "
+            "as the requesting user, on the requesting target."
+        ),
+        "required": ["callId", "toolName", "operationId", "parameters", "why"],
+    },
+    "tool_result": {
+        "description": (
+            "Kiwi only: how a lookup ended, with its Execution id. Counts and sizes "
+            "only; the rows never appear in the stream."
+        ),
+        "required": ["callId", "operationId", "status", "executionId"],
+    },
+    "budget": {
+        "description": (
+            "Kiwi only: steps, lookups, tokens, bytes and wall time spent against their "
+            "limits, and which limits are exhausted."
+        ),
+        "required": ["steps", "maxSteps", "toolCalls", "maxToolCalls", "exhausted"],
+    },
     "usage": {
         "description": "Provider, model and token usage for the completed request.",
         "required": ["provider", "model"],
     },
     "done": {
-        "description": "Terminal event. Always the last event of a successful stream.",
+        "description": (
+            "Terminal event. Always the last event of a successful stream. A Kiwi "
+            "request that ran out of budget ends with outcome 'partial', partial: true "
+            "and the stopReason that ended it."
+        ),
         "required": ["requestId", "outcome", "latencyMs"],
     },
     "error": {
@@ -112,6 +144,10 @@ def copilot_protocol_schema() -> dict:
             "An actor reference asserted by an adapter is namespaced by integration "
             "instance and is never treated as a role.",
             "A partially delivered request is never replayed automatically.",
+            "Kiwi's lookups are reviewed read-only catalog entries, authorised as the "
+            "requesting user on every call and recorded as Executions; there is no "
+            "free-form SQL, write, compile or commit.",
+            "Adapters ignore stream events they do not know, so a minor version may add events.",
         ],
     }
 

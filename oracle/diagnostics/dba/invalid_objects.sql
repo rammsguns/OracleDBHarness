@@ -3,6 +3,7 @@
 -- @description: Objects whose status is not VALID, optionally limited to one schema.
 -- @capabilities: all_objects
 -- @risk: read
+-- @kiwi: allowed
 -- @min_version: 12
 -- @parameters: owner, row_limit
 -- @privileges: SELECT on ALL_OBJECTS

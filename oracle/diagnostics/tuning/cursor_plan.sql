@@ -4,6 +4,7 @@
 --               Fetching it never re-runs the statement.
 -- @capabilities: display_cursor
 -- @risk: read
+-- @kiwi: allowed
 -- @min_version: 12
 -- @parameters: sql_id, child_number
 -- @privileges: SELECT on V_$SQL_PLAN

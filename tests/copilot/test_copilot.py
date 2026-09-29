@@ -85,13 +85,14 @@ def test_capabilities_report_readiness_without_secrets(client: TestClient, admin
     headers = integration_headers(client, administrator)
     body = client.get("/api/v1/integrations/capabilities", headers=headers).json()
     assert body["assistant"] == "Kiwi"
-    assert body["protocolVersion"] == "1.0"
+    assert body["protocolVersion"] == "1.1"
     assert body["enabled"] is True
     assert body["isFixtureProvider"] is True
     assert body["executesDatabaseOperations"] is False
     assert set(body["actions"]) >= {"explain", "diagnose", "propose", "explain_plan"}
     assert body["grantedScopes"] == ["copilot:assist"]
-    assert "token" not in json.dumps(body).lower()
+    # Kiwi's "maxTokens" is a budget, not a credential.
+    assert "token" not in json.dumps(body).lower().replace('"maxtokens"', "")
 
 
 def test_an_integration_credential_cannot_open_a_database_session(

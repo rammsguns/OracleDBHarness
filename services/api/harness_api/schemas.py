@@ -296,6 +296,9 @@ class CopilotRequestIn(Schema):
     # this by integration instance and never treats it as a role.
     actor_reference: str | None = Field(default=None, alias="actorReference")
     actor_is_durable: bool = Field(default=True, alias="actorIsDurable")
+    # The target Kiwi may run read-only lookups on, as the requesting user. Ignored
+    # unless HARNESS_KIWI_ENABLED; an integration credential is always refused.
+    profile_id: str = Field(default="", alias="profileId", max_length=40)
 
 
 class ApplyCheckIn(Schema):

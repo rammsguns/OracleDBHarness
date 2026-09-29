@@ -2,6 +2,7 @@
 -- @title: Objects a program unit depends on
 -- @capabilities: all_objects
 -- @risk: read
+-- @kiwi: allowed
 -- @min_version: 11
 -- @parameters: owner, object_name
 -- @privileges: SELECT on ALL_DEPENDENCIES

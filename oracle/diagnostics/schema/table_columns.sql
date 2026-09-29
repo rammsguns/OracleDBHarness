@@ -2,6 +2,7 @@
 -- @title: Table or view columns
 -- @capabilities: all_objects
 -- @risk: read
+-- @kiwi: allowed
 -- @min_version: 11
 -- @parameters: owner, table_name
 -- @privileges: SELECT on ALL_TAB_COLUMNS

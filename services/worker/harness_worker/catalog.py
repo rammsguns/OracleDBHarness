@@ -36,6 +36,8 @@ class CatalogEntry:
     privileges: tuple[str, ...] = ()
     source_path: Path | None = field(default=None, compare=False)
     returns: str = "rows"
+    # Offered to Kiwi as a tool (``-- @kiwi: allowed``). Only read entries may be.
+    kiwi: bool = False
 
     def describe(self) -> dict:
         return {
@@ -49,6 +51,7 @@ class CatalogEntry:
             "identifierParameters": list(self.identifier_parameters),
             "privileges": list(self.privileges),
             "returns": self.returns,
+            "kiwi": self.kiwi,
         }
 
 
@@ -89,19 +92,34 @@ def parse_entry(path: Path) -> CatalogEntry:
             detail={"path": str(path)},
         ) from exc
 
+    risk = RiskClass(headers.get("risk", "read"))
+    kiwi_header = headers.get("kiwi", "").strip().lower()
+    if kiwi_header not in ("", "allowed"):
+        raise ConfigurationError(
+            f"Catalog entry {path.name} has @kiwi: {kiwi_header!r}; the only value is 'allowed'.",
+            detail={"path": str(path)},
+        )
+    if kiwi_header and risk != RiskClass.READ:
+        # Invariant 1 in KIWI_PLAN.md: Kiwi's tools never write.
+        raise ConfigurationError(
+            f"Catalog entry {path.name} is {risk.value}; only read entries may be offered to Kiwi.",
+            detail={"path": str(path)},
+        )
+
     return CatalogEntry(
         operation_id=headers["id"],
         title=headers["title"],
         description=headers.get("description", ""),
         sql="\n".join(body_lines).strip(),
         capabilities=capabilities,
-        risk=RiskClass(headers.get("risk", "read")),
+        risk=risk,
         min_version=int(headers.get("min_version", "11")),
         parameters=_split_list(headers.get("parameters", "")),
         identifier_parameters=_split_list(headers.get("identifier_parameters", "")),
         privileges=_split_list(headers.get("privileges", "")),
         source_path=path,
         returns=headers.get("returns", "rows"),
+        kiwi=bool(kiwi_header),
     )
 
 

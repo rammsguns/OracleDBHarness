@@ -3,6 +3,7 @@
 -- @description: Search the cursor cache by SQL ID or statement text.
 -- @capabilities: v_sql
 -- @risk: read
+-- @kiwi: allowed
 -- @min_version: 12
 -- @parameters: sql_id, text_filter, row_limit
 -- @privileges: SELECT on V_$SQL

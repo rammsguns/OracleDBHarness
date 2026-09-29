@@ -2,6 +2,7 @@
 -- @title: Indexes on a table
 -- @capabilities: all_objects
 -- @risk: read
+-- @kiwi: allowed
 -- @min_version: 11
 -- @parameters: owner, table_name
 -- @privileges: SELECT on ALL_INDEXES, ALL_IND_COLUMNS

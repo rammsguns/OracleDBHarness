@@ -184,7 +184,7 @@ Local identifiers below are planning IDs, not GitHub issues. Each item lands beh
 | --- | --- | --- |
 | **K-1** (done 2026-09-29) | **Identity and docs.** Name Kiwi in the console, the system prompt and the capabilities endpoint (`assistant: "Kiwi"`). Keep module paths, route paths and protocol ids as they are, to avoid churn. Write ADR-0010 (read-only tool use). Rewrite docs/copilot.md for tool calls. Check how the DataForge adapter treats unknown stream events. | Docs reviewed by whoever approves provider data sharing. No behaviour change. |
 | **K-2** (done 2026-09-29) | **Provider tool use.** Extend the provider interface and the Anthropic adapter to multi-turn tool use with usage per turn. Scripted tool calls in the fake provider. | Unit tests for tool-use turns, stop reasons, usage accounting and provider failure mid-loop. |
-| **K-3** | **Toolbox and agent loop.** `KiwiToolbox` over the catalog with the `@kiwi: allowed` header; policy per call; wrapping and caps on results; budgets for steps, tool calls, tokens and wall time; new stream events; history records every tool call's execution id. | Invariant tests 1-7 pass against the stand-in. A request that runs out of budget ends with a partial answer marked as partial. |
+| **K-3** (done 2026-09-29) | **Toolbox and agent loop.** `KiwiToolbox` over the catalog with the `@kiwi: allowed` header; policy per call; wrapping and caps on results; budgets for steps, tool calls, tokens and wall time; new stream events; history records every tool call's execution id. | Invariant tests 1-7 pass against the stand-in. A request that runs out of budget ends with a partial answer marked as partial. |
 | **K-4** | **New catalog entries** from the table above, with privileges and minimum versions, qualification fixtures in `oracle/qualification/`, and PL/Scope absence handled. | Run against the stand-in and against the 19c instance used for the earlier qualification. |
 | **K-5** | **Issue playbooks and authoring.** `kiwi.diagnose`, `kiwi.create`, multi-part proposals for packages, standards file, "Ask Kiwi to fix" after compile. | Console and API tests for multi-part apply-check (all-or-nothing, stale part refuses the whole). |
 | **K-6** | **Package and process explainer.** Per-subprogram summarise-then-combine, dependency and scheduler walk with limits, evidence labels, Mermaid export. | Explains a 3k-line fixture package and a fixture ETL chain within budget, with every lineage edge labelled. |
@@ -254,3 +254,33 @@ MVP_PLAN.md; if it comes, it exposes the same toolbox), and inline autocomplete.
   unchanged. Tool names must match `^[A-Za-z0-9_-]{1,64}$`, so K-3 maps catalog ids
   such as `schema.object_status` to tool names.
 - `tests/copilot/test_tool_use.py`: 28 tests.
+
+### 2026-09-29, K-3 toolbox and agent loop
+
+- `KiwiToolbox` (`harness_api/copilot/toolbox.py`) offers only catalog entries with
+  `-- @kiwi: allowed` and `risk: read`: 19 entries across `schema`, `dba` and
+  `tuning`, each reading dictionary and `V$` views only. Runbooks, the worksheet,
+  `explain_plan` and any other name are refused with `policy_refused` and audited;
+  unknown parameters are `invalid_request`. Tool names map `.` to `__`.
+- Every call loads the profile and grant afresh and runs through
+  `ExecutionService.run_catalog_operation`, so it leaves an `Execution` and an
+  `AuditEvent` like a console panel. Refusals (`not_authorized`, `not_found`) are
+  audited under `copilot.kiwi` and go back to the model as typed errors. A grant
+  revoked mid-request fails the next lookup. On production, dba reads succeed and
+  anything else stays refused.
+- Results reach the model as JSON inside `BEGIN/END UNTRUSTED TOOL_RESULT` markers,
+  capped by `HARNESS_KIWI_MAX_ROWS_PER_TOOL` and `HARNESS_KIWI_MAX_RESULT_BYTES` with a
+  "(truncated: ...)" note. The `tool_result` event and the `CopilotToolCall` record
+  carry status, row count, bytes, truncation and execution id, never row values.
+- Budgets: steps, tool calls, tokens, lookup bytes and wall time. Reaching one ends the
+  request with `done` `outcome: "partial"`, `partial: true` and `stopReason`; a
+  tool-call cap asks the model once more for an answer without tools.
+- Protocol 1.1: `plan_step`, `tool_call`, `tool_result`, `budget`, and
+  `done.partial`/`stopReason`, in the generated schema and the TypeScript contract.
+  The DataForge adapter drops event names it does not know (`KNOWN_STREAM_EVENTS`) and
+  sends 1.1. The console's Kiwi panel sends `profileId` and shows the lookup trace,
+  budget and a partial-answer notice; it shows each execution id as text, not yet as
+  a link to history.
+- Invariants 1-7 are covered in `tests/copilot/test_kiwi.py` (28 tests) against the
+  stand-in provider. No real provider was called. Full suite: 625 passed, 71 skipped;
+  adapter 23 node tests; web 45 tests.

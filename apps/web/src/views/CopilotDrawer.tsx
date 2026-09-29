@@ -11,6 +11,17 @@ const ACTIONS = [
   { id: "validate", label: "Review" },
 ] as const;
 
+interface TraceEntry {
+  callId: string;
+  toolName: string;
+  why: string;
+  status?: string;
+  rowCount?: number | null;
+  truncated?: boolean;
+  executionId?: string | null;
+  errorCode?: string;
+}
+
 interface Proposal {
   proposalId: string;
   editorId: string;
@@ -53,6 +64,10 @@ export function CopilotDrawer({
   const [fixture, setFixture] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  // Kiwi's lookups: what it asked for and how each went. Never the rows themselves.
+  const [trace, setTrace] = useState<TraceEntry[]>([]);
+  const [budget, setBudget] = useState<string | null>(null);
+  const [partial, setPartial] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
 
   const targetReference = target ? `harness:${target.id}:${target.defaultSchema}` : "harness:none";
@@ -106,12 +121,16 @@ export function CopilotDrawer({
     setProposal(null);
     setApplied(null);
     setError(null);
+    setTrace([]);
+    setBudget(null);
+    setPartial(null);
     abort.current = new AbortController();
     try {
       const stream = api.copilot(
         {
           action,
           targetReference,
+          profileId: target?.id,
           userMessage: question,
           databaseVersion: target?.identity?.version ?? "",
           schema: target?.defaultSchema ?? "",
@@ -140,6 +159,23 @@ export function CopilotDrawer({
         `${event.data.provider}/${event.data.model} - ${event.data.promptTokens ?? "?"} in, ` +
           `${event.data.completionTokens ?? "?"} out`,
       );
+    }
+    if (event.event === "tool_call") {
+      const { callId, toolName, why } = event.data;
+      setTrace((current) => [...current, { callId, toolName, why }]);
+    }
+    if (event.event === "tool_result") {
+      const result = event.data;
+      setTrace((current) =>
+        current.map((entry) => (entry.callId === result.callId ? { ...entry, ...result } : entry)),
+      );
+    }
+    if (event.event === "budget") {
+      const b = event.data;
+      setBudget(`${b.toolCalls}/${b.maxToolCalls} lookups, step ${b.steps}/${b.maxSteps}`);
+    }
+    if (event.event === "done" && event.data.partial) {
+      setPartial(event.data.stopReason ?? "budget");
     }
     if (event.event === "error") setError(`${event.data.code}: ${event.data.message}`);
   };
@@ -241,6 +277,30 @@ export function CopilotDrawer({
       </div>
 
       {error && <div className="notice error">{error}</div>}
+
+      {trace.length > 0 && (
+        <section className="card">
+          <h3>Lookups</h3>
+          {budget && <p className="meta">{budget}</p>}
+          <ul style={{ paddingLeft: 18 }}>
+            {trace.map((entry) => (
+              <li key={entry.callId}>
+                <code>{entry.toolName}</code> - {entry.status ?? "running"}
+                {entry.rowCount != null && ` (${entry.rowCount} rows${entry.truncated ? ", truncated" : ""})`}
+                {entry.errorCode && ` (${entry.errorCode})`}
+                {entry.executionId && <span className="muted"> {entry.executionId}</span>}
+                {entry.why && <div className="muted" style={{ fontSize: 12 }}>{entry.why}</div>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {partial && (
+        <div className="notice warn">
+          Partial answer: Kiwi stopped at its {partial} limit before finishing.
+        </div>
+      )}
 
       {answer && (
         <section className="card">

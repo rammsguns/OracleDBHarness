@@ -17,7 +17,7 @@
 
 import { ADAPTER_VERSION, type HarnessIntegrationConfig } from "./config.ts";
 
-export const PROTOCOL_VERSION = "1.0";
+export const PROTOCOL_VERSION = "1.1";
 export const SUPPORTED_PROTOCOL_MAJOR = 1;
 
 /** Categories the adapter is willing to forward. Anything else is dropped. */
@@ -78,8 +78,28 @@ export interface ContextResolver {
   resolve(actor: DataForgeActor, request: AssistRequest): Promise<ContextAttachment[]>;
 }
 
+/**
+ * Stream events this adapter understands. Protocol 1.1 added Kiwi's lookup trace
+ * (plan_step, tool_call, tool_result, budget). Anything else a newer harness sends
+ * within the same major version is dropped rather than passed to the editor.
+ */
+export const KNOWN_STREAM_EVENTS = [
+  "start",
+  "delta",
+  "proposal",
+  "usage",
+  "done",
+  "error",
+  "plan_step",
+  "tool_call",
+  "tool_result",
+  "budget",
+] as const;
+
+export type StreamEventName = (typeof KNOWN_STREAM_EVENTS)[number];
+
 export interface StreamEvent {
-  event: "start" | "delta" | "proposal" | "usage" | "done" | "error";
+  event: StreamEventName;
   data: Record<string, unknown>;
 }
 
@@ -399,8 +419,9 @@ export function parseSse(chunk: string): StreamEvent | null {
     else if (line.startsWith("data: ")) data += line.slice(6);
   }
   if (!event || !data) return null;
+  if (!(KNOWN_STREAM_EVENTS as readonly string[]).includes(event)) return null;
   try {
-    return { event: event as StreamEvent["event"], data: JSON.parse(data) };
+    return { event: event as StreamEventName, data: JSON.parse(data) };
   } catch {
     return null;
   }

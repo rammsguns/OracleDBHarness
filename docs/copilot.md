@@ -40,49 +40,55 @@ Attachment *content* is never echoed back in a preview - only its hash and size.
 
 ## What the model can and cannot do
 
-It can read the context above and produce text and proposed edits.
+It can read the context above and produce text and proposed edits. With
+`HARNESS_KIWI_ENABLED` on and a `profileId` in the request, it can also ask for
+reviewed read-only lookups (below). Nothing else.
 
-It cannot connect to a database, run a statement, commit, compile, deploy, or call a
-tool. There is no code path from a model answer to a database operation. Applying a
-proposal replaces text in an editor buffer; running the result is a separate action
-the user takes, through the ordinary authorised path.
+It cannot run free-form SQL, change data, commit, compile, deploy, or run a runbook.
+There is no code path from a model answer to a write. Applying a proposal replaces
+text in an editor buffer; running the result is a separate action the user takes,
+through the ordinary authorised path.
 
-## Planned: read-only lookups (accepted, not enabled)
+## Read-only lookups (ADR-0010, off by default)
 
-[ADR-0010](decisions.md) accepts one change to the section above, and
-[KIWI_PLAN.md](../KIWI_PLAN.md) delivers it behind `HARNESS_KIWI_ENABLED`, off by
-default. **None of it is enabled yet; everything else on this page describes the
-harness as it runs today.** The provider layer can carry tool-use turns (K-2), but no
-request offers the model a tool.
-
-When it is enabled, Kiwi may call reviewed catalog operations marked `risk: read` --
-object status, errors, source, dependencies, columns, cursor statistics, scheduler
-history and the like -- as the requesting user, on the requesting target. So:
+With `HARNESS_KIWI_ENABLED=true`, a request that names a target (`profileId`) may let
+Kiwi call catalog operations that carry `-- @kiwi: allowed` and `risk: read` -- object
+status, errors, source, dependencies, columns, cursor statistics, scheduler history and
+the like. Without the flag, or without a `profileId`, a request behaves exactly as
+before and the model is offered no tool. So, when it is on:
 
 - **Context is no longer only what the user selected.** It includes what Kiwi fetched,
-  from the same allowed categories. Each lookup appears in the stream as it happens
-  and is recorded in history with its execution id. Approve that before turning the
-  flag on.
-- **Every lookup is an ordinary operation.** It goes through the same authorisation,
-  privilege checks, limits and audit as running it from the console. A lookup the user
-  could not run, Kiwi cannot run.
+  from the same allowed categories. Approve that before turning the flag on.
+- **Every lookup is an ordinary operation.** `KiwiToolbox` runs it as the requesting
+  user through `ExecutionService`: grant, permission, privileges, version, limits. It
+  leaves an `Execution` row and an `AuditEvent`, like running it from the console. A
+  lookup the user could not run, Kiwi cannot run; the refusal goes back to the model as
+  a typed error (`not_authorized`, `policy_refused`, `invalid_request`, `not_found`),
+  never as a substitute query. Grants are checked on every call, so a grant revoked
+  mid-request stops the next lookup. Production stays observation-only.
+- **A tool the model is not offered cannot be reached.** Asking for a runbook, the
+  worksheet, `explain_plan` or any name outside the list is refused and audited.
+- **Results are data.** Rows go to the model as JSON inside
+  `BEGIN/END UNTRUSTED TOOL_RESULT` markers, capped per lookup in rows and bytes, with
+  a note when they were cut.
+- **Rows never reach the stream or the record.** The stream reports each lookup as
+  `tool_call` (tool, parameters, why) and `tool_result` (status, row count, bytes,
+  truncated, execution id); history lists each request's tool calls with their
+  execution ids.
+- **Everything is bounded.** Steps, lookups, tokens, lookup bytes and wall time per
+  request (`HARNESS_KIWI_MAX_*`, see [setup.md](setup.md)). A request that reaches one
+  ends with the answer it has: `done` carries `outcome: "partial"`, `partial: true`
+  and `stopReason`.
 - **Still never:** free-form SQL, application table rows, bind values, runbooks,
   compile, commit or deploy. The categories under *What never leaves* stay refused.
 
 ### Stream events and existing adapters
 
-Lookups will be reported with new stream events (`tool_call`, `tool_result`,
-`plan_step`, `budget`). Checked on 2026-09-29 against this repository:
-
-- The console ignores any event it does not handle, so new events are harmless to it.
-- The DataForge adapter (`integrations/dataforge/src/adapter.ts`, `readSse`) passes
-  every event through unfiltered, whatever its name, and its route relays it verbatim
-  to DataForge. What the DataForge frontend does with an unknown event is outside this
-  repository and has not been checked.
-
-So the new events can be protocol 1.1 only if the adapter filters to the events its
-version knows, or the DataForge frontend is shown to ignore unknown ones. K-3 does the
-first.
+Protocol 1.1 adds `plan_step`, `tool_call`, `tool_result` and `budget`, and
+`done.partial`/`done.stopReason`. The console shows them as a lookup trace. The
+DataForge adapter (`integrations/dataforge/src/adapter.ts`) now drops any event name
+it does not know before relaying the stream, so a later minor version cannot surprise
+the DataForge frontend; a 1.0 client that ignores unknown events keeps working.
 
 ## Untrusted content
 

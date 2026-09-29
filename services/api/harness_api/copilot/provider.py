@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import abc
 import re
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -151,7 +151,7 @@ class ToolConversation(abc.ABC):
     def pending_calls(self) -> tuple[ToolCall, ...]:
         return self._pending
 
-    async def turn(self) -> AsyncIterator[TurnEvent]:
+    async def turn(self) -> AsyncGenerator[TurnEvent, None]:
         """Stream one model turn: text deltas, then exactly one ``TurnEnd``."""
 
         if self._finished:

@@ -3,7 +3,7 @@
   "status": 200,
   "body": {
     "assistant": "Kiwi",
-    "protocolVersion": "1.0",
+    "protocolVersion": "1.1",
     "supportedProtocolMajors": [1],
     "enabled": true,
     "actions": ["explain", "diagnose", "propose", "test_block", "explain_plan", "validate"],
