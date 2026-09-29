@@ -488,22 +488,26 @@ class AnthropicConversation(ToolConversation):
     async def _run_turn(self) -> AsyncIterator[TurnEvent]:
         import anthropic
 
+        request: dict[str, Any] = {
+            "model": self._model,
+            "max_tokens": self._max_tokens,
+            "system": self._system,
+            "thinking": {"type": "adaptive"},
+            "messages": self._messages,
+        }
+        # A conversation offered no tools (an explainer's summarise and combine calls)
+        # sends none rather than an empty list.
+        if self.tools:
+            request["tools"] = [
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "input_schema": tool.input_schema,
+                }
+                for tool in self.tools
+            ]
         try:
-            async with self._client.messages.stream(
-                model=self._model,
-                max_tokens=self._max_tokens,
-                system=self._system,
-                thinking={"type": "adaptive"},
-                tools=[
-                    {
-                        "name": tool.name,
-                        "description": tool.description,
-                        "input_schema": tool.input_schema,
-                    }
-                    for tool in self.tools
-                ],
-                messages=self._messages,
-            ) as stream:
+            async with self._client.messages.stream(**request) as stream:
                 async for text in stream.text_stream:
                     yield TextDelta(text)
                 final = await stream.get_final_message()
@@ -602,6 +606,9 @@ _INJECTION_MARKERS = re.compile(
 
 
 _MULTI_PART = re.compile(r"This is a multi-part request\. Parts, in order: ([^.\n]+)\.")
+# The explainer's prompt shapes (explainer.py).
+_SUBPROGRAM_HEADER = re.compile(r"^=== SUBPROGRAM (\w+)", re.MULTILINE)
+_SUBJECT_LINE = re.compile(r"^Subject: (.+)$", re.MULTILINE)
 
 
 def _fixture_answer(user_message: str) -> str:
@@ -624,7 +631,21 @@ def _fixture_answer(user_message: str) -> str:
 
     lowered = user_message.lower()
     multi_part = _MULTI_PART.search(user_message)
-    if multi_part:
+    if user_message.startswith("Summarise these subprograms"):
+        # The explainer's per-batch call (K-6): one line per subprogram it was sent.
+        names = _SUBPROGRAM_HEADER.findall(user_message)
+        lines += [f"- {name}: canned fixture summary of {name}." for name in names]
+    elif user_message.startswith("Combine the summaries"):
+        subject = _SUBJECT_LINE.search(user_message)
+        lines += [
+            "This is a canned explanation from the fixture provider of "
+            f"{subject.group(1) if subject else 'the subject'}.",
+            "",
+            "It is assembled from the per-subprogram summaries and the lineage the "
+            "harness traced; the lineage edges carry their own evidence labels. I have "
+            "not executed or compiled anything.",
+        ]
+    elif multi_part:
         names = [name.strip() for name in multi_part.group(1).split(",") if name.strip()]
         lines += [
             "This is a canned multi-part proposal from the fixture provider. Each part "

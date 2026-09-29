@@ -147,6 +147,7 @@ async def copilot_request(
             conversation_id=payload.conversation_id,
             protocol_version=payload.protocol_version,
             profile_id=payload.profile_id,
+            subject=payload.subject,
         )
         stream = state.copilot.run(principal, ask)
         try:

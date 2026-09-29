@@ -85,7 +85,7 @@ def test_capabilities_report_readiness_without_secrets(client: TestClient, admin
     headers = integration_headers(client, administrator)
     body = client.get("/api/v1/integrations/capabilities", headers=headers).json()
     assert body["assistant"] == "Kiwi"
-    assert body["protocolVersion"] == "1.2"
+    assert body["protocolVersion"] == "1.3"
     assert body["enabled"] is True
     assert body["isFixtureProvider"] is True
     assert body["executesDatabaseOperations"] is False

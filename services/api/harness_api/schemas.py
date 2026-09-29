@@ -311,6 +311,8 @@ class CopilotRequestIn(Schema):
     # A multi-part request: each part is its own editor buffer, and a proposal built
     # from it is applied all at once or not at all.
     parts: list[EditorPartIn] = Field(default_factory=list, max_length=8)
+    # What a kiwi.explain_* action explains: OWNER.NAME or NAME.
+    subject: str = Field(default="", max_length=200)
     # Set by an adapter to say which of *its* users is acting. The harness namespaces
     # this by integration instance and never treats it as a role.
     actor_reference: str | None = Field(default=None, alias="actorReference")

@@ -12,7 +12,9 @@
         "validate",
         "kiwi.diagnose",
         "kiwi.create",
-        "kiwi.test_block"
+        "kiwi.test_block",
+        "kiwi.explain_package",
+        "kiwi.explain_process"
       ]
     },
     "contextCategory": {
@@ -116,6 +118,16 @@
           "type": "object"
         },
         {
+          "description": "Kiwi explain actions only: the nodes and edges read from the source, the catalog and the scheduler, each edge labelled with its evidence (source, inferred, catalog or scheduler), plus a Mermaid rendering.",
+          "required": [
+            "nodes",
+            "edges",
+            "mermaid"
+          ],
+          "title": "lineage",
+          "type": "object"
+        },
+        {
           "description": "Provider, model and token usage for the completed request.",
           "required": [
             "provider",
@@ -156,7 +168,7 @@
     "Kiwi's lookups are reviewed read-only catalog entries, authorised as the requesting user on every call and recorded as Executions; there is no free-form SQL, write, compile or commit.",
     "Adapters ignore stream events they do not know, so a minor version may add events."
   ],
-  "protocolVersion": "1.2",
+  "protocolVersion": "1.3",
   "supportedProtocolMajors": [
     1
   ],

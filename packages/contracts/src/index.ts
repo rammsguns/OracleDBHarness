@@ -7,7 +7,7 @@
  * fails if the API stops matching them.
  */
 
-export const PROTOCOL_VERSION = "1.2";
+export const PROTOCOL_VERSION = "1.3";
 export const SUPPORTED_PROTOCOL_MAJOR = 1;
 
 // -- shared shapes ----------------------------------------------------------------
@@ -189,7 +189,9 @@ export type CopilotAction =
   /** Kiwi playbooks (protocol 1.2). */
   | "kiwi.diagnose"
   | "kiwi.create"
-  | "kiwi.test_block";
+  | "kiwi.test_block"
+  | "kiwi.explain_package"
+  | "kiwi.explain_process";
 
 export type ContextCategory =
   | "selected_source"
@@ -244,6 +246,8 @@ export interface CopilotRequest {
   actorIsDurable?: boolean;
   /** A target the user can open. With Kiwi enabled, allows read-only lookups on it. */
   profileId?: string;
+  /** What a kiwi.explain_* action explains: OWNER.NAME or NAME (protocol 1.3). */
+  subject?: string;
 }
 
 export interface ContextPreview {
@@ -327,6 +331,30 @@ export interface KiwiBudget {
   exhausted: KiwiStopReason[];
 }
 
+export type LineageEvidence = "source" | "inferred" | "catalog" | "scheduler";
+
+export interface LineageNode {
+  id: string;
+  kind: string;
+  label: string;
+}
+
+export interface LineageEdge {
+  source: string;
+  target: string;
+  relation: string;
+  evidence: LineageEvidence;
+  detail?: string;
+}
+
+/** The lineage an explain action read; every edge carries its evidence (protocol 1.3). */
+export interface KiwiLineage {
+  nodes: LineageNode[];
+  edges: LineageEdge[];
+  mermaid: string;
+  notes: string[];
+}
+
 export type CopilotEvent =
   | { event: "start"; data: { requestId: string; protocolVersion: string; action: string; provider: string; model: string; isFixtureProvider: boolean; contextPreview: ContextPreview } }
   | { event: "delta"; data: { text: string } }
@@ -336,6 +364,7 @@ export type CopilotEvent =
   | { event: "tool_call"; data: KiwiToolCall }
   | { event: "tool_result"; data: KiwiToolResult }
   | { event: "budget"; data: KiwiBudget }
+  | { event: "lineage"; data: KiwiLineage }
   | { event: "done"; data: { requestId: string; outcome: string; latencyMs: number; partial?: boolean; stopReason?: KiwiStopReason } }
   | { event: "error"; data: HarnessErrorBody };
 

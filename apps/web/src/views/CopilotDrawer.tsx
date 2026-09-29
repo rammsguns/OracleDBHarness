@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { HarnessError, api } from "../api";
-import type { ContextAttachment, CopilotEvent, Target } from "../api";
+import type { ContextAttachment, CopilotEvent, KiwiLineage, LineageEvidence, Target } from "../api";
 
 const ACTIONS = [
   { id: "explain", label: "Explain" },
@@ -12,9 +12,21 @@ const ACTIONS = [
   { id: "kiwi.diagnose", label: "Fix a failure (playbook)" },
   { id: "kiwi.create", label: "Create a unit (playbook)" },
   { id: "kiwi.test_block", label: "Test block (playbook)" },
+  { id: "kiwi.explain_package", label: "Explain a package" },
+  { id: "kiwi.explain_process", label: "Explain a process (job or chain)" },
 ] as const;
 
 export type CopilotActionId = (typeof ACTIONS)[number]["id"];
+
+/** These read the database themselves, so they need a name, not pasted code. */
+const isExplain = (id: CopilotActionId) => id === "kiwi.explain_package" || id === "kiwi.explain_process";
+
+const EVIDENCE_HELP: Record<LineageEvidence, string> = {
+  source: "read from the source text",
+  inferred: "inferred, e.g. from dynamic SQL",
+  catalog: "reported by the data dictionary",
+  scheduler: "reported by the scheduler",
+};
 
 /** What the drawer opens with: the code, and optionally an action and an error. */
 export interface CopilotSeed {
@@ -107,6 +119,9 @@ export function CopilotDrawer({
   const [trace, setTrace] = useState<TraceEntry[]>([]);
   const [budget, setBudget] = useState<string | null>(null);
   const [partial, setPartial] = useState<string | null>(null);
+  const [subject, setSubject] = useState("");
+  const [lineage, setLineage] = useState<KiwiLineage | null>(null);
+  const [copied, setCopied] = useState(false);
   const abort = useRef<AbortController | null>(null);
 
   const targetReference = target ? `harness:${target.id}:${target.defaultSchema}` : "harness:none";
@@ -215,6 +230,8 @@ export function CopilotDrawer({
     setTrace([]);
     setBudget(null);
     setPartial(null);
+    setLineage(null);
+    setCopied(false);
     abort.current = new AbortController();
     try {
       const stream = api.copilot(
@@ -223,6 +240,7 @@ export function CopilotDrawer({
           targetReference,
           profileId: target?.id,
           userMessage: question,
+          ...(isExplain(action) ? { subject: subject.trim() } : {}),
           databaseVersion: target?.identity?.version ?? "",
           schema: target?.defaultSchema ?? "",
           attachments: attachments(),
@@ -276,10 +294,25 @@ export function CopilotDrawer({
       const b = event.data;
       setBudget(`${b.toolCalls}/${b.maxToolCalls} lookups, step ${b.steps}/${b.maxSteps}`);
     }
+    if (event.event === "lineage") setLineage(event.data);
     if (event.event === "done" && event.data.partial) {
       setPartial(event.data.stopReason ?? "budget");
     }
     if (event.event === "error") setError(`${event.data.code}: ${event.data.message}`);
+  };
+
+  const labelOf = (graph: KiwiLineage, id: string) =>
+    graph.nodes.find((node) => node.id === id)?.label ?? id;
+
+  // Only the diagram source is copied; nothing is sent anywhere.
+  const copyMermaid = async (source: string) => {
+    try {
+      await navigator.clipboard.writeText(source);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+      setError("Could not copy; select the Mermaid source below and copy it by hand.");
+    }
   };
 
   const applyParts = async () => {
@@ -378,7 +411,17 @@ export function CopilotDrawer({
           Edit several parts together (e.g. spec and body)
         </label>
 
-        {multiPart ? (
+        {isExplain(action) ? (
+          <label>
+            {action === "kiwi.explain_package" ? "Package name" : "Job or chain name"} (OWNER.NAME or NAME)
+            <input
+              aria-label="Subject"
+              placeholder={action === "kiwi.explain_package" ? "HARNESS_APP.ETL_ORDERS" : "HARNESS_APP.ETL_ORDERS_NIGHTLY"}
+              value={subject}
+              onChange={(event) => setSubject(event.target.value)}
+            />
+          </label>
+        ) : multiPart ? (
           <div className="stack">
             {parts.map((part) => (
               <label key={part.name}>
@@ -472,7 +515,11 @@ export function CopilotDrawer({
       )}
 
       <div className="toolbar">
-        <button className="primary" onClick={ask} disabled={running || !preview}>
+        <button
+          className="primary"
+          onClick={ask}
+          disabled={running || (isExplain(action) ? !subject.trim() : !preview)}
+        >
           {running ? "Asking..." : "Ask"}
         </button>
         {running && <button onClick={() => abort.current?.abort()}>Stop</button>}
@@ -509,6 +556,46 @@ export function CopilotDrawer({
           <h3>Answer</h3>
           {usage && <p className="meta">{usage}</p>}
           <div className="answer">{answer}</div>
+        </section>
+      )}
+
+      {lineage && (
+        <section className="card">
+          <h3>Lineage</h3>
+          {lineage.notes.map((note) => (
+            <div className="notice warn" key={note}>
+              {note}
+            </div>
+          ))}
+          <table>
+            <thead>
+              <tr>
+                <th>From</th>
+                <th>Relation</th>
+                <th>To</th>
+                <th>Evidence</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lineage.edges.map((edge, index) => (
+                <tr key={`${edge.source}|${edge.relation}|${edge.target}|${index}`}>
+                  <td>{labelOf(lineage, edge.source)}</td>
+                  <td>{edge.relation}</td>
+                  <td>{labelOf(lineage, edge.target)}</td>
+                  <td title={EVIDENCE_HELP[edge.evidence]}>
+                    {edge.evidence}
+                    {edge.detail && <span className="muted"> ({edge.detail})</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="toolbar">
+            <button onClick={() => void copyMermaid(lineage.mermaid)}>
+              {copied ? "Copied" : "Copy Mermaid"}
+            </button>
+          </div>
+          <pre aria-label="Mermaid source">{lineage.mermaid}</pre>
         </section>
       )}
 

@@ -153,4 +153,9 @@ def test_triggers_links_and_scheduler(
         connection, limits, "dba.scheduler_run_history", owner=owner, job_name="HARNESS_NOOP_JOB"
     )
     assert rows
+
+    columns, rows = _lookup(
+        connection, limits, "dba.scheduler_program", owner=owner, program_name="HARNESS_NOOP_PROG"
+    )
+    assert _column(columns, rows, "PROGRAM_TYPE") == ["PLSQL_BLOCK"]
     evidence.note("K-4 trigger, link and scheduler lookups", "rows as on the stand-in; no link")

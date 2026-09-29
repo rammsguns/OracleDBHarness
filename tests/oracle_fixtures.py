@@ -98,7 +98,8 @@ def run_script(connection: OracleConnection, path: Path) -> list[str]:
 
 
 def apply_fixtures(connection: OracleConnection) -> list[str]:
-    return run_script(connection, qualification_dir() / "01_fixtures.sql")
+    names = run_script(connection, qualification_dir() / "01_fixtures.sql")
+    return names + run_script(connection, qualification_dir() / "03_etl_fixtures.sql")
 
 
 #: The steps that put EMPLOYEE_REPORT back as seeded: a valid spec, an invalid body.
@@ -115,7 +116,8 @@ def reapply_steps(connection: OracleConnection, names: tuple[str, ...]) -> None:
 
 
 def drop_fixtures(connection: OracleConnection) -> list[str]:
-    return run_script(connection, qualification_dir() / "02_teardown.sql")
+    names = run_script(connection, qualification_dir() / "04_etl_teardown.sql")
+    return names + run_script(connection, qualification_dir() / "02_teardown.sql")
 
 
 #: The statement the tuning suite looks for a cached cursor of. Kept identical to

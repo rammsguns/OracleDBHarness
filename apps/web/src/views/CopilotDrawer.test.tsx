@@ -198,3 +198,49 @@ describe("Ask Kiwi to fix", () => {
     expect(screen.getByDisplayValue("1:11 PLS-00103")).toBeTruthy();
   });
 });
+
+describe("explain actions", () => {
+  const LINEAGE = {
+    nodes: [
+      { id: "n0", kind: "package", label: "HARNESS_APP.ETL_ORDERS" },
+      { id: "n1", kind: "table", label: "ETL_ORDERS_STAGE" },
+    ],
+    edges: [
+      { source: "n0", target: "n1", relation: "writes", evidence: "source", detail: "via 2 helper subprogram(s)" },
+      { source: "n1", target: "n0", relation: "fires", evidence: "catalog" },
+    ],
+    mermaid: 'flowchart LR\n  n0 -->|"writes · source"| n1',
+    notes: ["2 subprograms not summarised"],
+  };
+
+  it("asks by name, shows every edge with its evidence, and copies the Mermaid source", async () => {
+    copilot.mockImplementation(() =>
+      (async function* () {
+        yield { event: "delta", data: { text: "Explained." } };
+        yield { event: "lineage", data: LINEAGE };
+      })(),
+    );
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+
+    render(<CopilotDrawer target={target} seed={{ text: "", action: "kiwi.explain_package" }} onClose={() => undefined} />);
+    const ask = screen.getByRole("button", { name: "Ask" }) as HTMLButtonElement;
+    expect(ask.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Subject"), { target: { value: " HARNESS_APP.ETL_ORDERS " } });
+    expect(ask.disabled).toBe(false);
+    fireEvent.click(ask);
+
+    await screen.findByText("Lineage");
+    expect(copilot.mock.calls[0][0]).toMatchObject({
+      action: "kiwi.explain_package",
+      subject: "HARNESS_APP.ETL_ORDERS",
+    });
+    expect(screen.getByText("source")).toBeTruthy();
+    expect(screen.getByText("catalog")).toBeTruthy();
+    expect(screen.getByText("(via 2 helper subprogram(s))")).toBeTruthy();
+    expect(screen.getByText("2 subprograms not summarised")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy Mermaid" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(LINEAGE.mermaid));
+  });
+});

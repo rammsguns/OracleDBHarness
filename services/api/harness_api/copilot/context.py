@@ -306,6 +306,20 @@ ACTION_INSTRUCTIONS: dict[str, str] = {
         "schema.package_subprograms when you can. Report through DBMS_OUTPUT, never "
         "commit, and end with ROLLBACK so the block leaves no data behind."
     ),
+    # The explainer (K-6). The harness, not the model, walks the source, the
+    # dependencies and the scheduler; the model summarises what it is handed.
+    "kiwi.explain_package": (
+        "Explain the named package: what each public subprogram does, which helpers it "
+        "relies on, which tables it reads and writes, and anything that looks risky. "
+        "Refer to subprograms and tables by name and say what you could not see."
+    ),
+    "kiwi.explain_process": (
+        "Explain the named scheduler job end to end: what starts it, the order of its "
+        "steps and what happens on failure, what each step runs, which tables it reads "
+        "and writes, and which triggers fire along the way. Say what you could not see."
+    ),
 }
 
 ACTIONS = tuple(ACTION_INSTRUCTIONS)
+# Actions the harness runs as a bounded walk (explainer.py) rather than a tool loop.
+EXPLAIN_ACTIONS = ("kiwi.explain_package", "kiwi.explain_process")

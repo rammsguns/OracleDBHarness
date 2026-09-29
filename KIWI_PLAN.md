@@ -117,6 +117,7 @@ minimum version in the header like the rest:
 | `dba.scheduler_job_detail` | `ALL_SCHEDULER_JOBS`, `_PROGRAMS` | What a job runs, when, and as whom |
 | `dba.scheduler_chain` | `ALL_SCHEDULER_CHAIN_STEPS`, `_RULES` | Step order of a chained ETL |
 | `dba.scheduler_run_history` | `ALL_SCHEDULER_JOB_RUN_DETAILS` | Durations and failures over time, with `additional_info` treated as untrusted |
+| `dba.scheduler_program` | `ALL_SCHEDULER_PROGRAMS` | From a chain step to the PL/SQL it runs (added in K-6) |
 
 Tool results are capped per call (rows and bytes) and marked truncated when they are.
 A tool that fails for lack of privilege returns the privilege it needed, and Kiwi says
@@ -187,7 +188,7 @@ Local identifiers below are planning IDs, not GitHub issues. Each item lands beh
 | **K-3** (done 2026-09-29) | **Toolbox and agent loop.** `KiwiToolbox` over the catalog with the `@kiwi: allowed` header; policy per call; wrapping and caps on results; budgets for steps, tool calls, tokens and wall time; new stream events; history records every tool call's execution id. | Invariant tests 1-7 pass against the stand-in. A request that runs out of budget ends with a partial answer marked as partial. |
 | **K-4** (done 2026-09-29, stand-in only; 19c run pending) | **New catalog entries** from the table above, with privileges and minimum versions, qualification fixtures in `oracle/qualification/`, and PL/Scope absence handled. | Run against the stand-in and against the 19c instance used for the earlier qualification. |
 | **K-5** (done 2026-09-29) | **Issue playbooks and authoring.** `kiwi.diagnose`, `kiwi.create`, multi-part proposals for packages, standards file, "Ask Kiwi to fix" after compile. | Console and API tests for multi-part apply-check (all-or-nothing, stale part refuses the whole). |
-| **K-6** | **Package and process explainer.** Per-subprogram summarise-then-combine, dependency and scheduler walk with limits, evidence labels, Mermaid export. | Explains a 3k-line fixture package and a fixture ETL chain within budget, with every lineage edge labelled. |
+| **K-6** (done 2026-09-29) | **Package and process explainer.** Per-subprogram summarise-then-combine, dependency and scheduler walk with limits, evidence labels, Mermaid export. | Explains a 3k-line fixture package and a fixture ETL chain within budget, with every lineage edge labelled. |
 | **K-7** | **Evaluation.** Extend `tests/copilot/eval/cases.json` with a new case set version: tool-trace expectations, playbook cases, packages, ETL, injection in source and job comments that tries to call tools, privilege-denied paths, budget exhaustion. DBA review with the NP-04 runner and rubric. | All safety and authorisation cases pass; >= 90% DBA-reviewed correctness on diagnose and explain; no case where Kiwi claims something it did not look up. Then `HARNESS_KIWI_ENABLED` may default on for development targets. |
 | **K-8** | **Phase 2 decision: compile on development targets.** Only after K-7. Kiwi may compile its own draft in a separate session on a target explicitly marked `development`, never test or production, and never touch a user's worksheet session. Needs its own ADR and eval cases. | A separate go/no-go. Not assumed by K-1 to K-7. |
 
@@ -351,3 +352,30 @@ MVP_PLAN.md; if it comes, it exposes the same toolbox), and inline autocomplete.
 - **Still pending.** There has been no run against a real provider. Playbook
   behaviour is covered with the scripted provider only. The K-4 19c run is still
   pending.
+
+### 2026-09-29, K-6 package and process explainer
+
+- Two new actions: `kiwi.explain_package` and `kiwi.explain_process`, with a `subject`
+  field on the request. The harness drives the lookups within the request budget and
+  the model gets no tools (`copilot/explainer.py`).
+- **Package.** Source is read in pages, scrubbed of comments and string literals,
+  split into subprograms and summarised in batches, then combined in one final call.
+  Public subprograms roll up their helpers. Catalog references with no source edge
+  are added as `catalog` evidence.
+- **Process.** Job, chain, steps, programs and package procedures are walked from the
+  scheduler (`dba.scheduler_program` is new), then up to three packages are read and
+  the triggers on written tables are added.
+- **Evidence labels.** Every lineage edge is `source`, `inferred`, `catalog` or
+  `scheduler`. Source beats inferred beats catalog/scheduler.
+- **Mermaid.** Deterministic `flowchart LR` export, and a "Copy Mermaid" button in
+  the console.
+- **Injection.** Fixture text that reads as an instruction (EXPORT_ORDERS run 9002,
+  ETL rule 42 comment) is treated as data: it produces no lookup and no edge.
+- **Protocol 1.3.** Additive. The DataForge adapter stays on 1.1.
+- **Exit criterion.** `tests/copilot/test_kiwi_explainer.py` explains a 3k-line
+  fixture package and the ETL chain (4-5 model calls, 23-31 lookups, under budget)
+  with every edge labelled.
+- **Still pending.** No real provider has been run; the explanations in tests are the
+  fixture provider's canned text. The K-4 19c qualification run is still pending, and
+  the ETL fixture SQL has not yet been run against a real Oracle. Table access
+  detection is regex based, not a PL/SQL parse.

@@ -41,11 +41,13 @@ from harness_api.config import Settings
 from harness_api.copilot.context import (
     ACTION_INSTRUCTIONS,
     ACTIONS,
+    EXPLAIN_ACTIONS,
     KIWI_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
     ContextPolicy,
     CopilotContext,
 )
+from harness_api.copilot.explainer import Explainer
 from harness_api.copilot.provider import (
     Provider,
     ProviderUsage,
@@ -81,8 +83,9 @@ from harness_worker.errors import (
 
 # 1.1 added the Kiwi events (tool_call, tool_result, plan_step, budget) and
 # done.partial. 1.2 added multi-part requests and proposals (parts) and the kiwi.*
+# actions. 1.3 added the lineage event, the subject field and the kiwi.explain_*
 # actions. A 1.0 client that ignores fields and events it does not know keeps working.
-PROTOCOL_VERSION = "1.2"
+PROTOCOL_VERSION = "1.3"
 # The name users see. Module, route and protocol identifiers keep saying "copilot".
 ASSISTANT_NAME = "Kiwi"
 SUPPORTED_PROTOCOL_MAJOR = 1
@@ -126,6 +129,8 @@ class CopilotAsk:
     # A multi-part request, such as a package spec and body. Each part is its own
     # editor buffer; a proposal built from them applies all at once or not at all.
     parts: list[EditorReference] = field(default_factory=list)
+    # What a kiwi.explain_* action explains: OWNER.NAME or NAME.
+    subject: str = ""
 
 
 @dataclass
@@ -315,6 +320,15 @@ class CopilotService:
             },
             "standards": self._standards_capabilities(),
             "multiPartProposals": True,
+            "explainers": list(EXPLAIN_ACTIONS) if enabled else [],
+            "explainLimits": {
+                "maxToolCalls": settings.kiwi_explain_max_tool_calls,
+                "maxToolBytes": settings.kiwi_explain_max_tool_bytes,
+                "maxModelCalls": settings.kiwi_explain_max_model_calls,
+                "maxSourceLines": settings.kiwi_explain_max_source_lines,
+                "maxTokens": settings.kiwi_explain_max_tokens,
+                "maxWallSeconds": settings.kiwi_max_wall_seconds,
+            },
         }
 
     def standards(self) -> Standards | None:
@@ -450,7 +464,15 @@ class CopilotService:
             )
 
             try:
-                if kiwi:
+                if kiwi and ask.action in EXPLAIN_ACTIONS:
+                    state = self._new_explain_run(started)
+                    explainer = self._explainer(principal, ask, request_id, system, state)
+                    async for event in explainer.run(ask.action, _explain_subject(ask)):
+                        yield event
+                    yield ("lineage", explainer.lineage_event())
+                    answer = state.final_text
+                    usage = state.usage or ProviderUsage()
+                elif kiwi:
                     state = self._new_kiwi_run(started)
                     async for event in self._kiwi_loop(
                         principal, ask.profile_id, request_id, system, user_message, state
@@ -544,6 +566,46 @@ class CopilotService:
             max_wall_seconds=settings.kiwi_max_wall_seconds,
             max_tool_bytes=settings.kiwi_max_tool_bytes,
             started=started,
+        )
+
+    def _new_explain_run(self, started: float) -> _KiwiRun:
+        settings = self._settings
+        return _KiwiRun(
+            max_steps=settings.kiwi_explain_max_model_calls,
+            max_tool_calls=settings.kiwi_explain_max_tool_calls,
+            max_tokens=settings.kiwi_explain_max_tokens,
+            max_wall_seconds=settings.kiwi_max_wall_seconds,
+            max_tool_bytes=settings.kiwi_explain_max_tool_bytes,
+            started=started,
+        )
+
+    def _explainer(
+        self,
+        principal: Principal,
+        ask: CopilotAsk,
+        request_id: str,
+        system: str,
+        state: _KiwiRun,
+    ) -> Explainer:
+        default_owner = ""
+        if self._execution is not None:
+            with self._sessions() as db:
+                default_owner = load_profile(db, ask.profile_id).default_schema or ""
+
+        async def run_tool(sequence: int, call: ToolCall) -> ToolOutcome:
+            return await asyncio.to_thread(
+                self._run_tool, principal, ask.profile_id, request_id, sequence, call
+            )
+
+        return Explainer(
+            toolbox=self.toolbox(),
+            run_tool=run_tool,
+            provider=self.provider(),
+            system=system,
+            state=state,
+            default_owner=default_owner,
+            max_source_lines=self._settings.kiwi_explain_max_source_lines,
+            page_lines=self._settings.kiwi_explain_page_lines,
         )
 
     async def _kiwi_loop(
@@ -763,7 +825,8 @@ class CopilotService:
                 "This integration credential does not carry the copilot:assist scope.",
                 detail={"scopes": list(principal.integration_scopes)},
             )
-        if not ask.context.attachments and not ask.user_message.strip():
+        explaining = ask.action in EXPLAIN_ACTIONS and bool(_explain_subject(ask))
+        if not explaining and not ask.context.attachments and not ask.user_message.strip():
             raise ValidationError("A copilot request needs either selected code or a question.")
 
     def _capture_proposal(
@@ -1040,6 +1103,18 @@ class CopilotService:
                 "result is a separate action that you have to invoke yourself."
             ),
         }
+
+
+_OWNER_NAME = re.compile(r"\b([A-Za-z][\w$#]*\.[A-Za-z][\w$#]*)\b")
+
+
+def _explain_subject(ask: CopilotAsk) -> str:
+    """What to explain: the subject field, else the first OWNER.NAME in the question."""
+
+    if ask.subject.strip():
+        return ask.subject.strip()
+    hit = _OWNER_NAME.search(ask.user_message)
+    return hit.group(1) if hit else ""
 
 
 def _build_user_message(ask: CopilotAsk) -> str:

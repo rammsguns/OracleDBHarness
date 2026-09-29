@@ -1,6 +1,6 @@
 -- @id: dba.scheduler_job_detail
 -- @title: Definition of one scheduler job
--- @description: What a job runs (its action, or the program it names and that program's action), its schedule, class, state and counters. When JOB_TYPE is CHAIN, PROGRAM_NAME is the chain; read it with scheduler_chain. Only jobs the connected account can see through ALL_SCHEDULER_JOBS are found.
+-- @description: What a job runs (its action, or the program it names and that program's action), its schedule, class, state and counters. When JOB_TYPE is CHAIN, JOB_ACTION (or, on some releases, PROGRAM_NAME) names the chain; read it with scheduler_chain. Only jobs the connected account can see through ALL_SCHEDULER_JOBS are found.
 -- @capabilities: all_objects
 -- @risk: read
 -- @kiwi: allowed

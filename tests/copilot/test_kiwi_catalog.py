@@ -31,6 +31,7 @@ K4_ENTRIES = {
     "dba.scheduler_job_detail",
     "dba.scheduler_chain",
     "dba.scheduler_run_history",
+    "dba.scheduler_program",
 }
 
 
@@ -118,6 +119,11 @@ def test_line_bounds_are_offered_as_integers(execution: ExecutionService, settin
             "dba.scheduler_run_history",
             {"owner": "HARNESS_APP", "job_name": "HARNESS_NOOP_JOB"},
             "SUCCEEDED",
+        ),
+        (
+            "dba.scheduler_program",
+            {"owner": "HARNESS_APP", "program_name": "ETL_PUBLISH_PROG"},
+            "etl_orders.publish",
         ),
     ],
 )

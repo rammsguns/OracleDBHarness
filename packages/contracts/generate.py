@@ -82,6 +82,14 @@ STREAM_EVENTS = {
         ),
         "required": ["steps", "maxSteps", "toolCalls", "maxToolCalls", "exhausted"],
     },
+    "lineage": {
+        "description": (
+            "Kiwi explain actions only: the nodes and edges read from the source, the "
+            "catalog and the scheduler, each edge labelled with its evidence (source, "
+            "inferred, catalog or scheduler), plus a Mermaid rendering."
+        ),
+        "required": ["nodes", "edges", "mermaid"],
+    },
     "usage": {
         "description": "Provider, model and token usage for the completed request.",
         "required": ["provider", "model"],

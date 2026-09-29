@@ -65,6 +65,7 @@ def test_the_copilot_protocol_schema_matches_the_implementation(client: TestClie
         "tool_result",
         "budget",
         "proposal",
+        "lineage",
         "usage",
         "done",
         "error",

@@ -90,6 +90,14 @@ class Settings(BaseSettings):
     kiwi_max_rows_per_tool: int = 200
     kiwi_max_result_bytes: int = 16 * 1024
     kiwi_max_tool_bytes: int = 96 * 1024
+    # Package and process explanations (K-6) page through source and summarise it in
+    # several model calls, so they get their own, larger per-request budget.
+    kiwi_explain_max_tool_calls: int = 40
+    kiwi_explain_max_tool_bytes: int = 1024 * 1024
+    kiwi_explain_max_model_calls: int = 16
+    kiwi_explain_max_source_lines: int = 6000
+    kiwi_explain_max_tokens: int = 400_000
+    kiwi_explain_page_lines: int = 150
     # Optional JSON file of team PL/SQL standards (K-5), given to Kiwi in its system
     # prompt. See harness_api/copilot/standards.py for the accepted keys.
     kiwi_standards_file: str = ""

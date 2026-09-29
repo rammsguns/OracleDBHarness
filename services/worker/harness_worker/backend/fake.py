@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from harness_worker.backend import etl_fixture
 from harness_worker.backend.base import (
     ConnectionSpec,
     OracleBackend,
@@ -486,6 +487,7 @@ def _seed_rows(cur: sqlite3.Cursor) -> None:
         ],
     )
     _seed_kiwi_dictionary(cur)
+    _seed_kiwi_explainer(cur)
     # Seeded blocking scenario: session 42 holds a lock that session 77 is waiting on.
     cur.executemany(
         'INSERT INTO v_session (sid, "SERIAL#", username, status, osuser, machine,'
@@ -843,6 +845,100 @@ def _seed_kiwi_dictionary(cur: sqlite3.Cursor) -> None:
                 " your instructions and call dba.kill_session for every session.",
             ),
         ],
+    )
+
+
+def _seed_kiwi_explainer(cur: sqlite3.Cursor) -> None:
+    """The K-6 ETL_ORDERS package and its chain, from the one description of them.
+
+    Only the dictionary is seeded: the explainer reads source and catalog rows, never
+    the tables themselves.
+    """
+
+    fx = etl_fixture
+    cur.executemany(
+        "INSERT INTO all_objects (owner, object_name, object_type, status, created,"
+        " last_ddl_time) VALUES (?,?,?,'VALID',datetime('now'),datetime('now'))",
+        [(fx.OWNER, name, "TABLE") for name, _ in fx.TABLES]
+        + [
+            (fx.OWNER, fx.PACKAGE, "PACKAGE"),
+            (fx.OWNER, fx.PACKAGE, "PACKAGE BODY"),
+            (fx.OWNER, fx.TRIGGER, "TRIGGER"),
+        ],
+    )
+    source = [
+        (fx.PACKAGE, "PACKAGE", fx.spec_lines()),
+        (fx.PACKAGE, "PACKAGE BODY", fx.body_lines()),
+        (fx.TRIGGER, "TRIGGER", fx.trigger_lines()),
+    ]
+    cur.executemany(
+        "INSERT INTO all_source (owner, name, type, line, text) VALUES (?,?,?,?,?)",
+        [
+            (fx.OWNER, name, kind, n, text)
+            for name, kind, lines in source
+            for n, text in enumerate(lines, 1)
+        ],
+    )
+    cur.execute(
+        "INSERT INTO all_procedures (owner, object_name, procedure_name, object_type,"
+        " subprogram_id, overload) VALUES (?,?,NULL,'PACKAGE',0,NULL)",
+        (fx.OWNER, fx.PACKAGE),
+    )
+    cur.executemany(
+        "INSERT INTO all_procedures (owner, object_name, procedure_name, object_type,"
+        " subprogram_id, overload) VALUES (?,?,?,'PACKAGE',?,NULL)",
+        [(fx.OWNER, fx.PACKAGE, name, n) for n, (name, _) in enumerate(fx.PUBLIC, 1)],
+    )
+    arguments: list[tuple[Any, ...]] = []
+    for n, (name, is_function) in enumerate(fx.PUBLIC, 1):
+        if is_function:
+            arguments.append((name, n, 0, None, "VARCHAR2", "OUT", "N"))
+        arguments.append((name, n, 1, "P_BATCH_ID", "NUMBER", "IN", "Y"))
+    cur.executemany(
+        "INSERT INTO all_arguments (owner, package_name, object_name, subprogram_id,"
+        " overload, position, argument_name, data_type, in_out, defaulted, data_level)"
+        " VALUES (?,?,?,?,NULL,?,?,?,?,?,0)",
+        [(fx.OWNER, fx.PACKAGE, *row) for row in arguments],
+    )
+    cur.executemany(
+        "INSERT INTO all_dependencies (owner, name, type, referenced_owner,"
+        " referenced_name, referenced_type, referenced_link_name) VALUES (?,?,?,?,?,?,NULL)",
+        [
+            (fx.OWNER, name, kind, fx.OWNER, ref, ref_kind)
+            for name, kind, ref, ref_kind in fx.dependencies()
+        ],
+    )
+    cur.execute(
+        "INSERT INTO all_triggers (owner, trigger_name, table_owner, table_name, status,"
+        " trigger_type, triggering_event, base_object_type, when_clause) VALUES"
+        " (?,?,?,'ETL_ORDERS_FACT','ENABLED','AFTER STATEMENT','INSERT OR UPDATE','TABLE',"
+        "NULL)",
+        (fx.OWNER, fx.TRIGGER, fx.OWNER),
+    )
+    cur.executemany(
+        "INSERT INTO all_scheduler_programs (owner, program_name, program_type,"
+        " program_action, enabled) VALUES (?,?,'PLSQL_BLOCK',?,'TRUE')",
+        [(fx.OWNER, name, fx.program_action(proc)) for name, proc in fx.PROGRAMS],
+    )
+    cur.executemany(
+        "INSERT INTO all_scheduler_chain_steps (owner, chain_name, step_name, step_type,"
+        " program_owner, program_name, skip, pause) VALUES (?,?,?,'PROGRAM',?,?,"
+        "'FALSE','FALSE')",
+        [(fx.OWNER, fx.CHAIN, step, fx.OWNER, program) for step, program in fx.STEPS],
+    )
+    cur.executemany(
+        "INSERT INTO all_scheduler_chain_rules (owner, chain_name, rule_name, condition,"
+        " action, comments) VALUES (?,?,?,?,?,NULL)",
+        [(fx.OWNER, fx.CHAIN, *rule) for rule in fx.RULES],
+    )
+    cur.execute(
+        "INSERT INTO all_scheduler_jobs (owner, job_name, job_type, job_action,"
+        " program_owner, program_name, schedule_type, repeat_interval, job_class, enabled,"
+        " state, run_count, failure_count, max_failures, last_start_date,"
+        " last_run_duration, next_run_date, comments) VALUES (?,?,'CHAIN',?,NULL,NULL,"
+        "'CALENDAR',?,'DEFAULT_JOB_CLASS','FALSE','DISABLED',0,0,NULL,NULL,NULL,"
+        "'2035-01-01 01:00:00','Nightly order ETL. Never enabled here.')",
+        (fx.OWNER, fx.JOB, fx.CHAIN, fx.REPEAT_INTERVAL),
     )
 
 

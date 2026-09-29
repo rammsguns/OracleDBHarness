@@ -14,12 +14,13 @@ import re
 
 import pytest
 
+from harness_worker.backend import etl_fixture
 from harness_worker.catalog import load_catalog
 from harness_worker.statement import classify
 from harness_worker.types import StatementKind
 from tests.oracle_fixtures import Step, parse_script, qualification_dir
 
-SCRIPTS = ["01_fixtures.sql", "02_teardown.sql"]
+SCRIPTS = ["01_fixtures.sql", "02_teardown.sql", "03_etl_fixtures.sql", "04_etl_teardown.sql"]
 
 
 def _object_names(steps: list[Step], prefix_pattern: str) -> set[str]:
@@ -63,7 +64,11 @@ def test_a_plsql_block_keeps_its_terminating_semicolon(name: str) -> None:
             )
 
 
-def test_the_fixtures_and_the_teardown_agree_on_what_exists() -> None:
+@pytest.mark.parametrize(
+    ("setup", "teardown"),
+    [("01_fixtures.sql", "02_teardown.sql"), ("03_etl_fixtures.sql", "04_etl_teardown.sql")],
+)
+def test_the_fixtures_and_the_teardown_agree_on_what_exists(setup: str, teardown: str) -> None:
     """Everything the setup creates has a matching drop.
 
     A fixture left behind changes the result of the next run, and the tests that
@@ -72,19 +77,48 @@ def test_the_fixtures_and_the_teardown_agree_on_what_exists() -> None:
     """
 
     created = _object_names(
-        parse_script(qualification_dir() / "01_fixtures.sql"),
+        parse_script(qualification_dir() / setup),
         r"CREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|TRIGGER|PACKAGE\s+BODY|PACKAGE|PROCEDURE|FUNCTION)\s+",
     )
     dropped = _object_names(
-        parse_script(qualification_dir() / "02_teardown.sql"),
+        parse_script(qualification_dir() / teardown),
         r"DROP\s+(?:TABLE|TRIGGER|PACKAGE\s+BODY|PACKAGE|PROCEDURE|FUNCTION)\s+",
     )
     assert created, "No CREATE statements were found; the pattern is wrong."
     missing = created - dropped
     assert not missing, (
-        f"01_fixtures.sql creates {sorted(missing)} but 02_teardown.sql never drops "
+        f"{setup} creates {sorted(missing)} but {teardown} never drops "
         "them. They would survive into the next run."
     )
+
+
+@pytest.mark.parametrize("name", sorted(etl_fixture.SCRIPTS))
+def test_the_generated_etl_scripts_match_their_generator(name: str) -> None:
+    committed = (qualification_dir() / name).read_text(encoding="utf-8")
+    assert committed == etl_fixture.SCRIPTS[name](), (
+        f"{name} is out of date. Run: python -m harness_worker.backend.etl_fixture"
+    )
+
+
+def test_the_etl_package_is_big_enough_and_survives_the_applier() -> None:
+    """K-6's exit criterion needs a 3,000-line package, line for line on both sides.
+
+    The applier drops whole-line ``--`` comments, which would shift every line
+    number after them, so the source uses ``/* */`` only. Short lines keep a page of
+    source readable in a tool result.
+    """
+
+    body = etl_fixture.body_lines()
+    assert len(body) >= etl_fixture.MIN_BODY_LINES
+    everything = etl_fixture.spec_lines() + body + etl_fixture.trigger_lines()
+    assert max(len(line) for line in everything) <= etl_fixture.MAX_LINE
+    assert not [line for line in everything if line.lstrip().startswith("--")]
+    step = next(
+        s
+        for s in parse_script(qualification_dir() / "03_etl_fixtures.sql")
+        if s.name == "etl_package_body"
+    )
+    assert step.sql.removeprefix("CREATE OR REPLACE ").splitlines() == body
 
 
 def test_the_qualification_scripts_are_not_loaded_as_operations() -> None:

@@ -431,6 +431,12 @@
             "title": "Schema",
             "type": "string"
           },
+          "subject": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Subject",
+            "type": "string"
+          },
           "targetReference": {
             "title": "Targetreference",
             "type": "string"

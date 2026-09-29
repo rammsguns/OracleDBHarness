@@ -63,6 +63,10 @@ class ToolOutcome:
     truncated: bool = False
     error_code: str = ""
     content: str = ""
+    # The rows the model was sent, for callers that read results themselves (the K-6
+    # explainer). Never put in the stream event.
+    columns: list[str] = field(default_factory=list)
+    rows: list[list[Any]] = field(default_factory=list)
 
     @property
     def is_error(self) -> bool:
@@ -223,6 +227,8 @@ class KiwiToolbox:
         payload, rows_sent, byte_capped = self._serialise(columns, rows)
         outcome.status = "succeeded"
         outcome.row_count = rows_sent
+        outcome.columns = columns
+        outcome.rows = [list(row) for row in rows[:rows_sent]]
         outcome.truncated = truncated or byte_capped
         note = ""
         if outcome.truncated:

@@ -101,6 +101,36 @@ additive: a request without `parts` behaves exactly as in 1.1. The DataForge ada
 still announces 1.1 on purpose. A minor version is compatible, and the adapter never
 sends `parts`, so it never receives a multi-part proposal.
 
+Protocol 1.3 (K-6) adds `kiwi.explain_package` and `kiwi.explain_process`, the
+`subject` field on a request (`OWNER.NAME` or `NAME`) and the `lineage` event. It is
+additive; the DataForge adapter stays on 1.1.
+
+### Package and process explainer (K-6)
+
+The explain actions are harness-driven: the harness chooses and bounds every catalog
+lookup, and the model gets no tools. Source reaches the model only inside
+`BEGIN UNTRUSTED SOURCE` and `BEGIN UNTRUSTED SUMMARIES` markers.
+
+- **Package.** The body is read in pages, scrubbed of comments and string literals,
+  and split into subprograms. Subprograms are summarised in batches (one model call
+  per batch), then one final call combines the summaries. One model call is always
+  kept back for the combine step.
+- **Process.** A scheduler job is followed to its chain or program, then through the
+  chain steps to the programs they run, then to the package procedures those call.
+  Up to three packages are read. Triggers on the tables written are read as well.
+- **Limits.** The existing request budget applies (model calls, lookups, bytes,
+  tokens, wall time). When it runs out the answer is partial, the `done` event says
+  `partial`, and the lineage notes say which subprograms were "not summarised".
+- **Lineage.** The `lineage` event carries `nodes`, `edges`, `mermaid` and `notes`.
+  Every edge has an `evidence` label: `source` (read from source text), `inferred`
+  (for example dynamic SQL), `catalog` (data dictionary) or `scheduler`. If the same
+  edge arises twice, source wins over inferred, and inferred over catalog/scheduler.
+  Comments are stripped before scanning, so a table named in a comment is not an edge.
+- **Mermaid.** The export is deterministic (`flowchart LR`, ids `n0...`, labels
+  `relation · evidence`). The console has a "Copy Mermaid" button.
+- **What it is not.** Table access is found by pattern matching against the tables the
+  catalog reports; it is not a full PL/SQL parse. Nothing is executed or compiled.
+
 ## Untrusted content
 
 Source comments, object comments, error text and anything else retrieved from a
