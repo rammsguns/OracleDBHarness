@@ -148,7 +148,9 @@ INSERT ALL
     -- The d suffix makes the largest double a BINARY_DOUBLE literal. Without it
     -- Oracle parses a NUMBER, whose range ends near 1E126: ORA-01426.
     VALUES (1, 2147483647, 1234567890.0123456789, 1.7976931348623157E308d,
-            'plain ascii', N'こんにちは — café — مرحبا',
+            'plain ascii', -- UNISTR escapes, not an N'...' literal: a literal is converted through the database
+            -- character set first, so on a non-Unicode database it arrives as inverted question marks.
+            UNISTR('\3053\3093\306B\3061\306F \2014 caf\00E9 \2014 \0645\0631\062D\0628\0627'),
             DATE '2026-02-28',
             TIMESTAMP '2026-03-01 12:34:56.789012',
             TIMESTAMP '2026-03-01 12:34:56.789012 -08:00',
