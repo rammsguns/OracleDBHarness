@@ -11,16 +11,26 @@ Two guarantees this module is responsible for:
   separate, separately authorised action.
 * A proposal is pinned to the document revision it was generated from. If the
   document moved, the apply check refuses it rather than overwriting newer work.
+
+With ``HARNESS_KIWI_ENABLED`` and a ``profileId``, a request becomes a bounded tool-use
+loop (KIWI_PLAN.md, K-3): the model may ask for reviewed read-only catalog lookups,
+which ``KiwiToolbox`` runs as the requesting user through the execution service. Every
+lookup is streamed as ``tool_call``/``tool_result`` and recorded with its execution id;
+rows go to the model only, never into the stream or the record. Steps, tool calls,
+tokens, lookup bytes and wall time are all capped, and a request that reaches a cap
+ends with what it has, marked as partial.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
+import json
 import re
 import time
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -31,15 +41,38 @@ from harness_api.config import Settings
 from harness_api.copilot.context import (
     ACTION_INSTRUCTIONS,
     ACTIONS,
+    EXPLAIN_ACTIONS,
+    KIWI_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
     ContextPolicy,
     CopilotContext,
 )
-from harness_api.copilot.provider import Provider, create_provider
-from harness_api.models import CopilotBudget, CopilotRequest, ProposedEdit, new_id
+from harness_api.copilot.explainer import Explainer
+from harness_api.copilot.provider import (
+    Provider,
+    ProviderUsage,
+    TextDelta,
+    ToolCall,
+    ToolConversation,
+    ToolResult,
+    TurnEnd,
+    create_provider,
+)
+from harness_api.copilot.standards import Standards, load_standards
+from harness_api.copilot.toolbox import KiwiToolbox, ToolOutcome
+from harness_api.execution import ExecutionService, load_grant, load_profile
+from harness_api.models import (
+    CopilotBudget,
+    CopilotRequest,
+    CopilotToolCall,
+    ProposedEdit,
+    ProposedEditPart,
+    new_id,
+)
 from harness_api.secrets import SecretResolver
 from harness_api.security import Principal
 from harness_worker.errors import (
+    ConfigurationError,
     HarnessError,
     LimitExceededError,
     NotFoundError,
@@ -48,10 +81,23 @@ from harness_worker.errors import (
     ValidationError,
 )
 
-PROTOCOL_VERSION = "1.0"
+# 1.1 added the Kiwi events (tool_call, tool_result, plan_step, budget) and
+# done.partial. 1.2 added multi-part requests and proposals (parts) and the kiwi.*
+# actions. 1.3 added the lineage event, the subject field and the kiwi.explain_*
+# actions. A 1.0 client that ignores fields and events it does not know keeps working.
+PROTOCOL_VERSION = "1.3"
+# The name users see. Module, route and protocol identifiers keep saying "copilot".
+ASSISTANT_NAME = "Kiwi"
 SUPPORTED_PROTOCOL_MAJOR = 1
 
+# The parameters echoed in a tool_call event are the model's own words; keep them short.
+_MAX_EVENT_PARAMETER_BYTES = 2048
+
 _FENCED_BLOCK = re.compile(r"```(?:sql|plsql)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
+# A block labelled for one part of a multi-part proposal: ```plsql part=spec
+_PART_BLOCK = re.compile(
+    r"```(?:sql|plsql)?[ \t]+part=([A-Za-z0-9_-]+)[ \t]*\n(.*?)```", re.DOTALL | re.IGNORECASE
+)
 
 
 @dataclass
@@ -61,6 +107,8 @@ class EditorReference:
     editor_id: str = ""
     revision: str = ""
     text: str = ""
+    # The part name, for one buffer of a multi-part request ("spec", "body").
+    part: str = ""
 
     @property
     def hash(self) -> str:
@@ -76,6 +124,77 @@ class CopilotAsk:
     editor: EditorReference
     conversation_id: str = ""
     protocol_version: str = PROTOCOL_VERSION
+    # The target Kiwi may look things up on. Ignored unless HARNESS_KIWI_ENABLED.
+    profile_id: str = ""
+    # A multi-part request, such as a package spec and body. Each part is its own
+    # editor buffer; a proposal built from them applies all at once or not at all.
+    parts: list[EditorReference] = field(default_factory=list)
+    # What a kiwi.explain_* action explains: OWNER.NAME or NAME.
+    subject: str = ""
+
+
+@dataclass
+class _KiwiRun:
+    """What one Kiwi request has spent so far, and how it ended."""
+
+    max_steps: int
+    max_tool_calls: int
+    max_tokens: int
+    max_wall_seconds: float
+    max_tool_bytes: int
+    started: float
+    steps: int = 0
+    tool_calls: int = 0
+    tool_bytes: int = 0
+    tokens: int = 0
+    exhausted: list[str] = field(default_factory=list)
+    final_text: str = ""
+    usage: ProviderUsage | None = None
+
+    @property
+    def elapsed(self) -> float:
+        return time.perf_counter() - self.started
+
+    @property
+    def partial(self) -> bool:
+        return bool(self.exhausted)
+
+    def exhaust(self, reason: str) -> None:
+        if reason not in self.exhausted:
+            self.exhausted.append(reason)
+
+    def out_of_turns(self) -> str | None:
+        """Which bound, if any, forbids another model turn."""
+
+        if self.steps >= self.max_steps:
+            return "steps"
+        if self.tokens >= self.max_tokens:
+            return "tokens"
+        if self.elapsed >= self.max_wall_seconds:
+            return "wall_time"
+        return None
+
+    def out_of_lookups(self) -> str | None:
+        if self.tool_calls >= self.max_tool_calls:
+            return "tool_calls"
+        if self.tool_bytes >= self.max_tool_bytes:
+            return "tool_bytes"
+        return None
+
+    def event(self) -> dict[str, Any]:
+        return {
+            "steps": self.steps,
+            "maxSteps": self.max_steps,
+            "toolCalls": self.tool_calls,
+            "maxToolCalls": self.max_tool_calls,
+            "tokens": self.tokens,
+            "maxTokens": self.max_tokens,
+            "elapsedSeconds": round(self.elapsed, 3),
+            "maxWallSeconds": self.max_wall_seconds,
+            "toolBytes": self.tool_bytes,
+            "maxToolBytes": self.max_tool_bytes,
+            "exhausted": list(self.exhausted),
+        }
 
 
 class CopilotService:
@@ -85,12 +204,16 @@ class CopilotService:
         session_factory: sessionmaker[Session],
         *,
         provider: Provider | None = None,
+        execution: ExecutionService | None = None,
     ) -> None:
         self._settings = settings
         self._sessions = session_factory
         self._policy = ContextPolicy(max_bytes=settings.copilot_max_context_bytes)
         self._provider = provider
         self._secrets = SecretResolver(settings.secret_dir)
+        self._execution = execution
+        self._toolbox: KiwiToolbox | None = None
+        self._standards: tuple[Standards | None] | None = None
 
     # -- capabilities ---------------------------------------------------------------
 
@@ -101,6 +224,19 @@ class CopilotService:
     @property
     def context_policy(self) -> ContextPolicy:
         return self._policy
+
+    @property
+    def kiwi_enabled(self) -> bool:
+        """Whether requests naming a target may make read-only lookups."""
+
+        return self.enabled and self._settings.kiwi_enabled and self._execution is not None
+
+    def toolbox(self) -> KiwiToolbox:
+        if self._execution is None:
+            raise ConfigurationError("Kiwi's lookups need the execution service.")
+        if self._toolbox is None:
+            self._toolbox = KiwiToolbox(self._execution, self._settings)
+        return self._toolbox
 
     def provider(self) -> Provider:
         if self._provider is None:
@@ -142,6 +278,7 @@ class CopilotService:
             except HarnessError as exc:
                 provider_detail = exc.message
         return {
+            "assistant": ASSISTANT_NAME,
             "protocolVersion": PROTOCOL_VERSION,
             "supportedProtocolMajors": [SUPPORTED_PROTOCOL_MAJOR],
             "enabled": self.enabled,
@@ -156,9 +293,58 @@ class CopilotService:
                 "userDailyRequests": self._settings.copilot_user_daily_requests,
             },
             "contextCategories": self._policy.allowed_categories,
+            # Proposals are never run. Kiwi's lookups are described under "kiwi".
             "executesDatabaseOperations": False,
             "requiredAdapterVersion": ">=0.1.0",
+            "kiwi": self._kiwi_capabilities(),
         }
+
+    def _kiwi_capabilities(self) -> dict[str, Any]:
+        settings = self._settings
+        enabled = self.kiwi_enabled
+        return {
+            "enabled": enabled,
+            "readOnlyLookups": True,
+            "needsProfileId": True,
+            "tools": (
+                sorted(spec.operation_id for spec in self.toolbox().entries()) if enabled else []
+            ),
+            "limits": {
+                "maxSteps": settings.kiwi_max_steps,
+                "maxToolCalls": settings.kiwi_max_tool_calls,
+                "maxTokens": settings.kiwi_max_tokens,
+                "maxWallSeconds": settings.kiwi_max_wall_seconds,
+                "maxRowsPerTool": settings.kiwi_max_rows_per_tool,
+                "maxResultBytes": settings.kiwi_max_result_bytes,
+                "maxToolBytes": settings.kiwi_max_tool_bytes,
+            },
+            "standards": self._standards_capabilities(),
+            "multiPartProposals": True,
+            "explainers": list(EXPLAIN_ACTIONS) if enabled else [],
+            "explainLimits": {
+                "maxToolCalls": settings.kiwi_explain_max_tool_calls,
+                "maxToolBytes": settings.kiwi_explain_max_tool_bytes,
+                "maxModelCalls": settings.kiwi_explain_max_model_calls,
+                "maxSourceLines": settings.kiwi_explain_max_source_lines,
+                "maxTokens": settings.kiwi_explain_max_tokens,
+                "maxWallSeconds": settings.kiwi_max_wall_seconds,
+            },
+        }
+
+    def standards(self) -> Standards | None:
+        """The team standards file, read once. A bad file fails every request."""
+
+        if self._standards is None:
+            loaded = load_standards(self._settings.kiwi_standards_file)
+            self._standards = (loaded,)
+        return self._standards[0]
+
+    def _standards_capabilities(self) -> dict[str, Any]:
+        try:
+            standards = self.standards()
+        except HarnessError as exc:
+            return {"configured": True, "keys": [], "error": exc.message}
+        return {"configured": standards is not None, "keys": standards.keys if standards else []}
 
     def check_protocol(self, version: str) -> None:
         major = version.split(".", 1)[0]
@@ -206,9 +392,21 @@ class CopilotService:
 
         try:
             self._validate(principal, ask)
+            # A bad standards file fails here, as a typed error, before anything is spent.
+            standards = self.standards()
         except HarnessError as exc:
             yield ("error", exc.as_dict())
             return
+
+        kiwi = self.kiwi_enabled and bool(ask.profile_id)
+        if kiwi:
+            # Fail closed before anything is spent: lookups run as this user on this
+            # target, so a user who could not open it in the console cannot ask Kiwi to.
+            try:
+                self._check_kiwi_access(principal, ask.profile_id)
+            except HarnessError as exc:
+                yield ("error", exc.as_dict())
+                return
 
         with self._sessions() as db:
             try:
@@ -238,8 +436,12 @@ class CopilotService:
         collected: list[str] = []
         outcome = "succeeded"
         error_code = ""
+        state: _KiwiRun | None = None
+        done_extra: dict[str, Any] = {}
         try:
-            system = SYSTEM_PROMPT
+            system = KIWI_SYSTEM_PROMPT if kiwi else SYSTEM_PROMPT
+            if standards is not None:
+                system += "\n" + standards.render()
             user_message = _build_user_message(ask)
             if self._settings.copilot_log_prompts:
                 with self._sessions() as db:
@@ -262,10 +464,29 @@ class CopilotService:
             )
 
             try:
-                provider = self.provider()
-                async for chunk in provider.stream(system, user_message):
-                    collected.append(chunk)
-                    yield ("delta", {"text": chunk})
+                if kiwi and ask.action in EXPLAIN_ACTIONS:
+                    state = self._new_explain_run(started)
+                    explainer = self._explainer(principal, ask, request_id, system, state)
+                    async for event in explainer.run(ask.action, _explain_subject(ask)):
+                        yield event
+                    yield ("lineage", explainer.lineage_event())
+                    answer = state.final_text
+                    usage = state.usage or ProviderUsage()
+                elif kiwi:
+                    state = self._new_kiwi_run(started)
+                    async for event in self._kiwi_loop(
+                        principal, ask.profile_id, request_id, system, user_message, state
+                    ):
+                        yield event
+                    answer = state.final_text
+                    usage = state.usage or ProviderUsage()
+                else:
+                    provider = self.provider()
+                    async for chunk in provider.stream(system, user_message):
+                        collected.append(chunk)
+                        yield ("delta", {"text": chunk})
+                    answer = "".join(collected)
+                    usage = provider.usage()
             except ProviderError as exc:
                 outcome, error_code = "provider_failure", exc.code
                 yield ("error", exc.as_dict())
@@ -273,30 +494,292 @@ class CopilotService:
                 outcome, error_code = "failed", exc.code
                 yield ("error", exc.as_dict())
             else:
-                answer = "".join(collected)
                 proposal = self._capture_proposal(request_id, ask, answer)
                 if proposal is not None:
                     yield ("proposal", proposal)
-                usage = provider.usage()
                 yield ("usage", usage.as_dict())
+                if state is not None and state.partial:
+                    # The answer is what the model managed within its bounds. It is
+                    # delivered, and marked, rather than dropped or passed off as whole.
+                    outcome = "partial"
+                    done_extra = {"partial": True, "stopReason": ",".join(state.exhausted)}
 
-            latency_ms = self._finalise(request_id, outcome, error_code, started)
+            latency_ms = self._finalise(
+                request_id,
+                outcome,
+                error_code,
+                started,
+                usage=state.usage if state is not None else None,
+            )
         except (GeneratorExit, asyncio.CancelledError):
             # The caller walked away mid-stream, so the generator is being closed at
             # one of the yields above. Nothing may be awaited here, but the record is
             # written synchronously, so the request still reaches a terminal state
             # rather than staying 'running' for ever.
-            self._finalise(request_id, "cancelled", "client_disconnected", started)
+            self._finalise(
+                request_id,
+                "cancelled",
+                "client_disconnected",
+                started,
+                usage=state.usage if state is not None else None,
+            )
             raise
         except BaseException:
             self._finalise(request_id, "failed", error_code or "internal_error", started)
             raise
 
         # Once the terminal record is saved, closing at 'done' must not overwrite it.
-        yield ("done", {"requestId": request_id, "outcome": outcome, "latencyMs": latency_ms})
+        yield (
+            "done",
+            {"requestId": request_id, "outcome": outcome, "latencyMs": latency_ms, **done_extra},
+        )
 
-    def _finalise(self, request_id: str, outcome: str, error_code: str, started: float) -> int:
-        """Write the terminal record for one request and return its latency."""
+    # -- Kiwi: bounded read-only lookups ------------------------------------------------
+
+    def _check_kiwi_access(self, principal: Principal, profile_id: str) -> None:
+        """The console's own gate for opening a target. Refusals are audited."""
+
+        assert self._execution is not None
+        with self._sessions() as db:
+            try:
+                profile = load_profile(db, profile_id)
+                self._execution.policy.require_grant(
+                    principal, profile, load_grant(db, principal, profile_id)
+                )
+            except HarnessError as exc:
+                self._execution.audit_refusal(
+                    db,
+                    principal,
+                    operation_id="copilot.kiwi",
+                    profile_id=None if isinstance(exc, NotFoundError) else profile_id,
+                    error=exc,
+                )
+                db.commit()
+                raise
+
+    def _new_kiwi_run(self, started: float) -> _KiwiRun:
+        settings = self._settings
+        return _KiwiRun(
+            max_steps=settings.kiwi_max_steps,
+            max_tool_calls=settings.kiwi_max_tool_calls,
+            max_tokens=settings.kiwi_max_tokens,
+            max_wall_seconds=settings.kiwi_max_wall_seconds,
+            max_tool_bytes=settings.kiwi_max_tool_bytes,
+            started=started,
+        )
+
+    def _new_explain_run(self, started: float) -> _KiwiRun:
+        settings = self._settings
+        return _KiwiRun(
+            max_steps=settings.kiwi_explain_max_model_calls,
+            max_tool_calls=settings.kiwi_explain_max_tool_calls,
+            max_tokens=settings.kiwi_explain_max_tokens,
+            max_wall_seconds=settings.kiwi_max_wall_seconds,
+            max_tool_bytes=settings.kiwi_explain_max_tool_bytes,
+            started=started,
+        )
+
+    def _explainer(
+        self,
+        principal: Principal,
+        ask: CopilotAsk,
+        request_id: str,
+        system: str,
+        state: _KiwiRun,
+    ) -> Explainer:
+        default_owner = ""
+        if self._execution is not None:
+            with self._sessions() as db:
+                default_owner = load_profile(db, ask.profile_id).default_schema or ""
+
+        async def run_tool(sequence: int, call: ToolCall) -> ToolOutcome:
+            return await asyncio.to_thread(
+                self._run_tool, principal, ask.profile_id, request_id, sequence, call
+            )
+
+        return Explainer(
+            toolbox=self.toolbox(),
+            run_tool=run_tool,
+            provider=self.provider(),
+            system=system,
+            state=state,
+            default_owner=default_owner,
+            max_source_lines=self._settings.kiwi_explain_max_source_lines,
+            page_lines=self._settings.kiwi_explain_page_lines,
+        )
+
+    async def _kiwi_loop(
+        self,
+        principal: Principal,
+        profile_id: str,
+        request_id: str,
+        system: str,
+        user_message: str,
+        state: _KiwiRun,
+    ) -> AsyncGenerator[tuple[str, dict[str, Any]], None]:
+        """Alternate model turns and lookups until an answer or a bound.
+
+        Every bound is checked by the harness, not left to the model. When lookups run
+        out, the model is told so and gets one more turn to answer with what it has;
+        when turns, tokens or time run out, the loop stops where it is.
+        """
+
+        toolbox = self.toolbox()
+        conversation = self.provider().start_conversation(system, user_message, toolbox.specs())
+        wrap_up = False
+        try:
+            while True:
+                state.steps += 1
+                yield ("plan_step", {"step": state.steps, "maxSteps": state.max_steps})
+                text: list[str] = []
+                end: TurnEnd | None = None
+                async with contextlib.aclosing(conversation.turn()) as turn:
+                    async for event in turn:
+                        if isinstance(event, TextDelta):
+                            text.append(event.text)
+                            yield ("delta", {"text": event.text})
+                        else:
+                            end = event
+                        if end is None and state.elapsed >= state.max_wall_seconds:
+                            # Abandoning the turn closes it; the conversation is over.
+                            break
+                self._count_tokens(state, conversation)
+                state.final_text = "".join(text)
+                if end is None:
+                    state.exhaust("wall_time")
+                    yield ("budget", state.event())
+                    return
+                if end.truncated:
+                    state.exhaust("max_output_tokens")
+                if not end.wants_tools:
+                    yield ("budget", state.event())
+                    return
+                if wrap_up:
+                    # Told the lookups were spent, it asked again. Stop here.
+                    results = [self._budget_refusal(call) for call in conversation.pending_calls]
+                    conversation.add_tool_results(results)
+                    yield ("budget", state.event())
+                    return
+
+                no_more_turns = state.out_of_turns()
+                if no_more_turns is not None:
+                    # The results could not reach another model turn, so do not read them.
+                    state.exhaust(no_more_turns)
+                    conversation.add_tool_results(
+                        [self._budget_refusal(call) for call in end.tool_calls]
+                    )
+                    yield ("budget", state.event())
+                    return
+
+                results = []
+                for call in end.tool_calls:
+                    spent = state.out_of_lookups()
+                    if spent is not None:
+                        state.exhaust(spent)
+                        results.append(self._budget_refusal(call))
+                        continue
+                    state.tool_calls += 1
+                    yield ("tool_call", self._tool_call_event(toolbox, call))
+                    outcome = await asyncio.to_thread(
+                        self._run_tool, principal, profile_id, request_id, state.tool_calls, call
+                    )
+                    state.tool_bytes += outcome.result_bytes
+                    yield ("tool_result", outcome.event())
+                    results.append(outcome.tool_result())
+                conversation.add_tool_results(results)
+                lookups_spent = state.out_of_lookups()
+                if lookups_spent is not None:
+                    state.exhaust(lookups_spent)
+                    wrap_up = True
+
+                spent = state.out_of_turns()
+                if spent is not None:
+                    state.exhaust(spent)
+                yield ("budget", state.event())
+                if spent is not None:
+                    return
+        finally:
+            state.usage = conversation.usage()
+
+    @staticmethod
+    def _count_tokens(state: _KiwiRun, conversation: ToolConversation) -> None:
+        usage = conversation.usage()
+        state.tokens = (usage.prompt_tokens or 0) + (usage.completion_tokens or 0)
+
+    @staticmethod
+    def _budget_refusal(call: ToolCall) -> ToolResult:
+        return ToolResult(
+            call_id=call.id,
+            content=(
+                "Not run: this request has used its lookup budget. Answer now with what "
+                "you have, and say what you could not check."
+            ),
+            is_error=True,
+        )
+
+    @staticmethod
+    def _tool_call_event(toolbox: KiwiToolbox, call: ToolCall) -> dict[str, Any]:
+        entry = toolbox.entry_for(call.name)
+        raw = call.input if isinstance(call.input, dict) else {}
+        why = raw.get("why")
+        parameters = {key: value for key, value in raw.items() if key != "why"}
+        encoded = json.dumps(parameters, default=str)
+        if len(encoded.encode("utf-8")) > _MAX_EVENT_PARAMETER_BYTES:
+            parameters = {"truncated": True}
+        return {
+            "callId": call.id,
+            "toolName": call.name,
+            "operationId": entry.operation_id if entry else "",
+            "parameters": parameters,
+            "why": why[:512] if isinstance(why, str) else "",
+        }
+
+    def _run_tool(
+        self,
+        principal: Principal,
+        profile_id: str,
+        request_id: str,
+        sequence: int,
+        call: ToolCall,
+    ) -> ToolOutcome:
+        """Run one lookup and record it, in a session of its own (a worker thread)."""
+
+        with self._sessions() as db:
+            outcome = self.toolbox().run(db, principal, profile_id, call)
+            db.add(
+                CopilotToolCall(
+                    copilot_request_id=request_id,
+                    sequence=sequence,
+                    call_id=call.id[:120],
+                    tool_name=call.name[:80],
+                    operation_id=outcome.operation_id,
+                    parameters=outcome.parameters,
+                    why=outcome.why,
+                    status=outcome.status,
+                    execution_id=outcome.execution_id,
+                    row_count=outcome.row_count,
+                    result_bytes=outcome.result_bytes,
+                    truncated=outcome.truncated,
+                    error_code=outcome.error_code[:60],
+                )
+            )
+            db.commit()
+        return outcome
+
+    def _finalise(
+        self,
+        request_id: str,
+        outcome: str,
+        error_code: str,
+        started: float,
+        *,
+        usage: ProviderUsage | None = None,
+    ) -> int:
+        """Write the terminal record for one request and return its latency.
+
+        ``usage`` is a Kiwi conversation's own total, recorded whatever the outcome:
+        turns that ran were billed even if a later one failed.
+        """
 
         latency_ms = int((time.perf_counter() - started) * 1000)
         with self._sessions() as db:
@@ -307,7 +790,11 @@ class CopilotService:
                 row.latency_ms = latency_ms
                 # Usage is only valid after a completed provider stream. A cancelled
                 # request must not inherit the previous request's token counts.
-                if outcome == "succeeded":
+                if usage is not None:
+                    row.prompt_tokens = usage.prompt_tokens
+                    row.completion_tokens = usage.completion_tokens
+                    row.model = usage.model or row.model
+                elif outcome == "succeeded":
                     try:
                         usage = self.provider().usage()
                         row.prompt_tokens = usage.prompt_tokens
@@ -330,12 +817,33 @@ class CopilotService:
             raise ValidationError(
                 f"Unknown copilot action {ask.action!r}.", detail={"actions": list(ACTIONS)}
             )
+        if ask.parts:
+            names = [part.part for part in ask.parts]
+            if len(set(names)) != len(names):
+                raise ValidationError(
+                    "Each part of a multi-part request needs its own name.",
+                    detail={"parts": names},
+                )
+            editors = [part.editor_id for part in ask.parts]
+            if len(set(editors)) != len(editors):
+                raise ValidationError(
+                    "Each part of a multi-part request needs its own editor buffer.",
+                    detail={"editors": editors},
+                )
         if principal.is_integration and "copilot:assist" not in principal.integration_scopes:
             raise PolicyError(
                 "This integration credential does not carry the copilot:assist scope.",
                 detail={"scopes": list(principal.integration_scopes)},
             )
-        if not ask.context.attachments and not ask.user_message.strip():
+        if ask.action in EXPLAIN_ACTIONS and not (self.kiwi_enabled and ask.profile_id):
+            # Harness-driven: without Kiwi's catalog lookups the model would explain a
+            # named object from memory, so the request is refused rather than degraded.
+            raise ValidationError(
+                f"{ask.action} needs Kiwi enabled and a target profile to read from.",
+                detail={"kiwiEnabled": self.kiwi_enabled, "profileId": bool(ask.profile_id)},
+            )
+        explaining = ask.action in EXPLAIN_ACTIONS and bool(_explain_subject(ask))
+        if not explaining and not ask.context.attachments and not ask.user_message.strip():
             raise ValidationError("A copilot request needs either selected code or a question.")
 
     def _capture_proposal(
@@ -343,6 +851,8 @@ class CopilotService:
     ) -> dict[str, Any] | None:
         """Turn a fenced code block into a reviewable, revision-pinned edit."""
 
+        if ask.parts:
+            return self._capture_multi_part(request_id, ask, answer)
         if not ask.editor.editor_id:
             return None
         match = _FENCED_BLOCK.search(answer)
@@ -381,6 +891,75 @@ class CopilotService:
             ),
         }
 
+    def _capture_multi_part(
+        self, request_id: str, ask: CopilotAsk, answer: str
+    ) -> dict[str, Any] | None:
+        """One labelled block per part. Labels that name no part are dropped."""
+
+        by_name = {part.part: part for part in ask.parts}
+        blocks: dict[str, str] = {}
+        for match in _PART_BLOCK.finditer(answer):
+            name, text = match.group(1), match.group(2).rstrip()
+            if name in by_name and name not in blocks and text.strip():
+                blocks[name] = text
+        if not blocks:
+            return None
+        rationale = _PART_BLOCK.sub("", answer).strip()
+        # Parts the model left alone are still pinned, unchanged, so that applying the
+        # proposal checks every buffer the request was made from.
+        ordered = [(part, blocks.get(part.part, part.text)) for part in ask.parts]
+        with self._sessions() as db:
+            edit = ProposedEdit(
+                copilot_request_id=request_id,
+                editor_id="",
+                target_reference=ask.target_reference,
+                rationale=rationale,
+            )
+            db.add(edit)
+            db.flush()
+            for sequence, (part, proposed) in enumerate(ordered):
+                db.add(
+                    ProposedEditPart(
+                        proposal_id=edit.id,
+                        sequence=sequence,
+                        part_name=part.part,
+                        editor_id=part.editor_id,
+                        base_revision=part.revision,
+                        base_hash=part.hash,
+                        original_text=part.text,
+                        proposed_text=proposed,
+                    )
+                )
+            db.commit()
+            proposal_id = edit.id
+        first = ask.parts[0]
+        return {
+            "proposalId": proposal_id,
+            "editorId": first.editor_id,
+            "baseRevision": first.revision,
+            "baseHash": first.hash,
+            "targetReference": ask.target_reference,
+            "proposedText": "",
+            "multiPart": True,
+            "parts": [
+                {
+                    "part": part.part,
+                    "editorId": part.editor_id,
+                    "baseRevision": part.revision,
+                    "baseHash": part.hash,
+                    "proposedText": proposed,
+                    "changed": part.part in blocks,
+                }
+                for part, proposed in ordered
+            ],
+            "rationale": rationale,
+            "appliesToEditorOnly": True,
+            "note": (
+                "Applying this changes every part's editor buffer together, or none of "
+                "them. It does not run, compile, or commit anything in Oracle."
+            ),
+        }
+
     # -- applying a proposal ---------------------------------------------------------
 
     def check_apply(
@@ -393,8 +972,13 @@ class CopilotService:
         revision: str,
         current_text: str,
         target_reference: str,
+        parts: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
-        """Decide whether a proposal may still be applied to this buffer."""
+        """Decide whether a proposal may still be applied to this buffer.
+
+        A multi-part proposal is checked as a whole: one stale, missing or extra part
+        refuses every part, and nothing is marked applied.
+        """
 
         edit = db.get(ProposedEdit, proposal_id)
         if edit is None:
@@ -403,6 +987,23 @@ class CopilotService:
         if request is None or request.actor_key != principal.actor_key:
             # Same shape as a missing proposal, so identifiers cannot be probed.
             raise NotFoundError("No such proposal.", detail={"proposalId": proposal_id})
+
+        stored_parts = list(
+            db.scalars(
+                select(ProposedEditPart)
+                .where(ProposedEditPart.proposal_id == edit.id)
+                .order_by(ProposedEditPart.sequence)
+            )
+        )
+        if stored_parts:
+            return self._check_apply_parts(
+                db, edit, stored_parts, parts or [], target_reference=target_reference
+            )
+        if parts:
+            raise ValidationError(
+                "This proposal has a single part; send editorId and currentText instead.",
+                detail={"proposalId": proposal_id},
+            )
 
         reasons: list[str] = []
         if edit.applied:
@@ -441,6 +1042,97 @@ class CopilotService:
             ),
         }
 
+    def _check_apply_parts(
+        self,
+        db: Session,
+        edit: ProposedEdit,
+        stored: list[ProposedEditPart],
+        supplied: list[dict[str, str]],
+        *,
+        target_reference: str,
+    ) -> dict[str, Any]:
+        reasons: list[str] = []
+        part_reasons: dict[str, list[str]] = {part.part_name: [] for part in stored}
+        if edit.applied:
+            reasons.append("This proposal has already been applied.")
+        if target_reference != edit.target_reference:
+            reasons.append("The selected target has changed since the proposal was generated.")
+
+        by_name: dict[str, dict[str, str]] = {}
+        for entry in supplied:
+            name = entry.get("part", "")
+            if name in by_name:
+                reasons.append(f"Part {name!r} was sent more than once.")
+            by_name[name] = entry
+        extra = sorted(set(by_name) - set(part_reasons))
+        if extra:
+            reasons.append(f"The proposal has no part named {', '.join(map(repr, extra))}.")
+
+        for part in stored:
+            sent = by_name.get(part.part_name)
+            mine = part_reasons[part.part_name]
+            if sent is None:
+                mine.append("This part's current buffer was not sent.")
+                continue
+            if sent.get("editorId", "") != part.editor_id:
+                mine.append("The part was generated for a different editor buffer.")
+            text = sent.get("currentText", "")
+            if hashlib.sha256(text.encode("utf-8")).hexdigest() != part.base_hash:
+                mine.append("The document changed since the proposal was generated.")
+            elif (
+                sent.get("revision")
+                and part.base_revision
+                and sent.get("revision") != part.base_revision
+            ):
+                mine.append("The document revision changed since the proposal was generated.")
+        for name, mine in part_reasons.items():
+            reasons.extend(f"{name}: {reason}" for reason in mine)
+
+        if reasons:
+            edit.rejected_reason = reasons[0][:200]
+            db.commit()
+            return {
+                "proposalId": edit.id,
+                "canApply": False,
+                "reasons": reasons,
+                "partReasons": part_reasons,
+                "executesDatabaseOperations": False,
+                "note": "Nothing was applied: a multi-part proposal applies all parts or none.",
+            }
+
+        edit.applied = True
+        db.commit()
+        return {
+            "proposalId": edit.id,
+            "canApply": True,
+            "reasons": [],
+            "parts": [
+                {
+                    "part": part.part_name,
+                    "editorId": part.editor_id,
+                    "proposedText": part.proposed_text,
+                }
+                for part in stored
+            ],
+            "executesDatabaseOperations": False,
+            "note": (
+                "Every part's editor buffer is updated together. Compiling or running the "
+                "result is a separate action that you have to invoke yourself."
+            ),
+        }
+
+
+_OWNER_NAME = re.compile(r"\b([A-Za-z][\w$#]*\.[A-Za-z][\w$#]*)\b")
+
+
+def _explain_subject(ask: CopilotAsk) -> str:
+    """What to explain: the subject field, else the first OWNER.NAME in the question."""
+
+    if ask.subject.strip():
+        return ask.subject.strip()
+    hit = _OWNER_NAME.search(ask.user_message)
+    return hit.group(1) if hit else ""
+
 
 def _build_user_message(ask: CopilotAsk) -> str:
     parts = [
@@ -451,6 +1143,16 @@ def _build_user_message(ask: CopilotAsk) -> str:
         "",
         ask.context.render(),
     ]
+    if ask.parts:
+        names = ", ".join(part.part for part in ask.parts)
+        parts += [
+            "",
+            f"This is a multi-part request. Parts, in order: {names}.",
+            "If you propose a change, give one fenced block per part you change, labelled "
+            "with its part name on the opening fence, for example ```plsql part="
+            f"{ask.parts[0].part}. Leave out parts you do not change. The parts are "
+            "applied together or not at all.",
+        ]
     if ask.user_message.strip():
         parts += [
             "",

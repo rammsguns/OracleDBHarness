@@ -135,8 +135,19 @@ async def copilot_request(
                 revision=payload.editor.revision,
                 text=payload.editor.text,
             ),
+            parts=[
+                EditorReference(
+                    editor_id=part.editor_id,
+                    revision=part.revision,
+                    text=part.text,
+                    part=part.part,
+                )
+                for part in payload.parts
+            ],
             conversation_id=payload.conversation_id,
             protocol_version=payload.protocol_version,
+            profile_id=payload.profile_id,
+            subject=payload.subject,
         )
         stream = state.copilot.run(principal, ask)
         try:
@@ -186,6 +197,15 @@ def apply_check(
         revision=payload.revision,
         current_text=payload.current_text,
         target_reference=payload.target_reference,
+        parts=[
+            {
+                "part": part.part,
+                "editorId": part.editor_id,
+                "revision": part.revision,
+                "currentText": part.current_text,
+            }
+            for part in payload.parts
+        ],
     )
 
 

@@ -32,7 +32,14 @@ from harness_api.app import create_app
 from harness_api.config import Settings
 from harness_api.copilot.provider import Provider
 from harness_api.db import build_engine, build_session_factory
-from harness_api.models import CopilotRequest, Execution, SecretReference, WorksheetSessionRecord
+from harness_api.models import (
+    ConnectionProfile,
+    CopilotRequest,
+    CopilotToolCall,
+    Execution,
+    SecretReference,
+    WorksheetSessionRecord,
+)
 from harness_api.seed import seed
 
 KEY_REFERENCE = "copilot-evaluation-provider-key"
@@ -63,6 +70,23 @@ class RunningHarness:
                 or 0,
             }
 
+    def profile_ids(self) -> dict[str, str]:
+        """Target name (``development``, ``production``) to profile id, from the store."""
+
+        with self.session_factory() as db:
+            rows = db.execute(select(ConnectionProfile.name, ConnectionProfile.id)).all()
+            return {name: profile_id for name, profile_id in rows}
+
+    def tool_call_rows(self, request_id: str) -> list[CopilotToolCall]:
+        with self.session_factory() as db:
+            return list(
+                db.scalars(
+                    select(CopilotToolCall)
+                    .where(CopilotToolCall.copilot_request_id == request_id)
+                    .order_by(CopilotToolCall.sequence)
+                )
+            )
+
     def copilot_record_count(self) -> int:
         with self.session_factory() as db:
             return db.scalar(select(func.count()).select_from(CopilotRequest)) or 0
@@ -82,6 +106,7 @@ def evaluation_settings(
     max_output_tokens: int,
     request_timeout_seconds: float,
     daily_requests: int,
+    kiwi: bool = False,
 ) -> Settings:
     (workspace / "secrets").mkdir(parents=True, exist_ok=True)
     (workspace / "fake").mkdir(parents=True, exist_ok=True)
@@ -105,6 +130,9 @@ def evaluation_settings(
         "copilot_user_daily_requests": daily_requests,
         "copilot_log_prompts": False,
     }
+    if kiwi:
+        # Only an evaluation of Kiwi turns it on; the default stays off everywhere else.
+        values["kiwi_enabled"] = True
     # No .env: a developer's local file must not quietly change what is being evaluated.
     return Settings(_env_file=None, **values)  # type: ignore[call-arg]
 
@@ -116,7 +144,7 @@ def running_harness(
     api_key_env: str | None,
     provider_override: Provider | None = None,
 ) -> Iterator[RunningHarness]:
-    seed(settings, probe=False)
+    seed(settings, probe=True)
     engine = build_engine(settings)
     factory = build_session_factory(engine)
     if api_key_env:

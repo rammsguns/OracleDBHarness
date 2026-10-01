@@ -83,7 +83,7 @@ def build_state(settings: Settings) -> AppState:
         authenticator=Authenticator(settings),
         execution=execution,
         runbooks=RunbookService(execution),
-        copilot=CopilotService(settings, session_factory),
+        copilot=CopilotService(settings, session_factory, execution=execution),
         metadata_schema_version=version,
         runtime_id=runtime_id,
         reconciliation=reconciliation,

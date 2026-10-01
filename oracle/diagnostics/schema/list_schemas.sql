@@ -3,6 +3,7 @@
 -- @description: Schemas owning at least one object the connected account can see.
 -- @capabilities: all_objects
 -- @risk: read
+-- @kiwi: allowed
 -- @min_version: 11
 -- @privileges: SELECT on ALL_OBJECTS
 SELECT owner       AS schema_name,

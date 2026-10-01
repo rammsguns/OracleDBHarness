@@ -2,6 +2,7 @@
 -- @title: Failed scheduler job runs
 -- @capabilities: dba_scheduler_jobs
 -- @risk: read
+-- @kiwi: allowed
 -- @min_version: 12
 -- @parameters: row_limit
 -- @privileges: SELECT on DBA_SCHEDULER_JOB_RUN_DETAILS

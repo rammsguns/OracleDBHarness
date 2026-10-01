@@ -2,7 +2,8 @@
   "description": "A healthy harness answering GET /api/v1/integrations/capabilities.",
   "status": 200,
   "body": {
-    "protocolVersion": "1.0",
+    "assistant": "Kiwi",
+    "protocolVersion": "1.1",
     "supportedProtocolMajors": [1],
     "enabled": true,
     "actions": ["explain", "diagnose", "propose", "test_block", "explain_plan", "validate"],

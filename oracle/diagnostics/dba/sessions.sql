@@ -3,6 +3,7 @@
 -- @description: Connected user sessions with their current wait and blocker, if any.
 -- @capabilities: v_session
 -- @risk: read
+-- @kiwi: allowed
 -- @min_version: 12
 -- @parameters: row_limit
 -- @privileges: SELECT on V_$SESSION

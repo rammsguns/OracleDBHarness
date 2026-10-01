@@ -29,9 +29,10 @@ qualification needs more than one 19c configuration. See [docs/compatibility.md]
 | Runbooks: health report, recompile, gather statistics, with verification | Implemented, tested |
 | Execution records and append-only audit | Implemented, tested |
 | Copilot: context policy, streaming, proposals, budgets, one provider adapter | Implemented, tested against a fixture provider |
+| Kiwi agent: read-only catalog lookups ([KIWI_PLAN.md](KIWI_PLAN.md)) | **Implemented behind `HARNESS_KIWI_ENABLED`, off by default** (K-1 to K-7 as code; the K-7 DBA-reviewed run is pending). 29 reviewed read catalog lookups (the K-4 19c run is still pending), issue playbooks, all-or-nothing multi-part proposals for packages, a team standards file, and a package and ETL process explainer with evidence-labelled lineage and Mermaid export, run as the user, bounded and recorded; tested against a stand-in provider only, no real-provider run yet (ADR-0010). Compile on development targets is only a proposed ADR-0011 (K-8), not built |
 | DataForge adapter: contract, bridge, routes, fixtures | Implemented, tested against a stubbed harness and a disposable live harness process; **not integrated with DataForge** |
 | Oracle 19c qualification | **Run on one instance, passing.** 19c EE 19.9.1, non-CDB, python-oracledb 4.0.2 thin, 2026-09-11. Not yet: a PDB, thick mode, a second target, a restricted account. Findings and the run record are in [docs/compatibility.md](docs/compatibility.md) |
-| Copilot answer-quality evaluation | **Not started** |
+| Copilot answer-quality evaluation | **Case set (52 cases, incl. 13 for Kiwi) and opt-in runner built; the paid run and DBA review are not done** |
 | Load testing | **Not started** |
 
 `GET /api/v1/system/info` lists whatever caveats a running deployment currently has.
@@ -113,6 +114,7 @@ The reasoning behind the less obvious of these is in [docs/decisions.md](docs/de
 ## Plans
 
 - [NEXT_PHASE_PLAN.md](NEXT_PHASE_PLAN.md) - active pilot qualification plan and issue review
+- [KIWI_PLAN.md](KIWI_PLAN.md) - proposed plan for Kiwi, the Oracle database agent
 - [MVP_PLAN.md](MVP_PLAN.md) - product direction, scope, delivery sequence
 - [ORACLEDATAFORGE_INTEGRATION.md](ORACLEDATAFORGE_INTEGRATION.md) - the first IDE
   integration

@@ -16,12 +16,22 @@
             "title": "Actorreference"
           },
           "currentText": {
+            "default": "",
             "title": "Currenttext",
             "type": "string"
           },
           "editorId": {
+            "default": "",
             "title": "Editorid",
             "type": "string"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/ApplyPartIn"
+            },
+            "maxItems": 8,
+            "title": "Parts",
+            "type": "array"
           },
           "revision": {
             "default": "",
@@ -34,11 +44,38 @@
           }
         },
         "required": [
-          "editorId",
-          "currentText",
           "targetReference"
         ],
         "title": "ApplyCheckIn",
+        "type": "object"
+      },
+      "ApplyPartIn": {
+        "additionalProperties": false,
+        "properties": {
+          "currentText": {
+            "title": "Currenttext",
+            "type": "string"
+          },
+          "editorId": {
+            "title": "Editorid",
+            "type": "string"
+          },
+          "part": {
+            "title": "Part",
+            "type": "string"
+          },
+          "revision": {
+            "default": "",
+            "title": "Revision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part",
+          "editorId",
+          "currentText"
+        ],
+        "title": "ApplyPartIn",
         "type": "object"
       },
       "AuditView": {
@@ -370,6 +407,20 @@
           "editor": {
             "$ref": "#/components/schemas/EditorIn"
           },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/EditorPartIn"
+            },
+            "maxItems": 8,
+            "title": "Parts",
+            "type": "array"
+          },
+          "profileId": {
+            "default": "",
+            "maxLength": 40,
+            "title": "Profileid",
+            "type": "string"
+          },
           "protocolVersion": {
             "default": "1.0",
             "title": "Protocolversion",
@@ -378,6 +429,12 @@
           "schema": {
             "default": "",
             "title": "Schema",
+            "type": "string"
+          },
+          "subject": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Subject",
             "type": "string"
           },
           "targetReference": {
@@ -472,6 +529,40 @@
           }
         },
         "title": "EditorIn",
+        "type": "object"
+      },
+      "EditorPartIn": {
+        "additionalProperties": false,
+        "description": "One named part of a multi-part request, such as a package spec or body.",
+        "properties": {
+          "editorId": {
+            "minLength": 1,
+            "title": "Editorid",
+            "type": "string"
+          },
+          "part": {
+            "maxLength": 60,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Part",
+            "type": "string"
+          },
+          "revision": {
+            "default": "",
+            "title": "Revision",
+            "type": "string"
+          },
+          "text": {
+            "default": "",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part",
+          "editorId"
+        ],
+        "title": "EditorPartIn",
         "type": "object"
       },
       "ExecuteRequest": {

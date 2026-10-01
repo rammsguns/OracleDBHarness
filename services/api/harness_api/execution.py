@@ -783,6 +783,7 @@ class ExecutionService:
         row_limit: int | None = None,
         confirm: bool = False,
         runner: Callable[[ExecutionRequest], ExecutionOutcome] | None = None,
+        execution_id: str | None = None,
     ) -> OperationResult:
         """Run one reviewed catalog query.
 
@@ -790,6 +791,9 @@ class ExecutionService:
         per statement, for the operations that only mean anything in the session that
         produced the data they read. Everything above it -- authorization, limits and
         the execution record -- is unchanged.
+
+        ``execution_id`` lets a caller name the record in advance, so it can still
+        point at it when the run fails and the error is all that comes back.
         """
 
         entry = self._catalog.get(operation_id)
@@ -828,7 +832,7 @@ class ExecutionService:
                 ExecutionLimits(maxRows=row_limit, **_other_limit_fields(limits))
             )
 
-        execution_id = new_id("exe")
+        execution_id = execution_id or new_id("exe")
         record = self._begin_execution(
             db,
             execution_id=execution_id,

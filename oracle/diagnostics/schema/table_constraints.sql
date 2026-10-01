@@ -2,6 +2,7 @@
 -- @title: Table constraints and their columns
 -- @capabilities: all_objects
 -- @risk: read
+-- @kiwi: allowed
 -- @min_version: 11
 -- @parameters: owner, table_name
 -- @privileges: SELECT on ALL_CONSTRAINTS, ALL_CONS_COLUMNS

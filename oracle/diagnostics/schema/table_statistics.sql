@@ -3,6 +3,7 @@
 -- @description: Used as verification evidence after a gather-statistics runbook.
 -- @capabilities: all_objects
 -- @risk: read
+-- @kiwi: allowed
 -- @min_version: 11
 -- @parameters: owner, table_name
 -- @privileges: SELECT on ALL_TABLES

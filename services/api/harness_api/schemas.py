@@ -282,6 +282,22 @@ class EditorIn(Schema):
     text: str = ""
 
 
+class EditorPartIn(Schema):
+    """One named part of a multi-part request, such as a package spec or body."""
+
+    part: str = Field(min_length=1, max_length=60, pattern=r"^[A-Za-z0-9_-]+$")
+    editor_id: str = Field(alias="editorId", min_length=1)
+    revision: str = ""
+    text: str = ""
+
+
+class ApplyPartIn(Schema):
+    part: str
+    editor_id: str = Field(alias="editorId")
+    revision: str = ""
+    current_text: str = Field(alias="currentText")
+
+
 class CopilotRequestIn(Schema):
     protocol_version: str = Field(default="1.0", alias="protocolVersion")
     action: str
@@ -292,17 +308,27 @@ class CopilotRequestIn(Schema):
     schema_name: str = Field(default="", alias="schema")
     attachments: list[ContextAttachmentIn] = Field(default_factory=list)
     editor: EditorIn = Field(default_factory=EditorIn)
+    # A multi-part request: each part is its own editor buffer, and a proposal built
+    # from it is applied all at once or not at all.
+    parts: list[EditorPartIn] = Field(default_factory=list, max_length=8)
+    # What a kiwi.explain_* action explains: OWNER.NAME or NAME.
+    subject: str = Field(default="", max_length=200)
     # Set by an adapter to say which of *its* users is acting. The harness namespaces
     # this by integration instance and never treats it as a role.
     actor_reference: str | None = Field(default=None, alias="actorReference")
     actor_is_durable: bool = Field(default=True, alias="actorIsDurable")
+    # The target Kiwi may run read-only lookups on, as the requesting user. Ignored
+    # unless HARNESS_KIWI_ENABLED; an integration credential is always refused.
+    profile_id: str = Field(default="", alias="profileId", max_length=40)
 
 
 class ApplyCheckIn(Schema):
-    editor_id: str = Field(alias="editorId")
+    editor_id: str = Field(default="", alias="editorId")
     revision: str = ""
-    current_text: str = Field(alias="currentText")
+    current_text: str = Field(default="", alias="currentText")
     target_reference: str = Field(alias="targetReference")
+    # Required for a multi-part proposal: every part's current buffer.
+    parts: list[ApplyPartIn] = Field(default_factory=list, max_length=8)
     # An adapter has to assert the same actor it used for the request; a proposal
     # belongs to the actor it was generated for, not to the integration as a whole.
     actor_reference: str | None = Field(default=None, alias="actorReference")

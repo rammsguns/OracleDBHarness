@@ -7,7 +7,7 @@
  * fails if the API stops matching them.
  */
 
-export const PROTOCOL_VERSION = "1.0";
+export const PROTOCOL_VERSION = "1.3";
 export const SUPPORTED_PROTOCOL_MAJOR = 1;
 
 // -- shared shapes ----------------------------------------------------------------
@@ -185,7 +185,13 @@ export type CopilotAction =
   | "propose"
   | "test_block"
   | "explain_plan"
-  | "validate";
+  | "validate"
+  /** Kiwi playbooks (protocol 1.2). */
+  | "kiwi.diagnose"
+  | "kiwi.create"
+  | "kiwi.test_block"
+  | "kiwi.explain_package"
+  | "kiwi.explain_process";
 
 export type ContextCategory =
   | "selected_source"
@@ -217,6 +223,12 @@ export interface EditorReference {
   text: string;
 }
 
+/** One buffer of a multi-part request, such as a package spec or body (protocol 1.2). */
+export interface EditorPart extends EditorReference {
+  /** Letters, digits, "_" and "-"; unique within the request. */
+  part: string;
+}
+
 export interface CopilotRequest {
   protocolVersion?: string;
   action: CopilotAction;
@@ -227,9 +239,15 @@ export interface CopilotRequest {
   schema?: string;
   attachments: ContextAttachment[];
   editor?: EditorReference;
+  /** Up to eight buffers edited together. Each needs its own name and editor. */
+  parts?: EditorPart[];
   /** Which of the adapter's own users is acting. Never a role. */
   actorReference?: string;
   actorIsDurable?: boolean;
+  /** A target the user can open. With Kiwi enabled, allows read-only lookups on it. */
+  profileId?: string;
+  /** What a kiwi.explain_* action explains: OWNER.NAME or NAME (protocol 1.3). */
+  subject?: string;
 }
 
 export interface ContextPreview {
@@ -260,6 +278,90 @@ export interface ProposalEvent {
   rationale: string;
   appliesToEditorOnly: true;
   note: string;
+  /** Present on a multi-part proposal. Then proposedText is "" and parts carry the text. */
+  multiPart?: true;
+  parts?: ProposalPart[];
+}
+
+export interface ProposalPart {
+  part: string;
+  editorId: string;
+  baseRevision: string;
+  baseHash: string;
+  proposedText: string;
+  /** False when the model left this part alone; it is still pinned and checked. */
+  changed: boolean;
+}
+
+/** Why a Kiwi request stopped early. */
+export type KiwiStopReasonKind =
+  | "steps"
+  | "tool_calls"
+  | "tokens"
+  | "wall_time"
+  | "tool_bytes"
+  | "max_output_tokens";
+
+/** done.stopReason joins every reason that applied with commas, e.g. "tool_calls,steps". */
+export type KiwiStopReason = string;
+
+/** Kiwi asked for a reviewed read-only catalog lookup (protocol 1.1). */
+export interface KiwiToolCall {
+  callId: string;
+  toolName: string;
+  operationId: string;
+  parameters: Record<string, unknown>;
+  why: string;
+}
+
+/** How a lookup ended. Counts only: the rows never reach the stream. */
+export interface KiwiToolResult {
+  callId: string;
+  operationId: string;
+  status: "succeeded" | "failed" | "refused" | "invalid";
+  rowCount: number | null;
+  bytes: number;
+  truncated: boolean;
+  executionId: string | null;
+  errorCode: string;
+}
+
+export interface KiwiBudget {
+  steps: number;
+  maxSteps: number;
+  toolCalls: number;
+  maxToolCalls: number;
+  tokens: number;
+  maxTokens: number;
+  elapsedSeconds: number;
+  maxWallSeconds: number;
+  toolBytes: number;
+  maxToolBytes: number;
+  exhausted: KiwiStopReasonKind[];
+}
+
+export type LineageEvidence = "source" | "inferred" | "catalog" | "scheduler";
+
+export interface LineageNode {
+  id: string;
+  kind: string;
+  label: string;
+}
+
+export interface LineageEdge {
+  source: string;
+  target: string;
+  relation: string;
+  evidence: LineageEvidence;
+  detail?: string;
+}
+
+/** The lineage an explain action read; every edge carries its evidence (protocol 1.3). */
+export interface KiwiLineage {
+  nodes: LineageNode[];
+  edges: LineageEdge[];
+  mermaid: string;
+  notes: string[];
 }
 
 export type CopilotEvent =
@@ -267,7 +369,12 @@ export type CopilotEvent =
   | { event: "delta"; data: { text: string } }
   | { event: "proposal"; data: ProposalEvent }
   | { event: "usage"; data: { provider: string; model: string; promptTokens: number | null; completionTokens: number | null; stopReason: string } }
-  | { event: "done"; data: { requestId: string; outcome: string; latencyMs: number } }
+  | { event: "plan_step"; data: { step: number; maxSteps: number } }
+  | { event: "tool_call"; data: KiwiToolCall }
+  | { event: "tool_result"; data: KiwiToolResult }
+  | { event: "budget"; data: KiwiBudget }
+  | { event: "lineage"; data: KiwiLineage }
+  | { event: "done"; data: { requestId: string; outcome: string; latencyMs: number; partial?: boolean; stopReason?: KiwiStopReason } }
   | { event: "error"; data: HarnessErrorBody };
 
 export interface ApplyCheckResult {
@@ -275,11 +382,24 @@ export interface ApplyCheckResult {
   canApply: boolean;
   reasons: string[];
   proposedText?: string;
+  /** Multi-part: every part's new text, only when all of them may be applied. */
+  parts?: Array<{ part: string; editorId: string; proposedText: string }>;
+  /** Multi-part: why each part was refused. Any entry refuses the whole proposal. */
+  partReasons?: Record<string, string[]>;
   executesDatabaseOperations: false;
   note?: string;
 }
 
+export interface ApplyCheckPart {
+  part: string;
+  editorId: string;
+  revision: string;
+  currentText: string;
+}
+
 export interface IntegrationCapabilities {
+  /** The name to show users. Absent from harnesses older than Kiwi. */
+  assistant?: string;
   protocolVersion: string;
   supportedProtocolMajors: number[];
   enabled: boolean;
@@ -293,6 +413,25 @@ export interface IntegrationCapabilities {
   contextCategories: string[];
   executesDatabaseOperations: false;
   requiredAdapterVersion: string;
+  /** Read-only lookups. Absent from harnesses before protocol 1.1. */
+  kiwi?: {
+    enabled: boolean;
+    readOnlyLookups: true;
+    needsProfileId: boolean;
+    tools: string[];
+    limits: {
+      maxSteps: number;
+      maxToolCalls: number;
+      maxTokens: number;
+      maxWallSeconds: number;
+      maxRowsPerTool: number;
+      maxResultBytes: number;
+      maxToolBytes: number;
+    };
+    /** The team standards file (protocol 1.2). error is set when it could not be used. */
+    standards?: { configured: boolean; keys: string[]; error?: string };
+    multiPartProposals?: boolean;
+  };
 }
 
 // -- client ---------------------------------------------------------------------------
@@ -447,9 +586,12 @@ export class HarnessClient {
   applyCheck(
     proposalId: string,
     body: {
-      editorId: string;
-      revision: string;
-      currentText: string;
+      /** Single-part proposals. */
+      editorId?: string;
+      revision?: string;
+      currentText?: string;
+      /** Multi-part proposals: every part's current buffer. */
+      parts?: ApplyCheckPart[];
       targetReference: string;
       actorReference?: string;
     },

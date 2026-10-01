@@ -158,9 +158,9 @@ not a fallback to whatever the URL happened to hold.
 
 ## The copilot
 
-The model never acts. It reads explicitly selected context and proposes; the backend
-authorises every real operation, and there is no path from a model answer to a
-database call.
+The model never acts on its own authority. It reads explicitly selected context and
+proposes; the backend authorises every real operation, and there is no path from a
+model answer to a write.
 
 - **Context** is selected source, a user-supplied error or plan, the target version,
   and permission-filtered metadata. Result rows, bind values, credentials and wallets
@@ -174,6 +174,12 @@ database call.
   hash it came from (ADR-0008).
 - **Provider failure is contained.** The copilot returns a typed error; every
   database workflow keeps working.
+- **Kiwi's lookups are catalog operations** (ADR-0010, off by default). With
+  `HARNESS_KIWI_ENABLED`, the model may ask for reviewed `risk: read` catalog entries
+  marked `@kiwi: allowed`. `KiwiToolbox` runs each one as the requesting user through
+  `ExecutionService`, so it is authorised, bounded and audited like the console's
+  panels; rows go to the model wrapped as untrusted data and never into the stream or
+  the record. Steps, lookups, tokens, bytes and wall time are capped per request.
 
 ## IDE adapters
 

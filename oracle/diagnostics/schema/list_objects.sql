@@ -3,6 +3,7 @@
 -- @description: One page of objects, optionally filtered by type and name.
 -- @capabilities: all_objects
 -- @risk: read
+-- @kiwi: allowed
 -- @min_version: 12
 -- @parameters: owner, object_type, name_filter, row_offset, row_limit
 -- @privileges: SELECT on ALL_OBJECTS

@@ -225,7 +225,7 @@ test("assist forwards resolved context and streams events back", async () => {
   );
   assert.equal(sent.targetReference, "dataforge:inst-1:conn-9:HARNESS_APP");
   assert.equal(sent.actorReference, "df-user-7");
-  assert.equal(sent.protocolVersion, "1.0");
+  assert.equal(sent.protocolVersion, "1.1");
   assert.equal((sent.editor as Record<string, unknown>).revision, "3");
   assert.equal((sent.attachments as unknown[]).length, 1);
   // The DataForge role is never sent as authority.
@@ -343,6 +343,15 @@ test("an assist request needs an editor id and revision", () => {
   });
   assert.ok("error" in parsed);
   assert.match(parsed.error, /editorId and editorRevision/);
+});
+
+test("events this adapter does not know are dropped, Kiwi's trace is kept", () => {
+  assert.equal(parseSse('event: telemetry\ndata: {"x":1}'), null);
+  assert.deepEqual(
+    parseSse('event: tool_result\ndata: {"callId":"c1","status":"succeeded"}'),
+    { event: "tool_result", data: { callId: "c1", status: "succeeded" } },
+  );
+  assert.equal(parseSse('event: budget\ndata: {"exhausted":false}')?.event, "budget");
 });
 
 test("protocol compatibility is decided on the major version", () => {

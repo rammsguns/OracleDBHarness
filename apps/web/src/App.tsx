@@ -9,7 +9,7 @@ import {
 } from "./api";
 import type { Me, SystemInfo, Target } from "./api";
 import { SignInError, authorizationUrl, completeSignIn, isCallback } from "./oidc";
-import { CopilotDrawer } from "./views/CopilotDrawer";
+import { CopilotDrawer, type CopilotSeed } from "./views/CopilotDrawer";
 import { DbaView } from "./views/DbaView";
 import { HistoryView } from "./views/HistoryView";
 import { PlsqlView } from "./views/PlsqlView";
@@ -47,7 +47,7 @@ export function App() {
   const [selected, setSelected] = useState<Target | null>(null);
   const [view, setView] = useState<ViewId>("targets");
   // The copilot is opened for one target, usually seeded with that target's source.
-  const [copilot, setCopilot] = useState<{ targetId: string | null; seed: string } | null>(
+  const [copilot, setCopilot] = useState<{ targetId: string | null; seed: CopilotSeed } | null>(
     null,
   );
   const [error, setError] = useState<string | null>(null);
@@ -111,7 +111,9 @@ export function App() {
     return <SignIn info={info} notice={signInNotice} onSignedIn={signedIn} />;
   }
 
-  const askCopilot = (seed: string) => setCopilot({ targetId: selectedId, seed });
+  // Views pass the code to ask about, or a full seed with an action and error text.
+  const askCopilot = (seed: string | CopilotSeed) =>
+    setCopilot({ targetId: selectedId, seed: typeof seed === "string" ? { text: seed } : seed });
   // Checked at render, not left to the effect above: the effect runs after a render,
   // and that render would show the drawer against the new target with the old
   // target's source still in it.
@@ -139,10 +141,10 @@ export function App() {
         </nav>
         <div className="spacer" />
         {info?.copilotEnabled ? (
-          <button onClick={() => askCopilot("")}>Ask the copilot</button>
+          <button onClick={() => askCopilot("")}>Ask Kiwi</button>
         ) : (
           <p className="muted" style={{ fontSize: 12 }}>
-            The copilot is disabled on this harness.
+            Kiwi is disabled on this harness.
           </p>
         )}
         <button

@@ -350,6 +350,35 @@ class CopilotRequest(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class CopilotToolCall(Base):
+    """One lookup Kiwi asked for, whatever became of it.
+
+    Parameters and the model's stated reason are kept; the rows it returned are not.
+    ``execution_id`` points at the ordinary execution record when the lookup reached
+    the execution service, which is how a reviewer follows a Kiwi answer back to what
+    was actually run. A refusal before that point has no execution id.
+    """
+
+    __tablename__ = "copilot_tool_calls"
+    __table_args__ = (Index("ix_copilot_tool_calls_request", "copilot_request_id", "sequence"),)
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("ktc"))
+    copilot_request_id: Mapped[str] = mapped_column(ForeignKey("copilot_requests.id"))
+    sequence: Mapped[int] = mapped_column(Integer, default=0)
+    call_id: Mapped[str] = mapped_column(String(120), default="")
+    tool_name: Mapped[str] = mapped_column(String(80), default="")
+    operation_id: Mapped[str] = mapped_column(String(120), default="")
+    parameters: Mapped[dict] = mapped_column(JSON, default=dict)
+    why: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(30), default="")
+    execution_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    row_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    result_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    truncated: Mapped[bool] = mapped_column(Boolean, default=False)
+    error_code: Mapped[str] = mapped_column(String(60), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class ProposedEdit(Base):
     """An editor diff the copilot produced, pinned to the revision it was based on."""
 
@@ -367,6 +396,26 @@ class ProposedEdit(Base):
     applied: Mapped[bool] = mapped_column(Boolean, default=False)
     rejected_reason: Mapped[str] = mapped_column(String(200), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ProposedEditPart(Base):
+    """One part of a multi-part proposal, such as a package spec or its body.
+
+    Each part is pinned to its own editor, revision and hash. The parent proposal is
+    applied all at once or not at all.
+    """
+
+    __tablename__ = "proposed_edit_parts"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("edp"))
+    proposal_id: Mapped[str] = mapped_column(ForeignKey("proposed_edits.id"), index=True)
+    sequence: Mapped[int] = mapped_column(Integer, default=0)
+    part_name: Mapped[str] = mapped_column(String(60), default="")
+    editor_id: Mapped[str] = mapped_column(String(120), default="")
+    base_revision: Mapped[str] = mapped_column(String(120), default="")
+    base_hash: Mapped[str] = mapped_column(String(64), default="")
+    original_text: Mapped[str] = mapped_column(Text, default="")
+    proposed_text: Mapped[str] = mapped_column(Text, default="")
 
 
 class CopilotBudget(Base):
