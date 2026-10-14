@@ -65,6 +65,26 @@ function renderCell(value: unknown): string {
           : `${lob.byteLength ?? 0} bytes`;
       return `${lob.preview ?? ""}... (${size}, preview only)`;
     }
+    if (lob.kind === "vector") {
+      // A sparse vector lists only its stored elements, each with its index.
+      const vector = value as {
+        format?: string;
+        dimensions?: number;
+        sparse?: boolean;
+        indices?: number[];
+        values?: number[];
+        truncated?: boolean;
+      };
+      const values = vector.values ?? [];
+      const shown =
+        lob.preview ??
+        (vector.sparse
+          ? `{${values.map((v, i) => `${vector.indices?.[i]}: ${v}`).join(", ")}}`
+          : `[${values.join(", ")}]`);
+      const kind = `${vector.sparse ? "sparse " : ""}${vector.format ?? ""}`;
+      const more = vector.truncated ? ", preview only" : "";
+      return `${shown} (${kind} ${vector.dimensions ?? 0} dimensions${more})`;
+    }
     return JSON.stringify(value);
   }
   return String(value);

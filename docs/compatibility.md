@@ -27,7 +27,7 @@ claim. Where something has not been tested, it says so.
 | **Oracle beyond two local instances** | Two instances have been qualified on 2026-10-14: a 19.9 non-CDB and a 23.26 Free PDB, each as the other's second target, so the two-target isolation check has run in both directions. A third, D4, was qualified the same day: a 19.9 non-CDB in `WE8MSWIN1252` on a remote host, with D1 as its second target. Not run: a later 19c release update, a PDB on 19c, `CDB$ROOT`, RAC, Standard Edition, and character sets other than AL32UTF8 and WE8MSWIN1252. The restricted account was the README's shape only (`CREATE SESSION` plus the two tablespace views); other partial grant sets have not been probed. |
 | **Restart after process death, on Oracle** | Run on 2026-10-14 against 19.9 (thin and thick) and 23.26 (thin), on a Linux host: on both releases the dead session left `V$SESSION` with its row lock freed at once, an applied but uncommitted write was rolled back, and both `COMMIT` cases were reconciled correctly. See the process-death entries under [Recording a run](#recording-a-run). Not run on Windows, where the 2026-09-11 runs were. A host that loses power or network, rather than a killed process, is not covered at all. |
 | **Kiwi's K-4 lookups on Oracle** | Run on 2026-10-14 against 19.9 and 23.26: every entry returned rows of the shape the stand-in returns, and PL/Scope absence was reported for the unit compiled without it. Needs the extra grants in `oracle/qualification/README.md` (`CREATE TRIGGER`, `CREATE JOB` and the rules-engine privileges for chains). No database link exists in either fixture, so `db_links_referenced` was checked for shape with no rows. |
-| Oracle 23ai/26ai beyond the Free PDB | One Free 23.26.3.0.0 PDB, thin mode only. `VECTOR` columns and the SQL `BOOLEAN` type are not in the fixtures, so how they arrive is unrecorded. Autonomous Database has not been connected to. |
+| Oracle 23ai/26ai beyond the Free PDB | One Free 23.26.3.0.0 PDB, thin mode only. `BOOLEAN` and `VECTOR` were checked on it as selected values and a `BOOLEAN` bind (see "BOOLEAN and VECTOR, 2026-10-14"); a `VECTOR` bind, `VECTOR` columns in a table and vector indexes were not. Autonomous Database has not been connected to. |
 | python-oracledb thick mode beyond one client | Instant Client 21.4 on Linux against 19.9 only. Other client versions, Windows, and thick mode against 23.26 are not run. |
 | python-oracledb 26.0.0 | Tried on 2026-09-11 against the qualified 19c instance, for the `call_timeout` crash below only. **It does not fix it:** assigning `call_timeout` on a session dropped with `DPY-4011` still ends the process with `0xC0000005`, in every attempt that dropped the session (13 of 13 in one batch, and every later attempt). On the dropped session it otherwise behaves like 4.0.2: reading `call_timeout`, `close()`, `cursor.close()` and `is_healthy()` are safe; `ping()` and `rollback()` raise `DPY-1001`. Repeated on 2026-10-14 on Linux (Python 3.11) against 19.9, with SYSTEM killing the session either idle or during a call: the setter ends the process with `SIGSEGV` in 13 of 13 attempts per case on **both 26.0.0 and 4.0.2**, so the crash is in the thin driver, not specific to Windows. Controls stayed clean (0 of 13): the setter on a live session, and every other call on the dropped session. A session killed server-side but not yet noticed by the driver reports `is_healthy()` true and takes the setter safely; `is_healthy()` turns false on the first call that hits `DPY-4011`, which is exactly when the setter becomes fatal, so the adapter's guard holds. The suites have not been run on 26.0.0, and it fixes nothing here, so 4.0.2 stays pinned. Reported upstream as [oracle/python-oracledb#619](https://github.com/oracle/python-oracledb/issues/619) on 2026-10-14. |
 | TCPS and wallets | Not exercised. `ConnectionSpec` carries the fields; the path is untested. |
@@ -262,8 +262,32 @@ error text where thick mode does not; and 23.26 is far faster on the 400,000-row
 update the connection-loss check uses.
 
 Still open after the 2026-10-14 runs: TCPS and wallets (R5, which needs Autonomous
-Database and has not been approved), `VECTOR` and `BOOLEAN` values, and everything
-listed under "Still open after the 2026-09-11 run".
+Database and has not been approved), and everything listed under "Still open after the 2026-09-11 run".
+
+### BOOLEAN and VECTOR, 2026-10-14
+
+The SQL types 23ai added, checked on D2 (23.26.3.0.0, thin) by
+`tests/qualification/test_23ai_types.py` and, through a worksheet, by
+`tests/integration/test_23ai_types.py`. Both select literals from `DUAL`, so they need
+no fixture objects. Before 23ai they skip with the reason; on D1 (19.9) all six did.
+
+`BOOLEAN` needed nothing. It arrives as a Python `bool` (and `NULL` as `None`), so the
+grid gets JSON `true`, `false` or `null`, and a JSON `true` or `false` binds as
+`BOOLEAN`.
+
+`VECTOR` found a harness defect. python-oracledb returns a dense `VECTOR` as an
+`array.array` and a `SPARSE` one as a `SparseVector`. `_shape` passed both through, and
+the API could not serialise them, so any query that returned a vector failed with
+`PydanticSerializationError` instead of reaching the grid. With the fix removed, the
+new checks fail that way on D2.
+
+| Finding | Kind | Effect | Fix |
+| --- | --- | --- | --- |
+| A `VECTOR` value could not be serialised | Harness defect | Every query returning a `VECTOR` column failed in the API | `_shape` returns `{"kind": "vector", "format", "dimensions", "values", "truncated"}`, bounded by the LOB preview budget at 8 bytes per element (a `VECTOR` can have 65,535 dimensions). `BINARY` reports its dimensions in bits and a hex preview; `SPARSE` adds `sparse`, `storedCount` and the stored `indices`. `FLOAT32` elements are given as the shortest decimal that rounds to the same float32, so 0.1 is not shown as 0.10000000149011612. The console renders the shape. Pinned by unit tests on `_shape` |
+
+Not checked: binding a `VECTOR` (a JSON array arrives as a list, not an
+`array.array`), `VECTOR` columns in a table, vector indexes and `VECTOR_DISTANCE`,
+and thick mode.
 
 ### The D4 run, 2026-10-14
 

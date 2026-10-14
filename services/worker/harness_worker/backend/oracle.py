@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import logging
 import re
+import struct
 import threading
 import time
+from array import array
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -962,6 +964,10 @@ def _shape(value: Any, lob_preview_bytes: int) -> Any:
             "charLength": size,
             "truncated": len(content) < size,
         }
+    if isinstance(value, array):
+        return _vector(value, lob_preview_bytes)
+    if _is_sparse_vector(value):
+        return _sparse_vector(value, lob_preview_bytes)
     if isinstance(value, bytes):
         return {
             "kind": "raw",
@@ -970,6 +976,79 @@ def _shape(value: Any, lob_preview_bytes: int) -> Any:
             "truncated": len(value) > lob_preview_bytes,
         }
     return value
+
+
+# A VECTOR column arrives as an array.array whose typecode names the storage format.
+# BINARY packs eight dimensions into each unsigned byte.
+_VECTOR_FORMATS = {"f": "FLOAT32", "d": "FLOAT64", "b": "INT8", "B": "BINARY"}
+
+# The preview budget is in bytes. A FLOAT64 is 8 bytes, the widest element, so this
+# many elements never stand for more than the budget.
+_VECTOR_ELEMENT_BYTES = 8
+
+
+def _vector_element(value: float | int, format_: str) -> float | int:
+    """A FLOAT32 widened to a double prints digits it never had (0.1 as
+    0.10000000149011612), so it is given back as the shortest decimal that rounds to
+    the same float32."""
+
+    if format_ != "FLOAT32":
+        return value
+    packed = struct.pack("f", value)
+    for digits in range(1, 10):
+        candidate = float(f"{value:.{digits}g}")
+        if struct.pack("f", candidate) == packed:
+            return candidate
+    return float(value)
+
+
+def _vector(value: array, lob_preview_bytes: int) -> dict[str, Any]:
+    """A dense VECTOR, bounded like a LOB: the first elements, the dimension count and
+    a truncated flag. A VECTOR can have 65,535 dimensions."""
+
+    format_ = _VECTOR_FORMATS.get(value.typecode, value.typecode)
+    if format_ == "BINARY":
+        # One byte per element, shown as hex like a BLOB preview.
+        shown = value[: max(lob_preview_bytes, 0)]
+        return {
+            "kind": "vector",
+            "format": format_,
+            "dimensions": len(value) * 8,
+            "preview": shown.tobytes().hex(),
+            "truncated": len(shown) < len(value),
+        }
+    shown = value[: max(lob_preview_bytes, 0) // _VECTOR_ELEMENT_BYTES]
+    return {
+        "kind": "vector",
+        "format": format_,
+        "dimensions": len(value),
+        "values": [_vector_element(element, format_) for element in shown],
+        "truncated": len(shown) < len(value),
+    }
+
+
+def _is_sparse_vector(value: Any) -> bool:
+    return all(hasattr(value, name) for name in ("num_dimensions", "indices", "values"))
+
+
+def _sparse_vector(value: Any, lob_preview_bytes: int) -> dict[str, Any]:
+    """A SPARSE VECTOR: its dimension count and the first stored (index, value) pairs.
+    Each pair costs an index as well as a value, so half as many fit the budget."""
+
+    values = value.values
+    format_ = _VECTOR_FORMATS.get(getattr(values, "typecode", ""), "")
+    limit = max(lob_preview_bytes, 0) // (2 * _VECTOR_ELEMENT_BYTES)
+    indices = list(value.indices[:limit])
+    return {
+        "kind": "vector",
+        "format": format_,
+        "sparse": True,
+        "dimensions": value.num_dimensions,
+        "storedCount": len(value.indices),
+        "indices": indices,
+        "values": [_vector_element(element, format_) for element in values[:limit]],
+        "truncated": len(indices) < len(value.indices),
+    }
 
 
 def _read_out_binds(cur: Any) -> dict[str, Any]:

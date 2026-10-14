@@ -104,7 +104,8 @@ Known candidates to check first:
 
 - Version-gated catalog entries, PL/Scope and `DBA_*` view differences between 19c and
   23.26, and the `BOOLEAN` SQL type and `VECTOR` columns in 23ai. The LOB and bind
-  suites should say how a `VECTOR` value arrives, or skip with a reason.
+  suites should say how a `VECTOR` value arrives, or skip with a reason. Done
+  2026-10-14, see below.
 - Container identity on a PDB: `isCdb` and `containerName` are written but have never
   run.
 - Diagnostics when `V$` views are read from inside a PDB: rows are scoped to the PDB, so
@@ -200,3 +201,10 @@ their Oracle versions passed. The two-target check told databases apart by name,
 and D1 are both `ORCL`; it now compares name, host and container. The rerun of both files
 passed. Nothing failed because of `WE8MSWIN1252` or the network. No harness defect.
 Recorded in `docs/compatibility.md`.
+
+`BOOLEAN` and `VECTOR`, 2026-10-14: on D2 (23.26), `BOOLEAN` arrives as JSON true,
+false or null and binds from JSON, with nothing to fix. `VECTOR` was a harness defect:
+the driver returns an `array.array` (or a `SparseVector`) that the API could not
+serialise, so every query returning one failed. `_shape` now bounds a vector like a LOB,
+the console renders it, and unit tests pin the shape. The checks pass on D2 and skip
+with a reason on 19c. Recorded in `docs/compatibility.md`.

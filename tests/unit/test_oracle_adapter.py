@@ -10,6 +10,8 @@ a real 19c instance, which is tracked in docs/compatibility.md.
 
 from __future__ import annotations
 
+import json
+from array import array
 from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
@@ -970,6 +972,78 @@ def test_a_lob_that_fits_is_not_marked_truncated() -> None:
         "byteLength": 2,
         "truncated": False,
     }
+
+
+# A VECTOR column arrives as an array.array, and a SPARSE one as an oracledb
+# SparseVector; neither serialises to JSON. Against 23.26 a query returning one failed
+# with PydanticSerializationError before _shape handled them.
+
+
+class _SparseVector:
+    def __init__(self, num_dimensions: int, indices: list[int], values: array) -> None:
+        self.num_dimensions = num_dimensions
+        self.indices = array("I", indices)
+        self.values = values
+
+
+def test_a_float32_vector_is_shaped_with_its_own_digits() -> None:
+    shaped = oracle_backend._shape(array("f", [0.1, 1.5, -2.0]), 1024)
+    assert shaped == {
+        "kind": "vector",
+        "format": "FLOAT32",
+        "dimensions": 3,
+        "values": [0.1, 1.5, -2.0],
+        "truncated": False,
+    }
+    json.dumps(shaped)
+
+
+@pytest.mark.parametrize(
+    ("typecode", "format_", "elements"),
+    [("d", "FLOAT64", [0.1, 2.0]), ("b", "INT8", [1, -2])],
+)
+def test_other_vector_formats_keep_their_values(
+    typecode: str, format_: str, elements: list[float]
+) -> None:
+    shaped = oracle_backend._shape(array(typecode, elements), 1024)
+    assert shaped["format"] == format_
+    assert shaped["values"] == elements
+
+
+def test_a_binary_vector_counts_bits_and_previews_as_hex() -> None:
+    shaped = oracle_backend._shape(array("B", [255, 0]), 1024)
+    assert shaped == {
+        "kind": "vector",
+        "format": "BINARY",
+        "dimensions": 16,
+        "preview": "ff00",
+        "truncated": False,
+    }
+
+
+def test_a_vector_is_cut_to_the_preview_budget() -> None:
+    shaped = oracle_backend._shape(array("d", [1.0] * 65535), 256)
+    assert len(shaped["values"]) == 32
+    assert shaped["dimensions"] == 65535
+    assert shaped["truncated"] is True
+    assert oracle_backend._shape(array("f", [1.0]), 0)["values"] == []
+
+
+def test_a_sparse_vector_keeps_its_indices() -> None:
+    sparse = _SparseVector(4, [1, 3], array("f", [1.5, 2.5]))
+    shaped = oracle_backend._shape(sparse, 1024)
+    assert shaped == {
+        "kind": "vector",
+        "format": "FLOAT32",
+        "sparse": True,
+        "dimensions": 4,
+        "storedCount": 2,
+        "indices": [1, 3],
+        "values": [1.5, 2.5],
+        "truncated": False,
+    }
+    json.dumps(shaped)
+    assert oracle_backend._shape(sparse, 16)["indices"] == [1]
 
 
 # -- connection setup --------------------------------------------------------------
