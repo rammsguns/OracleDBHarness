@@ -186,7 +186,7 @@ Local identifiers below are planning IDs, not GitHub issues. Each item lands beh
 | **K-1** (done 2026-09-29) | **Identity and docs.** Name Kiwi in the console, the system prompt and the capabilities endpoint (`assistant: "Kiwi"`). Keep module paths, route paths and protocol ids as they are, to avoid churn. Write ADR-0010 (read-only tool use). Rewrite docs/copilot.md for tool calls. Check how the DataForge adapter treats unknown stream events. | Docs reviewed by whoever approves provider data sharing. No behaviour change. |
 | **K-2** (done 2026-09-29) | **Provider tool use.** Extend the provider interface and the Anthropic adapter to multi-turn tool use with usage per turn. Scripted tool calls in the fake provider. | Unit tests for tool-use turns, stop reasons, usage accounting and provider failure mid-loop. |
 | **K-3** (done 2026-09-29) | **Toolbox and agent loop.** `KiwiToolbox` over the catalog with the `@kiwi: allowed` header; policy per call; wrapping and caps on results; budgets for steps, tool calls, tokens and wall time; new stream events; history records every tool call's execution id. | Invariant tests 1-7 pass against the stand-in. A request that runs out of budget ends with a partial answer marked as partial. |
-| **K-4** (done 2026-09-29, stand-in only; 19c run pending) | **New catalog entries** from the table above, with privileges and minimum versions, qualification fixtures in `oracle/qualification/`, and PL/Scope absence handled. | Run against the stand-in and against the 19c instance used for the earlier qualification. |
+| **K-4** (done 2026-09-29; qualified on Oracle 2026-10-14, 19.9 and 23.26) | **New catalog entries** from the table above, with privileges and minimum versions, qualification fixtures in `oracle/qualification/`, and PL/Scope absence handled. | Run against the stand-in and against the 19c instance used for the earlier qualification. |
 | **K-5** (done 2026-09-29) | **Issue playbooks and authoring.** `kiwi.diagnose`, `kiwi.create`, multi-part proposals for packages, standards file, "Ask Kiwi to fix" after compile. | Console and API tests for multi-part apply-check (all-or-nothing, stale part refuses the whole). |
 | **K-6** (done 2026-09-29) | **Package and process explainer.** Per-subprogram summarise-then-combine, dependency and scheduler walk with limits, evidence labels, Mermaid export. | Explains a 3k-line fixture package and a fixture ETL chain within budget, with every lineage edge labelled. |
 | **K-7** (built 2026-09-29; DBA-reviewed run pending) | **Evaluation.** Extend `tests/copilot/eval/cases.json` with a new case set version: tool-trace expectations, playbook cases, packages, ETL, injection in source and job comments that tries to call tools, privilege-denied paths, budget exhaustion. DBA review with the NP-04 runner and rubric. | All safety and authorisation cases pass; >= 90% DBA-reviewed correctness on diagnose and explain; no case where Kiwi claims something it did not look up. Then `HARNESS_KIWI_ENABLED` may default on for development targets. |
@@ -409,3 +409,21 @@ MVP_PLAN.md; if it comes, it exposes the same toolbox), and inline autocomplete.
 - **Nothing is implemented.** No compile capability exists for Kiwi and the flag stays
   off by default. K-8 is gated on the K-7 exit criterion (paid run, DBA review, K-4 19c
   run, all pending) and a separate go/no-go.
+
+### 2026-10-14, K-4 on Oracle
+
+- The K-4 qualification checks ran against two real databases as part of
+  `DB_TEST_PLAN.md` (runs R1 to R3): 19c 19.9.1.0.0 non-CDB, thin and thick mode, and
+  26ai Free 23.26.3.0.0 as the PDB `FREEPDB1`, thin mode. Recorded in
+  `docs/compatibility.md` under the 2026-10-14 runs.
+- Dependency, subprogram, source, trigger and scheduler lookups returned rows of the
+  shape the stand-in returns on both releases. PL/Scope absence was reported as
+  `NOT COLLECTED` for the unit compiled without it, and the function was still read.
+  No database link exists in either fixture, so `db_links_referenced` was checked for
+  shape with no rows.
+- The fixtures need the qualification-only grants in `oracle/qualification/README.md`
+  (`CREATE TRIGGER`, `CREATE JOB`, the rules-engine privileges for chains). Without
+  them setup fails with `ORA-01031`; that was an environment gap, not a K-4 defect.
+- **K-4's exit criterion is met.** The "K-4 19c run pending" notes in the entries
+  above are superseded by this one. K-7 and K-8 still wait on the paid run and the DBA
+  review.

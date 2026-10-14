@@ -9,6 +9,7 @@ stand-in and show the workflows are wired together; with an Oracle target config
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -58,7 +59,10 @@ def test_workflow_1_register_verify_and_inspect_a_connection(
     # database calls itself rather than the service name registered above.
     assert verified["identity"]["databaseName"]
     assert verified["identity"]["currentSchema"].upper() == spare_endpoint["defaultSchema"].upper()
-    assert verified["identity"]["version"].startswith("19.")
+    # Any supported release: the stand-in reports 19c, a real run may be 19c or 23ai.
+    version = verified["identity"]["version"]
+    assert re.fullmatch(r"\d+(\.\d+){4}", version), version
+    assert int(version.split(".")[0]) >= 19, version
     assert all(c["checkedAt"] for c in verified["capabilities"])
 
     schemas = client.get(f"/api/v1/targets/{profile_id}/schemas", headers=developer).json()
