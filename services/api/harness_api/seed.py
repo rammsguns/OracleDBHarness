@@ -66,6 +66,12 @@ class TargetEndpoint:
     secret_name: str = "harness-app"  # noqa: S105
     secret_locator: str = "harness_app.password"  # noqa: S105
     description: str = "Oracle account used by the demonstration targets."
+    protocol: str = "tcp"
+    wallet_dir: str = ""
+    # A wallet password reference, for a wallet whose key is encrypted. Empty for none.
+    # The caller writes the file; the seed never writes a placeholder for it.
+    wallet_secret_name: str = ""
+    wallet_secret_locator: str = ""
 
 
 DEMO_TARGETS: list[dict[str, Any]] = [
@@ -175,6 +181,8 @@ def _refuse_drift(db: Session, resolved: dict[str, TargetEndpoint]) -> None:
             "username": profile.username,
             "default_schema": profile.default_schema,
             "secret_name": profile.secret.name,
+            "protocol": profile.protocol,
+            "wallet_dir": profile.wallet_dir,
         }
         requested = {field: getattr(endpoint, field) for field in stored}
         differences = {
@@ -233,20 +241,30 @@ def seed(
 
             secrets: dict[str, SecretReference] = {}
             for endpoint in resolved.values():
-                if endpoint.secret_name in secrets:
-                    continue
-                secret = db.scalars(
-                    select(SecretReference).where(SecretReference.name == endpoint.secret_name)
-                ).first()
-                if secret is None:
-                    secret = SecretReference(
-                        name=endpoint.secret_name,
-                        provider="file",
-                        locator=endpoint.secret_locator,
-                        description=endpoint.description,
+                references = [(endpoint.secret_name, endpoint.secret_locator, endpoint.description)]
+                if endpoint.wallet_secret_name:
+                    references.append(
+                        (
+                            endpoint.wallet_secret_name,
+                            endpoint.wallet_secret_locator,
+                            f"Wallet password for {endpoint.wallet_dir}.",
+                        )
                     )
-                    db.add(secret)
-                secrets[endpoint.secret_name] = secret
+                for name, locator, description in references:
+                    if name in secrets:
+                        continue
+                    secret = db.scalars(
+                        select(SecretReference).where(SecretReference.name == name)
+                    ).first()
+                    if secret is None:
+                        secret = SecretReference(
+                            name=name,
+                            provider="file",
+                            locator=locator,
+                            description=description,
+                        )
+                        db.add(secret)
+                    secrets[name] = secret
             db.commit()
 
             users: dict[str, User] = {}
@@ -274,7 +292,14 @@ def seed(
                         service_name=endpoint.service_name,
                         username=endpoint.username,
                         default_schema=endpoint.default_schema,
+                        protocol=endpoint.protocol,
+                        wallet_dir=endpoint.wallet_dir,
                         secret_reference_id=secrets[endpoint.secret_name].id,
+                        wallet_secret_reference_id=(
+                            secrets[endpoint.wallet_secret_name].id
+                            if endpoint.wallet_secret_name
+                            else None
+                        ),
                         worksheets_enabled=spec["worksheets_enabled"],
                         mutating_runbooks_enabled=spec["mutating_runbooks_enabled"],
                         notes=spec["notes"],

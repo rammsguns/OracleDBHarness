@@ -297,6 +297,15 @@ class ExecutionService:
                     detail={"profileId": profile.id},
                 )
             password = self._secrets.resolve(secret)
+            wallet_password = None
+            if profile.wallet_secret_reference_id:
+                wallet_secret = db.get(SecretReference, profile.wallet_secret_reference_id)
+                if wallet_secret is None:
+                    raise ConfigurationError(
+                        "The wallet password reference for this target is missing.",
+                        detail={"profileId": profile.id},
+                    )
+                wallet_password = self._secrets.resolve(wallet_secret)
         self._check_endpoint_allowed(profile)
         return ConnectionSpec(
             profile_id=profile.id,
@@ -307,6 +316,7 @@ class ExecutionService:
             password=password,
             driver_mode=self._settings.oracle_driver_mode,
             wallet_dir=profile.wallet_dir or None,
+            wallet_password=wallet_password,
             protocol=profile.protocol,
             default_schema=profile.default_schema or None,
         )

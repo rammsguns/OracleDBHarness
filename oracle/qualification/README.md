@@ -94,6 +94,24 @@ The DSN must be `host:port/service`. A connect descriptor or a tnsnames alias is
 refused, because a connection profile has separate host, port and service columns and
 nothing else — accepting one here would qualify a path the application cannot use.
 
+Each database has its own transport, because a cloud database reached over TCPS is
+often paired with a local one over TCP. `HARNESS_QUAL_PROTOCOL` (`tcp` or `tcps`),
+`HARNESS_QUAL_WALLET_DIR` and `HARNESS_QUAL_WALLET_PASSWORD_FILE` describe the primary
+database, and the admin, restricted and lab accounts on it. The `HARNESS_QUAL_SECOND_`
+forms of the same three describe the second database, which is plain TCP unless they
+say otherwise. An Autonomous Database wallet's `ewallet.pem` holds an encrypted key, so
+Thin mode needs the wallet password as well as the directory:
+
+```bash
+export HARNESS_QUAL_PROTOCOL=tcps
+export HARNESS_QUAL_WALLET_DIR=/run/wallets/adb
+export HARNESS_QUAL_WALLET_PASSWORD_FILE=/run/secrets/adb_wallet.password
+```
+
+A connection profile carries the same: `protocol`, `walletDir`, and
+`walletSecretReference`, which names the credential reference holding the wallet
+password.
+
 Driver mode is process wide. To qualify Thick mode, run the suite again in a separate
 process with `HARNESS_QUAL_DRIVER_MODE=thick` and
 `HARNESS_QUAL_ORACLE_CLIENT_LIB_DIR` pointing at the Oracle Client libraries. A single

@@ -1,7 +1,7 @@
 # Testing against real databases
 
-Status: drafted 2026-10-14. T-0 to T-6 done 2026-10-14 (R1 to R4 and R6 green); R5 awaits
-approval. Owner: the harness maintainers.
+Status: drafted 2026-10-14. T-0 to T-6 done 2026-10-14 (R1 to R6 green; R5 approved and
+run the same day). Owner: the harness maintainers.
 
 The harness has been qualified against exactly one database: a 19c EE 19.9 non-CDB, in
 thin mode, on 2026-09-11 (see `docs/compatibility.md`). The checks for a PDB, a
@@ -83,7 +83,7 @@ Exit: each run below is a single command.
 | **R2** | D2 | D1 | thin | `admin,second_target,restricted_account,pdb` | First 23ai/26ai connection; first PDB qualification |
 | **R3** | D1 | D2 | thick (Instant Client 21.4 at `/opt/oracle/instantclient_21_4`) | as R1 | Thick mode, never run |
 | **R4** | D1, then D2 | none | thin | none | `tests/integration/test_process_death.py`: NP-01 on Oracle, Linux host |
-| **R5** | D3 | D1 | thin, TCPS + wallet | `second_target` | First TCPS/wallet path and first ADB. **Gated on approval** |
+| **R5** | D3 | D1 | thin, TCPS + wallet | `second_target` | First TCPS/wallet path and first ADB. **Done 2026-10-14:** 160 passed, 20 skipped, after fixing wallet-password and per-endpoint transport support; `ANALYZE ANY` and `ALTER ANY PROCEDURE` not granted on the shared D3. See `docs/compatibility.md`, "The D3 run" |
 | **R6** | D4 | D1 | thin | `admin,second_target` | First non-AL32UTF8 character set and first database across a real network |
 
 Each run executes `tests/qualification`, `tests/integration` and `tests/e2e` (the switch
@@ -145,7 +145,7 @@ separately. Do not unpin as part of this plan.
 ## Order and exit
 
 T-0, then T-1, then R1, the T-3 loop until R1 is green, then R2, R3 and R4, then T-4.
-T-5 and T-6 follow, and R5 waits for approval.
+T-5 and T-6 follow, then R5 once approved (approved and run 2026-10-14).
 
 The plan is done when R1 to R4 pass with their `HARNESS_QUAL_REQUIRE` sets,
 `docs/compatibility.md` records them, and every defect they found has a fix and a

@@ -36,7 +36,9 @@ log = logging.getLogger("harness.db")
 
 # 4: executions and worksheet sessions record their owning runtime, and the point at
 #    which work was dispatched, so interrupted work can be reconciled after a restart.
-SCHEMA_VERSION = "4"
+# 5: connection_profiles.wallet_secret_reference_id, the password for a wallet whose key
+#    is encrypted.
+SCHEMA_VERSION = "5"
 
 
 def resolve_metadata_url(settings: Settings) -> URL:
@@ -161,6 +163,15 @@ def _add_restart_reconciliation(connection: Connection) -> None:
     connection.execute(insert(StoreOwner).values(id=1, runtime_id=""))
 
 
+def _add_wallet_secret(connection: Connection) -> None:
+    """Add the optional wallet password reference. Existing profiles have none, which is
+    what they had before: a wallet they could open, or no wallet at all."""
+
+    connection.exec_driver_sql(
+        "ALTER TABLE connection_profiles ADD COLUMN wallet_secret_reference_id VARCHAR(40)"
+    )
+
+
 # Keyed by the version a step upgrades *from*. Add a step here in the same change that
 # bumps SCHEMA_VERSION, and test it from a store the previous release would leave.
 MIGRATIONS: dict[str, Migration] = {
@@ -178,6 +189,11 @@ MIGRATIONS: dict[str, Migration] = {
         "4",
         "runtime ownership and dispatch markers for restart reconciliation",
         _add_restart_reconciliation,
+    ),
+    "4": Migration(
+        "5",
+        "connection_profiles.wallet_secret_reference_id for encrypted wallets",
+        _add_wallet_secret,
     ),
 }
 

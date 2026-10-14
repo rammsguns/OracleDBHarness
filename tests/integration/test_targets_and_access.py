@@ -295,3 +295,44 @@ def test_paging_objects_lists_every_partition_exactly_once(
             break
         offset += 5
     assert sorted(seen) == sorted((name, kind, sub) for _, name, sub, kind in rows)
+
+
+def test_a_target_can_name_the_password_for_its_wallet(client: TestClient, administrator) -> None:
+    """An Autonomous Database wallet has an encrypted key, so a TCPS target needs a
+    password reference for the wallet as well as for the account."""
+
+    body = {
+        "name": "cloud",
+        "host": "adb.example.com",
+        "port": 1522,
+        "serviceName": "abc_medium",
+        "username": "harness_app",
+        "secretReference": "harness-app",
+        "protocol": "tcps",
+        "walletSecretReference": "harness-app",
+    }
+
+    no_wallet = client.post("/api/v1/admin/targets", headers=administrator, json=body)
+    assert no_wallet.status_code == 400, no_wallet.text
+    assert "wallet directory" in no_wallet.json()["error"]["message"]
+
+    body["walletDir"] = "/wallets/adb"
+    unknown = client.post(
+        "/api/v1/admin/targets",
+        headers=administrator,
+        json={**body, "walletSecretReference": "no-such-reference"},
+    )
+    assert unknown.status_code == 404, unknown.text
+
+    wrong_protocol = client.post(
+        "/api/v1/admin/targets", headers=administrator, json={**body, "protocol": "https"}
+    )
+    assert wrong_protocol.status_code == 400, wrong_protocol.text
+
+    created = client.post("/api/v1/admin/targets", headers=administrator, json=body)
+    assert created.status_code == 201, created.text
+    with client.app.state.harness.session_factory() as db:
+        profile = db.get(ConnectionProfile, created.json()["id"])
+        assert profile is not None
+        assert (profile.protocol, profile.wallet_dir) == ("tcps", "/wallets/adb")
+        assert profile.wallet_secret_reference_id == profile.secret_reference_id

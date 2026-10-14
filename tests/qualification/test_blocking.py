@@ -23,6 +23,12 @@ from tests.qualification.evidence import Evidence
 
 _LOCK_ROW = "UPDATE departments SET location_id = location_id WHERE department_id = 10"
 
+# How long to wait for the panel to show the waiter. On Autonomous Database (26ai, D3)
+# V$SESSION.BLOCKING_SESSION reads NULL, status UNKNOWN, for the first 6 to 15 seconds
+# of a row-lock wait before it names the holder; a single instance fills it in at once.
+# Kept under the waiter's own 30-second statement deadline.
+_PANEL_WAIT_SECONDS = 25
+
 
 @pytest.fixture
 def observer(
@@ -61,12 +67,15 @@ def test_a_blocked_session_is_shown_with_its_blocker(
     waiter.start()
     try:
         rows: list[list[Any]] = []
-        deadline = time.monotonic() + 15
+        polling = time.monotonic()
+        deadline = polling + _PANEL_WAIT_SECONDS
+        shown_after = None
         while time.monotonic() < deadline:
             result = observer.execute(blocking_sql, {}, StatementKind.QUERY, limits)
             assert result.result_set is not None
             rows = [row for row in result.result_set.rows if row[0] == waiter_sid]
             if rows:
+                shown_after = time.monotonic() - polling
                 break
             time.sleep(0.5)
     finally:
@@ -77,7 +86,12 @@ def test_a_blocked_session_is_shown_with_its_blocker(
     evidence.note(
         "Does the blocking panel show a real blocked session?",
         f"Session {waiter_sid} waiting on {holder_sid}: "
-        + (f"shown as `{rows[0][:4]}` blocked by SID `{rows[0][5]}`" if rows else "**not shown**"),
+        + (
+            f"shown as `{rows[0][:4]}` blocked by SID `{rows[0][5]}`, "
+            f"{shown_after:.1f}s after the wait began"
+            if rows and shown_after is not None
+            else f"**not shown** within {_PANEL_WAIT_SECONDS}s"
+        ),
     )
     assert rows, f"dba.blocking did not show session {waiter_sid} waiting on {holder_sid}."
     assert rows[0][5] == holder_sid

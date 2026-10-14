@@ -1326,6 +1326,17 @@
             "title": "Walletdir",
             "type": "string"
           },
+          "walletSecretReference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Walletsecretreference"
+          },
           "worksheetsEnabled": {
             "default": false,
             "title": "Worksheetsenabled",

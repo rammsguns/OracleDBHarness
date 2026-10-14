@@ -147,6 +147,26 @@ def create_target(payload: ProfileIn, _: Administrator, db: Db, state: State) ->
             f"No secret reference named {payload.secret_reference!r}.",
             detail={"secretReference": payload.secret_reference},
         )
+    if payload.protocol not in ("tcp", "tcps"):
+        raise ValidationError(
+            "The protocol must be 'tcp' or 'tcps'.", detail={"protocol": payload.protocol}
+        )
+    wallet_secret_id = None
+    if payload.wallet_secret_reference:
+        if not payload.wallet_dir:
+            raise ValidationError(
+                "A wallet password needs a wallet directory to open.",
+                detail={"walletSecretReference": payload.wallet_secret_reference},
+            )
+        wallet_secret = db.scalars(
+            select(SecretReference).where(SecretReference.name == payload.wallet_secret_reference)
+        ).first()
+        if wallet_secret is None:
+            raise NotFoundError(
+                f"No secret reference named {payload.wallet_secret_reference!r}.",
+                detail={"walletSecretReference": payload.wallet_secret_reference},
+            )
+        wallet_secret_id = wallet_secret.id
     if payload.environment == "production" and (
         payload.worksheets_enabled or payload.mutating_runbooks_enabled
     ):
@@ -166,6 +186,7 @@ def create_target(payload: ProfileIn, _: Administrator, db: Db, state: State) ->
         protocol=payload.protocol,
         wallet_dir=payload.wallet_dir,
         secret_reference_id=secret.id,
+        wallet_secret_reference_id=wallet_secret_id,
         worksheets_enabled=payload.worksheets_enabled,
         mutating_runbooks_enabled=payload.mutating_runbooks_enabled,
         notes=payload.notes,

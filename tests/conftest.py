@@ -209,13 +209,20 @@ def spare_endpoint(oracle_target: oracle_config.OracleTestConfig | None) -> dict
             "username": "harness_app",
             "defaultSchema": "HARNESS_APP",
         }
-    return {
-        "host": oracle_target.primary.host,
-        "port": oracle_target.primary.port,
-        "serviceName": oracle_target.primary.service_name,
-        "username": oracle_target.primary.username,
-        "defaultSchema": oracle_target.primary.schema,
+    primary = oracle_target.primary
+    endpoint: dict[str, Any] = {
+        "host": primary.host,
+        "port": primary.port,
+        "serviceName": primary.service_name,
+        "username": primary.username,
+        "defaultSchema": primary.schema,
+        "protocol": primary.protocol,
+        "walletDir": primary.wallet_dir or "",
     }
+    if primary.wallet_password is not None:
+        # The reference the seed made for the primary's wallet password.
+        endpoint["walletSecretReference"] = "harness-wallet"
+    return endpoint
 
 
 @pytest.fixture
@@ -263,6 +270,7 @@ def _endpoints(config: oracle_config.OracleTestConfig) -> dict[str, TargetEndpoi
         username=config.primary.username,
         default_schema=config.primary.schema,
         description="Oracle account used by the qualification targets.",
+        **_transport(config.primary, "harness-wallet"),
     )
     second = primary
     if config.second is not None:
@@ -275,8 +283,20 @@ def _endpoints(config: oracle_config.OracleTestConfig) -> dict[str, TargetEndpoi
             secret_name="harness-app-second",  # noqa: S106 - a reference name
             secret_locator="harness_app_second.password",  # noqa: S106 - a file name
             description="Oracle account used by the second qualification target.",
+            **_transport(config.second, "harness-wallet-second"),
         )
     return {"development": primary, "test": second, "production": primary}
+
+
+def _transport(endpoint: oracle_config.Endpoint, wallet_secret: str) -> dict[str, str]:
+    """The profile columns for an endpoint's protocol and wallet. The wallet password,
+    when there is one, gets its own credential reference and file."""
+
+    columns = {"protocol": endpoint.protocol, "wallet_dir": endpoint.wallet_dir or ""}
+    if endpoint.wallet_password is not None:
+        columns["wallet_secret_name"] = wallet_secret
+        columns["wallet_secret_locator"] = f"{wallet_secret.replace('-', '_')}.password"
+    return columns
 
 
 @pytest.fixture
@@ -296,6 +316,9 @@ def seeded(
     passwords = {endpoints["development"].secret_locator: oracle_target.primary.password}
     if oracle_target.second is not None:
         passwords[endpoints["test"].secret_locator] = oracle_target.second.password
+    for name, endpoint in (("development", oracle_target.primary), ("test", oracle_target.second)):
+        if endpoint is not None and endpoint.wallet_password is not None:
+            passwords[endpoints[name].wallet_secret_locator] = endpoint.wallet_password
     for locator, password in passwords.items():
         (secrets / locator).write_text(password, encoding="utf-8")
 

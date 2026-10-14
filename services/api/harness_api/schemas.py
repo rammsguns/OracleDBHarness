@@ -92,6 +92,7 @@ class ProfileIn(Schema):
     protocol: str = "tcp"
     wallet_dir: str = Field(default="", alias="walletDir")
     secret_reference: str = Field(alias="secretReference")
+    wallet_secret_reference: str | None = Field(default=None, alias="walletSecretReference")
     worksheets_enabled: bool = Field(default=False, alias="worksheetsEnabled")
     mutating_runbooks_enabled: bool = Field(default=False, alias="mutatingRunbooksEnabled")
     notes: str = ""
