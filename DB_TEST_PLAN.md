@@ -177,5 +177,6 @@ setter on a live session, the other calls on the dropped session, and the setter
 session killed but not yet noticed, where `is_healthy()` is still true. `is_healthy()`
 turns false at the first `DPY-4011`, the same moment the setter becomes fatal, so the
 adapter's guard is the right check. 26.0.0 fixes nothing here, so the pin stays at 4.0.2.
-Recorded in `docs/compatibility.md`. The probe ran from scratch virtualenvs; the
-repository's lock file is unchanged.
+Recorded in `docs/compatibility.md` and reported upstream as
+[oracle/python-oracledb#619](https://github.com/oracle/python-oracledb/issues/619).
+The probe ran from scratch virtualenvs; the repository's lock file is unchanged.
