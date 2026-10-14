@@ -364,23 +364,28 @@ _DROP_TABLE = (
 )
 _DROP_SCHEDULER = (
     "BEGIN DBMS_SCHEDULER.{call}('{name}', force => TRUE); EXCEPTION WHEN OTHERS THEN "
-    "IF SQLCODE NOT IN (-27475, -27476) THEN RAISE; END IF; END;"
+    "IF SQLCODE NOT IN ({codes}) THEN RAISE; END IF; END;"
 )
+_SCHEDULER_MISSING = "-27475, -27476"
+# 19c raises ORA-23308 from DROP_CHAIN when the chain does not exist.
+_CHAIN_MISSING = "-27475, -27476, -23308"
 _DROP_PLSQL = (
     "BEGIN EXECUTE IMMEDIATE 'DROP {kind} {name}'; EXCEPTION WHEN OTHERS THEN "
     "IF SQLCODE != {code} THEN RAISE; END IF; END;"
 )
 
 
+def _drop_scheduler(call: str, name: str, codes: str = _SCHEDULER_MISSING) -> str:
+    return _DROP_SCHEDULER.format(call=call, name=name, codes=codes)
+
+
 def _drops() -> list[tuple[str, str]]:
     steps = [
-        ("drop_etl_job", _DROP_SCHEDULER.format(call="DROP_JOB", name=JOB)),
-        ("drop_etl_chain", _DROP_SCHEDULER.format(call="DROP_CHAIN", name=CHAIN)),
+        ("drop_etl_job", _drop_scheduler("DROP_JOB", JOB)),
+        ("drop_etl_chain", _drop_scheduler("DROP_CHAIN", CHAIN, _CHAIN_MISSING)),
     ]
     for program, _ in PROGRAMS:
-        steps.append(
-            (f"drop_{program.lower()}", _DROP_SCHEDULER.format(call="DROP_PROGRAM", name=program))
-        )
+        steps.append((f"drop_{program.lower()}", _drop_scheduler("DROP_PROGRAM", program)))
     steps.append(
         (
             "drop_etl_trigger",
