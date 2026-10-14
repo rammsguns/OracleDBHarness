@@ -500,6 +500,12 @@ host, and the thresholds are proposed.
 Append; do not replace. Each entry should carry the date, the harness build, the exact
 database version and configuration, which suites were run, and what failed.
 
+Copy entries from the report under `databases/reports`, which is not committed, and
+redact what identifies a database reached over a network: its host and service name
+(written as "D3 (Autonomous Database, see `databases/INVENTORY.md`)" and so on), and
+for a managed database also the PDB name, which Autonomous Database builds the service
+name from, and the DBIDs. The unredacted report stays under `databases/reports`.
+
 ### Run 2026-09-11 19:04 UTC
 
 - Harness build: `4a0bf24` plus the fixes listed in "What the first Oracle 19c run found", uncommitted at the time and committed as `12f6902`. The `charLength` field, the finite DBMS_OUTPUT buffer, the value-based offset warning and the narrowed identity probe came after this run, so its LOB rows below still say `byteLength`
@@ -1043,10 +1049,10 @@ Database, as reported by the database:
 
 - characterSet: `AL32UTF8`
 - containerId: `172`
-- containerName: `G455001AB0656DB_ORACLE26IALWAYSFREE`
+- containerName: `<D3 PDB name, redacted>`
 - currentSchema: `HARNESS_APP`
 - currentUser: `HARNESS_APP`
-- databaseName: `G455001AB0656DB_ORACLE26IALWAYSFREE`
+- databaseName: `<D3 PDB name, redacted>`
 - dbUniqueName: `fce7pwwd`
 - driver.driverMode: `thin`
 - driver.pythonOracledb: `4.0.2`
@@ -1065,7 +1071,7 @@ Observed Oracle behaviour:
 | BOOLEAN bind | true selected `yes`, false `no` |
 | Capabilities on this account | connect: available<br>session_schema: available<br>all_objects: available<br>explain_plan: available<br>display_cursor: available<br>v_session: available<br>v_sql: available<br>dba_tablespaces: available<br>dba_scheduler_jobs: available<br>dbms_stats: available<br>compile_objects: available |
 | Compiler errors for the seeded invalid body | line 5 col 39: PL/SQL: ORA-00942: table or view does not exist; line 5 col 5: PL/SQL: SQL Statement ignored |
-| Container identity | a pluggable database: CON_ID `172`, CON_NAME `G455001AB0656DB_ORACLE26IALWAYSFREE`, DB_UNIQUE_NAME `fce7pwwd`; harness reported isCdb=`True`, containerName=`G455001AB0656DB_ORACLE26IALWAYSFREE`, databaseName=`G455001AB0656DB_ORACLE26IALWAYSFREE`. |
+| Container identity | a pluggable database: CON_ID `172`, CON_NAME `<D3 PDB name, redacted>`, DB_UNIQUE_NAME `fce7pwwd`; harness reported isCdb=`True`, containerName=`<D3 PDB name, redacted>`, databaseName=`<D3 PDB name, redacted>`. |
 | Database major version | **23**, not 19. This run does not qualify Oracle 19c. Full version: `23.26.4.1.0`. |
 | Does DBMS_OUTPUT reach the adapter? | Yes - 1 line(s): ['headcount=3'] |
 | Does DDL commit pending DML? | Yes - the row inserted before the CREATE was visible to another session without an explicit commit. |
@@ -1090,7 +1096,7 @@ Observed Oracle behaviour:
 | NCLOB of 4,000 two-byte characters: reported length | charLength `4000`, byteLength `None` |
 | PL/Scope absence | EMPLOYEE_REPORT reports NOT COLLECTED; the function is read |
 | Runtime error from a PL/SQL block | Oracle code `ORA-20001`, message `ORA-20001: qualification probe<br>ORA-06512: at line 1` |
-| Second target identity | separate databases on separate instances. Primary: DBID `2243178949`, CON_DBID `2523662016`, CON_NAME `G455001AB0656DB_ORACLE26IALWAYSFREE`, DB_UNIQUE_NAME `fce7pwwd`, instance `fce7pwwd2` on `POD`, user `HARNESS_APP`. Second: DBID `1771485732`, CON_DBID `1771485732`, CON_NAME `ORCL`, DB_UNIQUE_NAME `ORCL`, instance `ORCL` on `90520b67e617`, user `HARNESS_APP`. |
+| Second target identity | separate databases on separate instances. Primary: DBID `<D3 DBID, redacted>`, CON_DBID `<D3 CON_DBID, redacted>`, CON_NAME `<D3 PDB name, redacted>`, DB_UNIQUE_NAME `fce7pwwd`, instance `fce7pwwd2` on `POD`, user `HARNESS_APP`. Second: DBID `1771485732`, CON_DBID `1771485732`, CON_NAME `ORCL`, DB_UNIQUE_NAME `ORCL`, instance `ORCL` on `90520b67e617`, user `HARNESS_APP`. |
 | Shape of a small CLOB | `{'kind': 'lob', 'preview': 'short clob', 'charLength': 10, 'truncated': False}` |
 | Unicode read back | `'こんにちは — café — مرحبا'` |
 | VECTOR(1000, FLOAT64) under a 256-byte preview limit | dimensions `1000`, 32 values shown, truncated=`True` |
@@ -1118,8 +1124,8 @@ Result: 6 passed.
 
 Database, as reported by the database:
 
-- containerName: `G455001AB0656DB_ORACLE26IALWAYSFREE`
-- databaseName: `G455001AB0656DB_ORACLE26IALWAYSFREE`
+- containerName: `<D3 PDB name, redacted>`
+- databaseName: `<D3 PDB name, redacted>`
 - isCdb: `True`
 - versionFull: `23.26.4.1.0`
 
@@ -1153,10 +1159,10 @@ Database, as reported by the database:
 
 - characterSet: `AL32UTF8`
 - containerId: `172`
-- containerName: `G455001AB0656DB_ORACLE26IALWAYSFREE`
+- containerName: `<D3 PDB name, redacted>`
 - currentSchema: `HARNESS_APP`
 - currentUser: `HARNESS_APP`
-- databaseName: `G455001AB0656DB_ORACLE26IALWAYSFREE`
+- databaseName: `<D3 PDB name, redacted>`
 - dbUniqueName: `fce7pwwd`
 - driver.driverMode: `thick`
 - driver.oracleClient: `21.4.0.0.0`
@@ -1176,7 +1182,7 @@ Observed Oracle behaviour:
 | BOOLEAN bind | Oracle Client 21.4.0.0.0 binds a bool as NUMBER: `ORA-00920: invalid relational operator` |
 | Capabilities on this account | connect: available<br>session_schema: available<br>all_objects: available<br>explain_plan: available<br>display_cursor: available<br>v_session: available<br>v_sql: available<br>dba_tablespaces: available<br>dba_scheduler_jobs: available<br>dbms_stats: available<br>compile_objects: available |
 | Compiler errors for the seeded invalid body | line 5 col 39: PL/SQL: ORA-00942: table or view does not exist; line 5 col 5: PL/SQL: SQL Statement ignored |
-| Container identity | a pluggable database: CON_ID `172`, CON_NAME `G455001AB0656DB_ORACLE26IALWAYSFREE`, DB_UNIQUE_NAME `fce7pwwd`; harness reported isCdb=`True`, containerName=`G455001AB0656DB_ORACLE26IALWAYSFREE`, databaseName=`G455001AB0656DB_ORACLE26IALWAYSFREE`. |
+| Container identity | a pluggable database: CON_ID `172`, CON_NAME `<D3 PDB name, redacted>`, DB_UNIQUE_NAME `fce7pwwd`; harness reported isCdb=`True`, containerName=`<D3 PDB name, redacted>`, databaseName=`<D3 PDB name, redacted>`. |
 | Database major version | **23**, not 19. This run does not qualify Oracle 19c. Full version: `23.26.4.1.0`. |
 | Does DBMS_OUTPUT reach the adapter? | Yes - 1 line(s): ['headcount=3'] |
 | Does DDL commit pending DML? | Yes - the row inserted before the CREATE was visible to another session without an explicit commit. |
@@ -1201,7 +1207,7 @@ Observed Oracle behaviour:
 | NCLOB of 4,000 two-byte characters: reported length | charLength `4000`, byteLength `None` |
 | PL/Scope absence | EMPLOYEE_REPORT reports NOT COLLECTED; the function is read |
 | Runtime error from a PL/SQL block | Oracle code `ORA-20001`, message `ORA-20001: qualification probe<br>ORA-06512: at line 1` |
-| Second target identity | separate databases on separate instances. Primary: DBID `2243178949`, CON_DBID `2523662016`, CON_NAME `G455001AB0656DB_ORACLE26IALWAYSFREE`, DB_UNIQUE_NAME `fce7pwwd`, instance `fce7pwwd2` on `POD`, user `HARNESS_APP`. Second: DBID `1771485732`, CON_DBID `1771485732`, CON_NAME `ORCL`, DB_UNIQUE_NAME `ORCL`, instance `ORCL` on `90520b67e617`, user `HARNESS_APP`. |
+| Second target identity | separate databases on separate instances. Primary: DBID `<D3 DBID, redacted>`, CON_DBID `<D3 CON_DBID, redacted>`, CON_NAME `<D3 PDB name, redacted>`, DB_UNIQUE_NAME `fce7pwwd`, instance `fce7pwwd2` on `POD`, user `HARNESS_APP`. Second: DBID `1771485732`, CON_DBID `1771485732`, CON_NAME `ORCL`, DB_UNIQUE_NAME `ORCL`, instance `ORCL` on `90520b67e617`, user `HARNESS_APP`. |
 | Shape of a small CLOB | `{'kind': 'lob', 'preview': 'short clob', 'charLength': 10, 'truncated': False}` |
 | Unicode read back | `'こんにちは — café — مرحبا'` |
 | VECTOR(1000, FLOAT64) under a 256-byte preview limit | elements `1000`, 32 values shown, truncated=`True` |
@@ -1229,8 +1235,8 @@ above. Result: 6 passed.
 
 Database, as reported by the database:
 
-- containerName: `G455001AB0656DB_ORACLE26IALWAYSFREE`
-- databaseName: `G455001AB0656DB_ORACLE26IALWAYSFREE`
+- containerName: `<D3 PDB name, redacted>`
+- databaseName: `<D3 PDB name, redacted>`
 - isCdb: `True`
 - versionFull: `23.26.4.1.0`
 
