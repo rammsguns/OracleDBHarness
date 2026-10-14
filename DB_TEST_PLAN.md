@@ -83,7 +83,7 @@ Exit: each run below is a single command.
 | **R2** | D2 | D1 | thin | `admin,second_target,restricted_account,pdb` | First 23ai/26ai connection; first PDB qualification |
 | **R3** | D1 | D2 | thick (Instant Client 21.4 at `/opt/oracle/instantclient_21_4`) | as R1 | Thick mode, never run |
 | **R4** | D1, then D2 | none | thin | none | `tests/integration/test_process_death.py`: NP-01 on Oracle, Linux host |
-| **R5** | D3 | D1 | thin, TCPS + wallet | `second_target` | First TCPS/wallet path and first ADB. **Done 2026-10-14:** 160 passed, 20 skipped, after fixing wallet-password and per-endpoint transport support; `ANALYZE ANY` and `ALTER ANY PROCEDURE` not granted on the shared D3. See `docs/compatibility.md`, "The D3 run" |
+| **R5** | D3 | D1 | thin, TCPS + wallet | `second_target` | First TCPS/wallet path and first ADB. **Done 2026-10-14:** 160 passed, 20 skipped, after fixing wallet-password and per-endpoint transport support; thick mode 159 passed, 21 skipped, after naming the wallet in the descriptor; `ANALYZE ANY` and `ALTER ANY PROCEDURE` not granted on the shared D3. See `docs/compatibility.md`, "The D3 run" |
 | **R6** | D4 | D1 | thin | `admin,second_target` | First non-AL32UTF8 character set and first database across a real network |
 
 Each run executes `tests/qualification`, `tests/integration` and `tests/e2e` (the switch
@@ -219,4 +219,28 @@ This is an expected client difference, but such a vector bypassed the preview li
 and nothing warned the user. Both are fixed. The checks now pin the old client's
 behaviour, and the rerun passed (162 passed, 17 skipped). Thick mode against D4 passed
 too (155 passed, 24 skipped), with the same evidence as R6. Recorded in
+`docs/compatibility.md`.
+
+R5 on D3, 2026-10-14: the first TCPS path, wallet and managed database. Three harness
+defects blocked it: no way to supply a wallet password, one transport for every
+endpoint in a run, and a seed that never passed protocol or wallet to the API. With
+those fixed, the first full attempt failed 2 of 180. One was the e2e registration
+fixture, the third defect again. The other was the blocking panel: ADB fills in
+`V$SESSION.BLOCKING_SESSION` only 6 to 15 s into a row-lock wait, so the check now waits
+25 s. The rerun had 160 passed, 20 skipped and 0 failed (PR #23). `ANALYZE ANY` and
+`ALTER ANY PROCEDURE` were not granted on the shared database, and no check needed them.
+
+R5 in thick mode, 2026-10-14: a harness defect again. Thick mode ignores the wallet
+connect parameters, so it could not reach a TCPS target (`ORA-28759`). A TCPS
+descriptor now names the wallet directory in thick mode, and the Oracle Client opens
+its auto-login `cwallet.sso`. Then 159 passed, 21 skipped and 0 failed, with the same
+old-client `BOOLEAN` and `VECTOR` evidence as thick mode on D2.
+
+`VECTOR` binds, columns and indexes, 2026-10-14, on D2 and D3 in both modes: a harness
+defect. A JSON array binds as a PL/SQL array (`ORA-01484`), and the bind's `typeHint`
+was never read, so no vector could be bound. `typeHint: "vector"` (or `vector:float64`,
+`vector:int8`) now binds an `array.array`, or vector text, with a warning, for an Oracle
+Client older than 23.4. Binds into `VECTOR` columns, `VECTOR_DISTANCE` and an IVF index
+pass on both databases. HNSW passes on D3 and is a recorded gap on D2, whose Free PDB has
+no vector memory pool. The console does not offer a type hint yet. Recorded in
 `docs/compatibility.md`.

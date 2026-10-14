@@ -83,3 +83,26 @@ def test_a_vector_and_a_boolean_reach_the_grid(
             True,
         ]
     ]
+
+
+def test_a_json_array_binds_as_a_vector_when_hinted(
+    client: TestClient, developer, session_id: str
+) -> None:
+    """Unhinted, the array reaches the driver as a list, which binds as a PL/SQL array."""
+
+    statement = "SELECT ROUND(VECTOR_DISTANCE(TO_VECTOR('[0, 1, 0]'), :q, COSINE), 4) FROM dual"
+    hinted = execute(
+        client,
+        developer,
+        session_id,
+        statement,
+        binds=[{"name": "q", "value": [0, 1, 0], "typeHint": "vector"}],
+    )
+    unhinted = execute(
+        client, developer, session_id, statement, binds=[{"name": "q", "value": [0, 1, 0]}]
+    )
+
+    assert hinted["outcome"]["state"] == "succeeded", hinted
+    assert hinted["outcome"]["resultSet"]["rows"] == [[0]]
+    assert unhinted["outcome"]["state"] == "failed"
+    assert "ORA-01484" in unhinted["outcome"]["error"]["message"]

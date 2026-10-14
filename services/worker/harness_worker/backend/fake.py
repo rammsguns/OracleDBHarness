@@ -34,7 +34,13 @@ from harness_worker.backend.base import (
     OracleConnection,
     StatementResult,
 )
-from harness_worker.errors import OracleError, OutcomeUnknownError, ValidationError
+from harness_worker.binds import VectorBind
+from harness_worker.errors import (
+    CapabilityError,
+    OracleError,
+    OutcomeUnknownError,
+    ValidationError,
+)
 from harness_worker.types import (
     Capability,
     CapabilityReport,
@@ -1029,6 +1035,8 @@ class FakeOracleConnection(OracleConnection):
                 raise OracleError("The session is closed.", oracle_code="ORA-01012")
             self._cancel_requested.clear()
             self._dbms_output = []
+            if any(isinstance(value, VectorBind) for value in binds.values()):
+                raise CapabilityError("The stand-in has no VECTOR type to bind a vector to.")
             started = time.perf_counter()
 
             if kind in (StatementKind.PLSQL_BLOCK, StatementKind.PLSQL_SOURCE):

@@ -8,6 +8,7 @@ https://python-oracledb.readthedocs.io/en/stable/user_guide/initialization.html
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import struct
@@ -24,6 +25,7 @@ from harness_worker.backend.base import (
     OracleConnection,
     StatementResult,
 )
+from harness_worker.binds import VectorBind
 from harness_worker.errors import (
     CancelledError_,
     CapabilityError,
@@ -335,7 +337,8 @@ class OracleDbConnection(OracleConnection):
                 # the bounded fetch. The capacity report subtracts it from the client's
                 # latency to find what the harness itself adds.
                 started = time.perf_counter()
-                cur.execute(statement, binds or {})
+                driver_binds, as_text = _driver_binds(binds or {})
+                cur.execute(statement, driver_binds)
                 result = StatementResult(statement_kind=kind)
                 if cur.description:
                     result.result_set = self._fetch_bounded(cur, limits)
@@ -353,6 +356,10 @@ class OracleDbConnection(OracleConnection):
                     result.rows_affected = cur.rowcount
                     if kind in (StatementKind.DML, StatementKind.PLSQL_BLOCK):
                         self._transaction_open = True
+                if as_text:
+                    result.warnings.append(
+                        _TEXT_VECTOR_BIND_WARNING.format(", ".join(as_text), _client_version())
+                    )
                 if kind == StatementKind.PLSQL_SOURCE:
                     errors = self._compiler_errors(statement)
                     if errors is None:
@@ -781,7 +788,7 @@ class OracleDbBackend(OracleBackend):
         params: dict[str, Any] = {
             "user": spec.username,
             "password": spec.password,
-            "dsn": _dsn(spec),
+            "dsn": _dsn(spec, thick=self._mode == "thick"),
             "tcp_connect_timeout": spec.connect_timeout_seconds,
         }
         if spec.wallet_dir:
@@ -867,12 +874,32 @@ def _apply_default_schema(connection: Any, spec: ConnectionSpec, sql: str) -> No
         ) from exc
 
 
-def _dsn(spec: ConnectionSpec) -> str:
+def _dsn(spec: ConnectionSpec, *, thick: bool = False) -> str:
     protocol = "tcps" if spec.protocol.lower() == "tcps" else "tcp"
     return (
         f"(DESCRIPTION=(ADDRESS=(PROTOCOL={protocol})(HOST={spec.host})(PORT={spec.port}))"
-        f"(CONNECT_DATA=(SERVICE_NAME={spec.service_name})))"
+        f"(CONNECT_DATA=(SERVICE_NAME={spec.service_name})){_thick_wallet(spec, thick)})"
     )
+
+
+def _thick_wallet(spec: ConnectionSpec, thick: bool) -> str:
+    """The descriptor clause that names the wallet to the Oracle Client.
+
+    Thick mode ignores the ``config_dir`` and ``wallet_location`` connect parameters, so
+    without this clause the client looks for a wallet in its own configuration and fails
+    with ORA-28759. It cannot take a wallet password per connection either, so the
+    directory must hold an auto-login ``cwallet.sso``. Thin mode reads the parameters and
+    needs the password for a PEM wallet, so it gets no clause.
+    """
+
+    if not (thick and spec.wallet_dir and spec.protocol.lower() == "tcps"):
+        return ""
+    if any(character in spec.wallet_dir for character in '()="'):
+        raise ConfigurationError(
+            "The wallet directory cannot be named in a connect descriptor: "
+            f"{spec.wallet_dir!r} contains a parenthesis, equals sign or quote."
+        )
+    return f'(SECURITY=(MY_WALLET_DIRECTORY="{spec.wallet_dir}"))'
 
 
 def _columns_without_offsets(result_set: ResultSet) -> list[str]:
@@ -1117,7 +1144,51 @@ def _read_out_binds(cur: Any) -> dict[str, Any]:
     if isinstance(bindvars, dict):
         for name, var in bindvars.items():
             try:
-                values[name] = var.getvalue()
+                value = var.getvalue()
             except Exception:  # noqa: BLE001,S112 - an unreadable out bind is not fatal
                 continue
+            # A vector bind reads back as the array.array it was bound as, which the
+            # API cannot serialise.
+            values[name] = value.tolist() if isinstance(value, array) else value
     return values
+
+
+_VECTOR_TYPECODES = {"FLOAT32": "f", "FLOAT64": "d", "INT8": "b"}
+
+_TEXT_VECTOR_BIND_WARNING = (
+    "Vector bind(s) {} were sent as text because Oracle Client {} cannot bind a VECTOR "
+    "(23.4 or later can). The database chose the format, FLOAT32 unless the column "
+    "or TO_VECTOR says otherwise, and text longer than 32,767 bytes is refused "
+    "(ORA-01461)."
+)
+
+
+def _driver_binds(binds: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """Vector binds as the driver takes them, and the names of any sent as text.
+
+    The driver binds an ``array.array`` as a VECTOR of the matching format. An Oracle
+    Client older than 23.4 refuses that (DPI-1050), but the server converts vector text,
+    so in that case the vector is sent as text.
+    """
+
+    if not any(isinstance(value, VectorBind) for value in binds.values()):
+        return binds, []
+    as_text = _initialized_mode == "thick" and _client_predates_vector_binds()
+    converted: dict[str, Any] = {}
+    texted: list[str] = []
+    for name, value in binds.items():
+        if not isinstance(value, VectorBind):
+            converted[name] = value
+        elif as_text:
+            converted[name] = json.dumps(list(value.values))
+            texted.append(name)
+        else:
+            converted[name] = array(_VECTOR_TYPECODES[value.format], value.values)
+    return converted, texted
+
+
+def _client_predates_vector_binds() -> bool:
+    try:
+        return tuple(oracledb.clientversion()[:2]) < (23, 4)
+    except Exception:  # noqa: BLE001 - an unreadable version is treated as too old
+        return True
