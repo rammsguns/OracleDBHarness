@@ -407,7 +407,8 @@ class OracleDbConnection(OracleConnection):
                 # delivered as a break, python-oracledb 4.0.2 (thin) drops the session
                 # with DPY-4011, and assigning call_timeout on it crashes the process
                 # with an access violation - every user's work, not one statement.
-                # Observed against Oracle 19c; see docs/compatibility.md. A session in
+                # Observed against Oracle 19c on Windows and Linux (SIGSEGV there), on
+                # 4.0.2 and 26.0.0; see docs/compatibility.md. A session in
                 # that state is retired, so there is nothing to reset.
                 if self._session_alive():
                     try:

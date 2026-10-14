@@ -1,7 +1,7 @@
 # Testing against real databases
 
-Status: drafted 2026-10-14. T-0 to T-5 done 2026-10-14 (R1 to R4 green); T-6 open;
-R5 awaits approval. Owner: the harness maintainers.
+Status: drafted 2026-10-14. T-0 to T-6 done 2026-10-14 (R1 to R4 green); R5 awaits
+approval. Owner: the harness maintainers.
 
 The harness has been qualified against exactly one database: a 19c EE 19.9 non-CDB, in
 thin mode, on 2026-09-11 (see `docs/compatibility.md`). The checks for a PDB, a
@@ -169,3 +169,13 @@ lower bound in `OE.GET_PHONE_NUMBER_F`; three `CO` views invalidated by later ta
 The file is a separate `lab-*` case set and leaves the scored set, its version and its
 denominator unchanged. K-7 still needs the paid-provider run and the DBA review.
 
+T-6 driver probe, 2026-10-14: Linux is not clean, so the crash is not Windows-specific.
+On D1, with SYSTEM killing a `HARNESS_APP` session (idle, or during a call), assigning
+`call_timeout` after the driver saw `DPY-4011` ended the process with `SIGSEGV` in 13 of
+13 attempts per case, on 26.0.0 and on the pinned 4.0.2 alike. Controls were clean: the
+setter on a live session, the other calls on the dropped session, and the setter on a
+session killed but not yet noticed, where `is_healthy()` is still true. `is_healthy()`
+turns false at the first `DPY-4011`, the same moment the setter becomes fatal, so the
+adapter's guard is the right check. 26.0.0 fixes nothing here, so the pin stays at 4.0.2.
+Recorded in `docs/compatibility.md`. The probe ran from scratch virtualenvs; the
+repository's lock file is unchanged.
