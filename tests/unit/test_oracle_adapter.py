@@ -22,6 +22,7 @@ import pytest
 from harness_worker.backend import oracle as oracle_backend
 from harness_worker.backend.base import ConnectionSpec
 from harness_worker.backend.oracle import OracleDbBackend, OracleDbConnection
+from harness_worker.binds import VectorBind
 from harness_worker.errors import (
     CancelledError_,
     CapabilityError,
@@ -1185,3 +1186,122 @@ def test_an_unusable_schema_name_is_refused_before_a_session_is_opened(
     with pytest.raises(ConfigurationError):
         OracleDbBackend().connect(_spec(default_schema='HR" OR 1=1--'))
     assert driver.params == {}
+
+
+_WALLET = {"protocol": "tcps", "wallet_dir": "/etc/wallet", "wallet_password": "w"}
+
+
+def test_thin_mode_names_the_wallet_in_connect_parameters(driver: StubDriver) -> None:
+    """Thin mode needs the password a PEM wallet is encrypted with, which only the
+    parameters can carry, so the descriptor stays free of a wallet clause."""
+
+    OracleDbBackend().connect(_spec(**_WALLET))
+
+    assert driver.params["wallet_location"] == "/etc/wallet"
+    assert driver.params["wallet_password"] == "w"
+    assert "PROTOCOL=tcps" in driver.params["dsn"]
+    assert "SECURITY" not in driver.params["dsn"]
+
+
+def test_thick_mode_names_the_wallet_in_the_descriptor(monkeypatch, driver: StubDriver) -> None:
+    """The Oracle Client ignores the wallet parameters and fails with ORA-28759; it
+    reads MY_WALLET_DIRECTORY from the descriptor."""
+
+    monkeypatch.setattr(oracle_backend, "_initialized_mode", "thick")
+
+    OracleDbBackend("thick").connect(_spec(**_WALLET))
+
+    assert driver.params["dsn"].endswith('(SECURITY=(MY_WALLET_DIRECTORY="/etc/wallet")))'), (
+        driver.params["dsn"]
+    )
+
+
+def test_thick_mode_over_plain_tcp_gets_no_wallet_clause(monkeypatch, driver: StubDriver) -> None:
+    monkeypatch.setattr(oracle_backend, "_initialized_mode", "thick")
+
+    OracleDbBackend("thick").connect(_spec(wallet_dir="/etc/wallet"))
+
+    assert "SECURITY" not in driver.params["dsn"]
+
+
+@pytest.mark.parametrize("directory", ["/w/a)(HOST=x", "/w/a=b", '/w/"q"'])
+def test_a_wallet_directory_that_would_break_the_descriptor_is_refused(
+    monkeypatch, driver: StubDriver, directory: str
+) -> None:
+    monkeypatch.setattr(oracle_backend, "_initialized_mode", "thick")
+
+    with pytest.raises(ConfigurationError):
+        OracleDbBackend("thick").connect(_spec(protocol="tcps", wallet_dir=directory))
+    assert driver.params == {}
+
+
+# -- vector binds -------------------------------------------------------------------
+
+
+def test_a_vector_bind_reaches_the_driver_as_an_array_of_its_format(monkeypatch, pair) -> None:
+    driver, connection = pair
+    monkeypatch.setattr(oracle_backend, "_initialized_mode", "thin")
+
+    result = connection.execute(
+        "INSERT INTO t VALUES (:a, :b, :c, :n)",
+        {
+            "a": VectorBind((1.5, 2), "FLOAT32"),
+            "b": VectorBind((0.1,), "FLOAT64"),
+            "c": VectorBind((1, -2), "INT8"),
+            "n": 7,
+        },
+        StatementKind.DML,
+        LIMITS,
+    )
+
+    sent = driver.binds[-1]
+    assert (sent["a"].typecode, sent["a"].tolist()) == ("f", [1.5, 2.0])
+    assert (sent["b"].typecode, sent["b"].tolist()) == ("d", [0.1])
+    assert (sent["c"].typecode, sent["c"].tolist()) == ("b", [1, -2])
+    assert sent["n"] == 7
+    assert result.warnings == []
+
+
+def test_an_oracle_client_older_than_23_4_gets_vector_text(monkeypatch, pair) -> None:
+    """Instant Client 21.4 refuses an array.array with DPI-1050; the server converts text."""
+
+    driver, connection = pair
+    monkeypatch.setattr(oracle_backend, "_initialized_mode", "thick")
+    monkeypatch.setattr(
+        oracle_backend, "oracledb", SimpleNamespace(clientversion=lambda: (21, 4, 0, 0, 0))
+    )
+
+    result = connection.execute(
+        "INSERT INTO t VALUES (:a)",
+        {"a": VectorBind((1.5, 2), "FLOAT32")},
+        StatementKind.DML,
+        LIMITS,
+    )
+
+    assert driver.binds[-1] == {"a": "[1.5, 2]"}
+    assert len(result.warnings) == 1
+    assert "a were sent as text" in result.warnings[0] and "21.4.0.0.0" in result.warnings[0]
+
+
+def test_an_oracle_client_from_23_4_binds_the_array(monkeypatch, pair) -> None:
+    driver, connection = pair
+    monkeypatch.setattr(oracle_backend, "_initialized_mode", "thick")
+    monkeypatch.setattr(
+        oracle_backend, "oracledb", SimpleNamespace(clientversion=lambda: (23, 4, 0, 0, 0))
+    )
+
+    connection.execute(
+        "INSERT INTO t VALUES (:a)", {"a": VectorBind((1,), "INT8")}, StatementKind.DML, LIMITS
+    )
+
+    assert isinstance(driver.binds[-1]["a"], array)
+
+
+def test_a_vector_read_back_from_a_bind_is_json() -> None:
+    bound = StubVar(is_array=False)
+    bound.setvalue(0, array("f", [1.5]))
+
+    values = oracle_backend._read_out_binds(SimpleNamespace(bindvars={"a": bound}))
+
+    assert values == {"a": [1.5]}
+    json.dumps(values)

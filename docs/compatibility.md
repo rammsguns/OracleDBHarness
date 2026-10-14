@@ -14,9 +14,9 @@ claim. Where something has not been tested, it says so.
 | **Oracle Database** | **19c Enterprise Edition 19.9.1.0.0, non-CDB, AL32UTF8** | `tests/qualification` (47 checks), `tests/integration` and `tests/e2e` against one instance, two recorded runs on 2026-09-11 (Windows). Repeated on 2026-10-14 (Linux) against a second 19.9.1.0.0 non-CDB, in thin and thick mode, with a restricted account, the K-4 catalog and process death. See [Recording a run](#recording-a-run) |
 | **Oracle Database** | **Oracle AI Database 26ai Free 23.26.3.0.0, PDB `FREEPDB1` in a CDB, AL32UTF8** | The same three suites, thin mode, one recorded run on 2026-10-14 (Linux), including the PDB container identity, the restricted account, the K-4 catalog and process death |
 | **Oracle Database** | **19c Enterprise Edition 19.9.1.0.0, non-CDB, WE8MSWIN1252, on a remote host** | The whole test suite in thin mode, one recorded run on 2026-10-14 (Linux client, database across a real network), including the K-4 catalog and process death. Provisioned without `SYS`, so the restricted account was probed but not claimed. See "The D4 run, 2026-10-14" |
-| **Oracle Database** | **Autonomous Database 26ai (Always Free) 23.26.4.1.0, a PDB, AL32UTF8, over TCPS with its wallet** | The same three suites in thin mode, one recorded run on 2026-10-14 (Linux client, Oracle Cloud), with D1 as the second target, the admin account for the kills, the K-4 catalog and process death. A shared database, so no restricted or lab account. See "The D3 run, 2026-10-14" |
+| **Oracle Database** | **Autonomous Database 26ai (Always Free) 23.26.4.1.0, a PDB, AL32UTF8, over TCPS with its wallet** | The same three suites in thin mode and in thick mode with Instant Client 21.4, recorded runs on 2026-10-14 (Linux client, Oracle Cloud), with D1 as the second target, the admin account for the kills, the K-4 catalog and process death. A shared database, so no restricted or lab account. See "The D3 run, 2026-10-14" and "Thick mode over TCPS, and VECTOR binds, 2026-10-14" |
 | python-oracledb | 4.0.2, thin mode | The runs above |
-| python-oracledb | 4.0.2, thick mode, Oracle Instant Client 21.4.0.0.0 | The same three suites against the 19.9 non-CDB, the 23.26 Free PDB and D4 (19.9, `WE8MSWIN1252`, remote), recorded runs on 2026-10-14 (Linux). Against 23.26 this client predates `BOOLEAN` and `VECTOR`; see "Thick mode against 23.26, 2026-10-14" |
+| python-oracledb | 4.0.2, thick mode, Oracle Instant Client 21.4.0.0.0 | The same three suites against the 19.9 non-CDB, the 23.26 Free PDB, D4 (19.9, `WE8MSWIN1252`, remote) and D3 (Autonomous Database 23.26.4.1.0 over TCPS), recorded runs on 2026-10-14 (Linux). Against 23.26 this client predates `BOOLEAN` and `VECTOR`; see "Thick mode against 23.26, 2026-10-14" |
 | Copilot provider | Fixture provider | Copilot test suite |
 | Protocol | 1.0 | Contract tests, adapter tests |
 | Identity provider | Keycloak 26.3, local container | `tests/identity` and `apps/web/src/oidc.keycloak.test.ts`, in CI. See [Identity providers](#identity-providers) |
@@ -28,10 +28,10 @@ claim. Where something has not been tested, it says so.
 | **Oracle beyond two local instances** | Two instances have been qualified on 2026-10-14: a 19.9 non-CDB and a 23.26 Free PDB, each as the other's second target, so the two-target isolation check has run in both directions. A third, D4, was qualified the same day: a 19.9 non-CDB in `WE8MSWIN1252` on a remote host, with D1 as its second target. Not run: a later 19c release update, a PDB on 19c, `CDB$ROOT`, RAC, Standard Edition, and character sets other than AL32UTF8 and WE8MSWIN1252. The restricted account was the README's shape only (`CREATE SESSION` plus the two tablespace views); other partial grant sets have not been probed. |
 | **Restart after process death, on Oracle** | Run on 2026-10-14 against 19.9 (thin and thick) and 23.26 (thin), on a Linux host: on both releases the dead session left `V$SESSION` with its row lock freed at once, an applied but uncommitted write was rolled back, and both `COMMIT` cases were reconciled correctly. See the process-death entries under [Recording a run](#recording-a-run). Not run on Windows, where the 2026-09-11 runs were. A host that loses power or network, rather than a killed process, is not covered at all. |
 | **Kiwi's K-4 lookups on Oracle** | Run on 2026-10-14 against 19.9 and 23.26: every entry returned rows of the shape the stand-in returns, and PL/Scope absence was reported for the unit compiled without it. Needs the extra grants in `oracle/qualification/README.md` (`CREATE TRIGGER`, `CREATE JOB` and the rules-engine privileges for chains). No database link exists in either fixture, so `db_links_referenced` was checked for shape with no rows. |
-| Oracle 23ai/26ai beyond the Free PDB | One Free 23.26.3.0.0 PDB, in thin mode and in thick mode with Instant Client 21.4. `BOOLEAN` and `VECTOR` were checked on it as selected values and a `BOOLEAN` bind (see "BOOLEAN and VECTOR, 2026-10-14"); a `VECTOR` bind, `VECTOR` columns in a table and vector indexes were not. Autonomous Database 23.26.4.1.0 was qualified in thin mode only (see "The D3 run, 2026-10-14"); `BOOLEAN` and `VECTOR` behaved there exactly as on the Free PDB. |
-| python-oracledb thick mode beyond one client | Instant Client 21.4 on Linux against 19.9 (D1 and D4) and 23.26. Other client versions (23.4 or later in particular, which knows `BOOLEAN` and `VECTOR`) and Windows are not run. |
+| Oracle 23ai/26ai beyond two databases | One Free 23.26.3.0.0 PDB and one Autonomous Database 23.26.4.1.0, each in thin mode and in thick mode with Instant Client 21.4. On both, `BOOLEAN` and `VECTOR` were checked as selected values, a `BOOLEAN` bind, `FLOAT32` and `INT8` vector binds into `VECTOR` columns, `VECTOR_DISTANCE` with a bound vector and an IVF vector index with an approximate search. An HNSW index was created on Autonomous Database only: the Free PDB has no vector memory pool (`ORA-51962`). Not checked: `BINARY` and `SPARSE` binds, hybrid and partitioned vector indexes, and `VECTOR` in PL/SQL. See "BOOLEAN and VECTOR, 2026-10-14" and "Thick mode over TCPS, and VECTOR binds, 2026-10-14" |
+| python-oracledb thick mode beyond one client | Instant Client 21.4 on Linux against 19.9 (D1 and D4) and 23.26 (the Free PDB, and Autonomous Database over TCPS). Other client versions (23.4 or later in particular, which knows `BOOLEAN` and `VECTOR`) and Windows are not run. |
 | python-oracledb 26.0.0 | Tried on 2026-09-11 against the qualified 19c instance, for the `call_timeout` crash below only. **It does not fix it:** assigning `call_timeout` on a session dropped with `DPY-4011` still ends the process with `0xC0000005`, in every attempt that dropped the session (13 of 13 in one batch, and every later attempt). On the dropped session it otherwise behaves like 4.0.2: reading `call_timeout`, `close()`, `cursor.close()` and `is_healthy()` are safe; `ping()` and `rollback()` raise `DPY-1001`. Repeated on 2026-10-14 on Linux (Python 3.11) against 19.9, with SYSTEM killing the session either idle or during a call: the setter ends the process with `SIGSEGV` in 13 of 13 attempts per case on **both 26.0.0 and 4.0.2**, so the crash is in the thin driver, not specific to Windows. Controls stayed clean (0 of 13): the setter on a live session, and every other call on the dropped session. A session killed server-side but not yet noticed by the driver reports `is_healthy()` true and takes the setter safely; `is_healthy()` turns false on the first call that hits `DPY-4011`, which is exactly when the setter becomes fatal, so the adapter's guard holds. The suites have not been run on 26.0.0, and it fixes nothing here, so 4.0.2 stays pinned. Reported upstream as [oracle/python-oracledb#619](https://github.com/oracle/python-oracledb/issues/619) on 2026-10-14. |
-| TCPS and wallets beyond one | One TCPS path, thin mode, to Autonomous Database with its downloaded wallet (`ewallet.pem` with an encrypted key, so the wallet password is needed). Not run: TCPS in thick mode, a self-signed or private CA wallet, mutual TLS to an on-premises listener, and a wallet without a password (`cwallet.sso` only). |
+| TCPS and wallets beyond one | One TCPS path, to Autonomous Database with its downloaded wallet. Thin mode opens its `ewallet.pem` with the wallet password; thick mode opens its auto-login `cwallet.sso` and cannot take a password per connection, so in thick mode a wallet must have one. Not run: a self-signed or private CA wallet, mutual TLS to an on-premises listener, and a wallet that holds only `cwallet.sso` in thin mode. |
 | PostgreSQL as the metadata store | The schema is portable SQLAlchemy and the container is configured, but the suite runs on SQLite. |
 | OIDC providers other than Keycloak | Entra ID, Okta and Auth0 are documented in docs/setup.md but have not been signed in against. Nor has the pilot's own provider registration. |
 | Sign-in in a real browser | The console's sign-in code has run against Keycloak under Node, and the token endpoint's CORS answer has been checked. `tests/browser` now drives Chromium through the console's sign-in, callback, API access, sign-out and expiry: its fixture mode runs in the CI `identity` job against the Keycloak realm (first passed on pull request #16, CI run 34788083498: 24 checks passed, 2 observed), and a rehearsal against a local stand-in provider has passed. **No browser run against the pilot's registration, deployed origin or proxy has happened**, and a fixture run cannot stand in for one. See tests/identity/README.md, "Browser qualification". |
@@ -286,9 +286,9 @@ new checks fail that way on D2.
 | --- | --- | --- | --- |
 | A `VECTOR` value could not be serialised | Harness defect | Every query returning a `VECTOR` column failed in the API | `_shape` returns `{"kind": "vector", "format", "dimensions", "values", "truncated"}`, bounded by the LOB preview budget at 8 bytes per element (a `VECTOR` can have 65,535 dimensions). `BINARY` reports its dimensions in bits and a hex preview; `SPARSE` adds `sparse`, `storedCount` and the stored `indices`. `FLOAT32` elements are given as the shortest decimal that rounds to the same float32, so 0.1 is not shown as 0.10000000149011612. The console renders the shape. Pinned by unit tests on `_shape` |
 
-Not checked: binding a `VECTOR` (a JSON array arrives as a list, not an
-`array.array`), `VECTOR` columns in a table, vector indexes and `VECTOR_DISTANCE`.
-Thick mode with an older client is covered in the next section.
+Binding a `VECTOR`, `VECTOR` columns in a table, `VECTOR_DISTANCE` and vector indexes
+were checked later the same day; see "Thick mode over TCPS, and VECTOR binds,
+2026-10-14". Thick mode with an older client is covered in the next section.
 
 ### Thick mode against 23.26, 2026-10-14
 
@@ -394,6 +394,50 @@ on the Free PDB. Process death cleaned up the dead session at once (0.0 to 0.1 s
 the same outcomes as on D1. The commit-window kill landed this time and raised
 `outcome_unknown`. The two-target isolation check passed between ADB and D1.
 
+### Thick mode over TCPS, and VECTOR binds, 2026-10-14
+
+R5's configuration in thick mode: D3 over TCPS with its wallet, Instant Client 21.4, D1
+as the second target. It could not connect at first. python-oracledb's `config_dir` and
+`wallet_location` connect parameters are read by thin mode only; the Oracle Client
+looked for a wallet in its own configuration and failed with `ORA-28759: failure to
+open file`. It does read `MY_WALLET_DIRECTORY` from the connect descriptor. It cannot
+be given a wallet password per connection, so it opens the wallet's auto-login
+`cwallet.sso`, which an ADB wallet download includes.
+
+| Finding | Kind | Effect | Fix |
+| --- | --- | --- | --- |
+| Thick mode ignored the profile's wallet | Harness defect | No TCPS target could be reached in thick mode (`ORA-28759`) | In thick mode a TCPS descriptor carries `(SECURITY=(MY_WALLET_DIRECTORY="<wallet dir>"))`. Thin mode keeps the connect parameters: it needs the password for the encrypted `ewallet.pem`, and with the descriptor clause alone OpenSSL prompts for a pass phrase and the connection fails. A wallet directory with a parenthesis, equals sign or quote is refused rather than written into the descriptor |
+
+Result: 159 passed, 21 skipped, 0 failed, in 320 s. Every evidence row matches thick
+mode on D2: `BOOLEAN` arrives as 1 or 0 and binds as `NUMBER` (`ORA-00920`), and a
+vector arrives as a list without its format, bounded and with the warning naming the
+client. The one extra skip against thin R5 is the commit-window kill, which did not
+land inside the window on this run. Process death: 6 passed, the dead session cleaned
+up at once (0.0 to 0.1 s).
+
+The `VECTOR` checks left open by "BOOLEAN and VECTOR, 2026-10-14" then ran on D2 and
+D3, each in thin and thick mode, in `HARNESS_APP`. They found that a vector could not
+be bound at all:
+
+| Finding | Kind | Effect | Fix |
+| --- | --- | --- | --- |
+| A JSON array arrives in the worker as a Python list, which python-oracledb binds as a PL/SQL array. The bind's `typeHint` was carried from the API to the worker and never read | Harness defect | Any SQL with a vector bind failed with `ORA-01484: arrays can only be bound to PL/SQL statements`; only vector text in the statement or a text bind worked | A bind with `typeHint` `vector` (`FLOAT32`), `vector:float64` or `vector:int8` is checked (a non-empty array of finite numbers, integers from -128 to 127 for `INT8`; otherwise 400) and bound as an `array.array` of that format. `FLOAT32` is the default because it is what Oracle makes of vector text, and `VECTOR_DISTANCE` refuses vectors of different formats (`ORA-51812`, measured with a `FLOAT64` bind against a `FLOAT32` column). An unhinted array is unchanged |
+| An Oracle Client older than 23.4 cannot bind a vector (`DPI-1050`) | Expected client difference | As above, in thick mode with Instant Client 21.4 | The vector is sent as text, which the server converts, and the statement warns, naming the binds and the client. Text over 32,767 bytes is refused (`ORA-01461`), so a vector of more than about 3,000 dimensions needs thin mode or a newer client |
+| A bound vector would read back through the out-bind values as an `array.array` | Harness defect, found while fixing the bind | The API could not have serialised the response | Out-bind values that are arrays are returned as lists |
+
+`tests/qualification/test_23ai_types.py` binds `FLOAT32` and `INT8` vectors into a
+table, searches it with `VECTOR_DISTANCE` and a bound vector, checks that an unhinted
+array still fails with `ORA-01484`, and builds IVF and HNSW indexes.
+`tests/integration/test_23ai_types.py` does the same through a worksheet. All passed on
+D2 and D3 in both modes. HNSW was created on D3 and recorded as a gap on D2, whose Free
+PDB has no vector memory pool (`ORA-51962`). In thin mode the `INT8` column reads back
+as `INT8`; in thick mode with the old client the binds went as text with the warning
+and the values were right.
+
+The stand-in has no `VECTOR` type, so a vector bind there fails with
+`capability_unavailable`. The console's worksheet does not yet offer a type hint, so
+vector binds are available through the API only.
+
 ### Lab schemas, 2026-10-14 (T-5)
 
 `tests/qualification/test_lab_workloads.py` registers a lab schema as a development
@@ -455,6 +499,12 @@ host, and the thresholds are proposed.
 
 Append; do not replace. Each entry should carry the date, the harness build, the exact
 database version and configuration, which suites were run, and what failed.
+
+Copy entries from the report under `databases/reports`, which is not committed, and
+redact what identifies a database reached over a network: its host and service name
+(written as "D3 (Autonomous Database, see `databases/INVENTORY.md`)" and so on), and
+for a managed database also the PDB name, which Autonomous Database builds the service
+name from, and the DBIDs. The unredacted report stays under `databases/reports`.
 
 ### Run 2026-09-11 19:04 UTC
 
@@ -999,10 +1049,10 @@ Database, as reported by the database:
 
 - characterSet: `AL32UTF8`
 - containerId: `172`
-- containerName: `G455001AB0656DB_ORACLE26IALWAYSFREE`
+- containerName: `<D3 PDB name, redacted>`
 - currentSchema: `HARNESS_APP`
 - currentUser: `HARNESS_APP`
-- databaseName: `G455001AB0656DB_ORACLE26IALWAYSFREE`
+- databaseName: `<D3 PDB name, redacted>`
 - dbUniqueName: `fce7pwwd`
 - driver.driverMode: `thin`
 - driver.pythonOracledb: `4.0.2`
@@ -1021,7 +1071,7 @@ Observed Oracle behaviour:
 | BOOLEAN bind | true selected `yes`, false `no` |
 | Capabilities on this account | connect: available<br>session_schema: available<br>all_objects: available<br>explain_plan: available<br>display_cursor: available<br>v_session: available<br>v_sql: available<br>dba_tablespaces: available<br>dba_scheduler_jobs: available<br>dbms_stats: available<br>compile_objects: available |
 | Compiler errors for the seeded invalid body | line 5 col 39: PL/SQL: ORA-00942: table or view does not exist; line 5 col 5: PL/SQL: SQL Statement ignored |
-| Container identity | a pluggable database: CON_ID `172`, CON_NAME `G455001AB0656DB_ORACLE26IALWAYSFREE`, DB_UNIQUE_NAME `fce7pwwd`; harness reported isCdb=`True`, containerName=`G455001AB0656DB_ORACLE26IALWAYSFREE`, databaseName=`G455001AB0656DB_ORACLE26IALWAYSFREE`. |
+| Container identity | a pluggable database: CON_ID `172`, CON_NAME `<D3 PDB name, redacted>`, DB_UNIQUE_NAME `fce7pwwd`; harness reported isCdb=`True`, containerName=`<D3 PDB name, redacted>`, databaseName=`<D3 PDB name, redacted>`. |
 | Database major version | **23**, not 19. This run does not qualify Oracle 19c. Full version: `23.26.4.1.0`. |
 | Does DBMS_OUTPUT reach the adapter? | Yes - 1 line(s): ['headcount=3'] |
 | Does DDL commit pending DML? | Yes - the row inserted before the CREATE was visible to another session without an explicit commit. |
@@ -1046,7 +1096,7 @@ Observed Oracle behaviour:
 | NCLOB of 4,000 two-byte characters: reported length | charLength `4000`, byteLength `None` |
 | PL/Scope absence | EMPLOYEE_REPORT reports NOT COLLECTED; the function is read |
 | Runtime error from a PL/SQL block | Oracle code `ORA-20001`, message `ORA-20001: qualification probe<br>ORA-06512: at line 1` |
-| Second target identity | separate databases on separate instances. Primary: DBID `2243178949`, CON_DBID `2523662016`, CON_NAME `G455001AB0656DB_ORACLE26IALWAYSFREE`, DB_UNIQUE_NAME `fce7pwwd`, instance `fce7pwwd2` on `POD`, user `HARNESS_APP`. Second: DBID `1771485732`, CON_DBID `1771485732`, CON_NAME `ORCL`, DB_UNIQUE_NAME `ORCL`, instance `ORCL` on `90520b67e617`, user `HARNESS_APP`. |
+| Second target identity | separate databases on separate instances. Primary: DBID `<D3 DBID, redacted>`, CON_DBID `<D3 CON_DBID, redacted>`, CON_NAME `<D3 PDB name, redacted>`, DB_UNIQUE_NAME `fce7pwwd`, instance `fce7pwwd2` on `POD`, user `HARNESS_APP`. Second: DBID `1771485732`, CON_DBID `1771485732`, CON_NAME `ORCL`, DB_UNIQUE_NAME `ORCL`, instance `ORCL` on `90520b67e617`, user `HARNESS_APP`. |
 | Shape of a small CLOB | `{'kind': 'lob', 'preview': 'short clob', 'charLength': 10, 'truncated': False}` |
 | Unicode read back | `'こんにちは — café — مرحبا'` |
 | VECTOR(1000, FLOAT64) under a 256-byte preview limit | dimensions `1000`, 32 values shown, truncated=`True` |
@@ -1074,8 +1124,8 @@ Result: 6 passed.
 
 Database, as reported by the database:
 
-- containerName: `G455001AB0656DB_ORACLE26IALWAYSFREE`
-- databaseName: `G455001AB0656DB_ORACLE26IALWAYSFREE`
+- containerName: `<D3 PDB name, redacted>`
+- databaseName: `<D3 PDB name, redacted>`
 - isCdb: `True`
 - versionFull: `23.26.4.1.0`
 
@@ -1089,3 +1139,114 @@ Observed Oracle behaviour:
 | Process death during a read | API process 1965989 ended with SIGKILL at `statement_returned`. Dead session 26762,7743 cleaned up after 0.0s (the session left V$SESSION and its row lock was free). Restart recorded `failed` with no verification required. |
 | Process death during a write (applied, uncommitted, answer not recorded) | API process 1966003 ended with SIGKILL at `statement_returned`. Dead session 26762,39952 cleaned up after 0.0s (the session left V$SESSION and its row lock was free). Restart recorded `outcome_unknown` with verification required. The independent session read salary 11500 (was 11500): Oracle rolled the dead session's transaction back. Recorded finding `not_applied`. |
 | Process death while a write waits inside the database | API process 1966017 ended with SIGKILL at `statement_sent`. Dead session 30989,665 cleaned up after 0.0s (the session left V$SESSION and its row lock was free). The session was waiting on `enq: TX - row lock contention (blocked by SID 11976)` when killed; immediately after the kill V$SESSION still showed it as {'status': 'ACTIVE', 'blockingSession': 11976, 'event': 'enq: TX - row lock contention', 'module': 'OracleDBHarness'}. After the lock was released the independent session read salary 11500 (was 11500). Restart recorded `outcome_unknown`. |
+
+### Run 2026-10-14 20:38 UTC
+
+- Harness build: `4d7e394` with the thick-mode wallet fix (branch `qual/r5-thick-vector`)
+- Target: `D3 (Autonomous Database, see `databases/INVENTORY.md`), TCPS with its wallet` as `harness_app`, schema `HARNESS_APP`
+- Platform: Linux-7.0.0-38-generic-x86_64-with-glibc2.43, Python 3.11.16
+- driverMode: `thick`
+- pythonOracledb: `4.0.2`
+- oracleClient: `21.4.0.0.0`
+
+Run R5 in thick mode: D3 primary over TCPS with its wallet, D1 second target, Instant
+Client 21.4, with `HARNESS_QUAL_REQUIRE=admin,second_target`. Result: 159 passed, 21
+skipped, 0 failed in 320 s (see "Thick mode over TCPS, and VECTOR binds, 2026-10-14").
+Skips: 13 `stand_in_only`, 4 PostgreSQL, the restricted account (2), the lab workload
+(1) and the commit-window kill, which did not land inside the window.
+
+Database, as reported by the database:
+
+- characterSet: `AL32UTF8`
+- containerId: `172`
+- containerName: `<D3 PDB name, redacted>`
+- currentSchema: `HARNESS_APP`
+- currentUser: `HARNESS_APP`
+- databaseName: `<D3 PDB name, redacted>`
+- dbUniqueName: `fce7pwwd`
+- driver.driverMode: `thick`
+- driver.oracleClient: `21.4.0.0.0`
+- driver.pythonOracledb: `4.0.2`
+- hostName: `POD`
+- instanceName: `fce7pwwd2`
+- isCdb: `True`
+- nationalCharacterSet: `AL16UTF16`
+- version: `23.26.4.1.0`
+- versionFull: `23.26.4.1.0`
+
+Observed Oracle behaviour:
+
+| Question | What this database did |
+| --- | --- |
+| BLOB under a 256-byte preview limit | byteLength `20000`, preview 512 hex characters, truncated=`True` |
+| BOOLEAN bind | Oracle Client 21.4.0.0.0 binds a bool as NUMBER: `ORA-00920: invalid relational operator` |
+| Capabilities on this account | connect: available<br>session_schema: available<br>all_objects: available<br>explain_plan: available<br>display_cursor: available<br>v_session: available<br>v_sql: available<br>dba_tablespaces: available<br>dba_scheduler_jobs: available<br>dbms_stats: available<br>compile_objects: available |
+| Compiler errors for the seeded invalid body | line 5 col 39: PL/SQL: ORA-00942: table or view does not exist; line 5 col 5: PL/SQL: SQL Statement ignored |
+| Container identity | a pluggable database: CON_ID `172`, CON_NAME `<D3 PDB name, redacted>`, DB_UNIQUE_NAME `fce7pwwd`; harness reported isCdb=`True`, containerName=`<D3 PDB name, redacted>`, databaseName=`<D3 PDB name, redacted>`. |
+| Database major version | **23**, not 19. This run does not qualify Oracle 19c. Full version: `23.26.4.1.0`. |
+| Does DBMS_OUTPUT reach the adapter? | Yes - 1 line(s): ['headcount=3'] |
+| Does DDL commit pending DML? | Yes - the row inserted before the CREATE was visible to another session without an explicit commit. |
+| Does ROLLBACK TO SAVEPOINT leave the transaction open? | Adapter reports open=True; the row before the savepoint survived (1 == 1) and the row after it did not (0 == 0). |
+| Does a PL/SQL block leave a transaction open? | Yes - the adapter's assumption holds. |
+| Does a cancellation roll back earlier work in the same transaction? | No - the earlier insert was still pending, as assumed. |
+| Does the blocking panel show a real blocked session? | Session 9160 waiting on 7762: shown as `[9160, 'HARNESS_APP', 'enq: TX - row lock contention', 6]` blocked by SID `7762`, 5.9s after the wait began |
+| EMPTY_CLOB() vs NULL | EMPTY_CLOB() arrived as `{'kind': 'lob', 'preview': '', 'charLength': 0, 'truncated': False}`; a NULL CLOB as `None`; EMPTY_BLOB() as `{'kind': 'lob', 'preview': '', 'byteLength': 0, 'truncated': False}`. |
+| How do TIMESTAMP columns arrive? | TIMESTAMP: `datetime.datetime(2026, 3, 1, 12, 34, 56, 789012)`<br>WITH TIME ZONE: `datetime.datetime(2026, 3, 1, 12, 34, 56, 789012)`<br>WITH LOCAL TIME ZONE: `datetime.datetime(2026, 3, 1, 12, 34, 56, 789012)`<br>Warning: `TIMESTAMP WITH TIME ZONE column(s) TS_TZ are shown without their offset: the driver returns the wall-clock time only. Select them with TO_CHAR(column, 'YYYY-MM-DD HH24:MI:SS.FF TZH:TZM') to see the offset.` |
+| How does BOOLEAN arrive? | `[1, 0, None]`, column types ['DB_TYPE_NUMBER', 'DB_TYPE_NUMBER', 'DB_TYPE_NUMBER'] |
+| How does NUMBER(20,10) arrive? | As `Decimal` with value `1234567890.0123456789` |
+| How does VECTOR arrive? | FLOAT32 `{'kind': 'vector', 'format': None, 'length': 3, 'values': [0.100000001, 1.5, -2.0], 'truncated': False}`<br>FLOAT64 `{'kind': 'vector', 'format': None, 'length': 2, 'values': [0.1, 2.0], 'truncated': False}`<br>INT8 `{'kind': 'vector', 'format': None, 'length': 2, 'values': [1, -2], 'truncated': False}`<br>BINARY `{'kind': 'vector', 'format': None, 'length': 2, 'values': [255, 0], 'truncated': False}`<br>column types ['DB_TYPE_CLOB', 'DB_TYPE_CLOB', 'DB_TYPE_CLOB', 'DB_TYPE_CLOB'] |
+| How does a SPARSE VECTOR arrive? | `{'kind': 'vector', 'format': None, 'length': 4, 'values': [0, 1.5, 0, 2.5], 'truncated': False}` |
+| Is DBMS_OUTPUT bounded? | Yes - a 512-byte budget returned 8 line(s) (480 bytes) and set the truncated flag. |
+| Is a lost connection during a write reported as outcome_unknown? | Raised `OutcomeUnknownError` with code `outcome_unknown`. |
+| Is a session reusable after a cancellation? | Yes - the connection stayed healthy and answered a query afterwards. |
+| Is an empty VARCHAR2 stored as NULL? | v_ascii read back as `None`; NVL says `'was-null'`. |
+| K-4 dependency, subprogram and source lookups | rows as on the stand-in |
+| K-4 trigger, link and scheduler lookups | rows as on the stand-in; no link |
+| Large CLOB under a 1 KiB preview limit | reported charLength `65534`, preview is 1024 characters / 1024 bytes, truncated=`True` |
+| Lost connection during COMMIT | Inconclusive - the commit completed before the session was killed. Re-run to try to hit the window. |
+| NCLOB of 4,000 two-byte characters: reported length | charLength `4000`, byteLength `None` |
+| PL/Scope absence | EMPLOYEE_REPORT reports NOT COLLECTED; the function is read |
+| Runtime error from a PL/SQL block | Oracle code `ORA-20001`, message `ORA-20001: qualification probe<br>ORA-06512: at line 1` |
+| Second target identity | separate databases on separate instances. Primary: DBID `<D3 DBID, redacted>`, CON_DBID `<D3 CON_DBID, redacted>`, CON_NAME `<D3 PDB name, redacted>`, DB_UNIQUE_NAME `fce7pwwd`, instance `fce7pwwd2` on `POD`, user `HARNESS_APP`. Second: DBID `1771485732`, CON_DBID `1771485732`, CON_NAME `ORCL`, DB_UNIQUE_NAME `ORCL`, instance `ORCL` on `90520b67e617`, user `HARNESS_APP`. |
+| Shape of a small CLOB | `{'kind': 'lob', 'preview': 'short clob', 'charLength': 10, 'truncated': False}` |
+| Unicode read back | `'こんにちは — café — مرحبا'` |
+| VECTOR(1000, FLOAT64) under a 256-byte preview limit | elements `1000`, 32 values shown, truncated=`True` |
+| What does a broken statement raise? | `CancelledError_` with code `execution_cancelled`. Returned after 3.0s of a 30s statement. |
+| What does a killed session raise mid-statement? | `OutcomeUnknownError` / harness code `outcome_unknown` |
+| What enforces the execution deadline? | A 5s budget stopped a 30s statement after 5.0s, raising `TimeoutError_`. |
+| What happens when a block fills the DBMS_OUTPUT server buffer? | Stopped with `ORA-20000`; the next block's output was `['after']`. |
+
+Not exercised by this run:
+
+- Lab workloads: HARNESS_QUAL_LAB_USER is not set. The lab workload checks need a read-only account over a schema with realistic data, named by HARNESS_QUAL_LAB_SCHEMA.
+- Restricted account: HARNESS_QUAL_RESTRICTED_USER is not set. Degraded panels need an account that is really missing grants; the full-grant fixture account has every capability.
+
+### Process-death run 2026-10-14 20:40 UTC
+
+- Harness build: `4d7e394` with the thick-mode wallet fix (branch `qual/r5-thick-vector`)
+- Target: `D3 (Autonomous Database, see `databases/INVENTORY.md`), TCPS with its wallet` as `harness_app`, schema `HARNESS_APP`
+- Platform: Linux-7.0.0-38-generic-x86_64-with-glibc2.43, Python 3.11.16
+- driverMode: `thick`
+- pythonOracledb: `4.0.2`
+- oracleClient: `21.4.0.0.0`
+
+Run R5 in thick mode on D3: `tests/integration/test_process_death.py`, inside the run
+above. Result: 6 passed.
+
+Database, as reported by the database:
+
+- containerName: `<D3 PDB name, redacted>`
+- databaseName: `<D3 PDB name, redacted>`
+- isCdb: `True`
+- versionFull: `23.26.4.1.0`
+
+Observed Oracle behaviour:
+
+| Question | What this database did |
+| --- | --- |
+| Process death before dispatch | API process 1973468 ended with SIGKILL at `before_dispatch`. Dead session 8469,18012 cleaned up after 0.0s (the session left V$SESSION and its row lock was free). Restart recorded `cancelled`; an independent session read salary 11500, unchanged. |
+| Process death during COMMIT (COMMIT returned, answer not recorded) | API process 1973655 ended with SIGKILL at `commit_returned`. Dead session 10571,19316 cleaned up after 0.0s (the session left V$SESSION and its row lock was free). Restart listed the session under `commitsUnknown`, with no successful commit audited. The independent session read salary 4545 (was 11500): durable. Recorded finding `applied`. |
+| Process death during COMMIT (intent recorded, COMMIT not sent) | API process 1973626 ended with SIGKILL at `commit_before_send`. Dead session 10571,39987 cleaned up after 0.0s (the session left V$SESSION and its row lock was free). Restart listed the session under `commitsUnknown`. The independent session read salary 11500 (was 11500): not durable. Recorded finding `not_applied`. |
+| Process death during a read | API process 1973490 ended with SIGKILL at `statement_returned`. Dead session 10569,12826 cleaned up after 0.1s (the session left V$SESSION and its row lock was free). Restart recorded `failed` with no verification required. |
+| Process death during a write (applied, uncommitted, answer not recorded) | API process 1973517 ended with SIGKILL at `statement_returned`. Dead session 10569,5526 cleaned up after 0.1s (the session left V$SESSION and its row lock was free). Restart recorded `outcome_unknown` with verification required. The independent session read salary 11500 (was 11500): Oracle rolled the dead session's transaction back. Recorded finding `not_applied`. |
+| Process death while a write waits inside the database | API process 1973537 ended with SIGKILL at `statement_sent`. Dead session 10569,34126 cleaned up after 0.1s (the session left V$SESSION and its row lock was free). The session was waiting on `enq: TX - row lock contention (blocked by SID 14)` when killed; immediately after the kill V$SESSION still showed it as {'status': 'ACTIVE', 'blockingSession': 14, 'event': 'enq: TX - row lock contention', 'module': 'OracleDBHarness'}. After the lock was released the independent session read salary 11500 (was 11500). Restart recorded `outcome_unknown`. |

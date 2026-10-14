@@ -28,6 +28,7 @@ from typing import Any
 
 from harness_worker.backend import ConnectionSpec, OracleBackend, OracleConnection
 from harness_worker.backend.base import StatementResult
+from harness_worker.binds import bind_values
 from harness_worker.errors import (
     CancelledError_,
     HarnessError,
@@ -167,7 +168,7 @@ class ExecutionEngine:
             # The caller told us what it thought it was sending. Trust the parser and
             # record the disagreement rather than silently reclassifying.
             pass
-        binds = {b.name: b.value for b in request.binds}
+        binds = bind_values(request.binds)
 
         def work(connection: OracleConnection) -> StatementResult:
             return connection.execute(
@@ -233,7 +234,7 @@ class ExecutionEngine:
                         detail={"executionId": request.execution_id},
                     )
                 statement, kind = prepare(request.statement)
-                binds = {b.name: b.value for b in request.binds}
+                binds = bind_values(request.binds)
 
                 def work(conn: OracleConnection) -> StatementResult:
                     return conn.execute(

@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 
 from harness_worker.backend import OracleConnection, StatementResult
+from harness_worker.binds import VectorBind
 from harness_worker.types import ExecutionLimits, ResultSet, StatementKind
 from tests import oracle_config as qual_config
 from tests.qualification.evidence import Evidence
@@ -242,3 +243,137 @@ def test_a_sparse_vector_keeps_its_indices(
         "values": [1.5, 2.5],
         "truncated": False,
     }
+
+
+_VECTOR_TABLE = "harness_vector_probe"
+
+
+@pytest.fixture
+def vector_table(connection: OracleConnection, limits: ExecutionLimits, evidence: Evidence):
+    _require_23ai(connection, evidence, "VECTOR")
+    connection.execute(
+        f"CREATE TABLE {_VECTOR_TABLE} (id NUMBER PRIMARY KEY, embedding VECTOR(3, FLOAT32),"
+        " code VECTOR(2, INT8))",
+        {},
+        StatementKind.DDL,
+        limits,
+    )
+    try:
+        yield _VECTOR_TABLE
+    finally:
+        connection.rollback()
+        connection.execute(f"DROP TABLE {_VECTOR_TABLE} PURGE", {}, StatementKind.DDL, limits)
+
+
+def test_a_vector_bind_is_stored_and_searched(
+    connection: OracleConnection,
+    limits: ExecutionLimits,
+    evidence: Evidence,
+    old_client: str | None,
+    vector_table: str,
+) -> None:
+    """A JSON array hinted as a vector binds as one. Unhinted, it binds as a PL/SQL
+    array and SQL refuses it with ORA-01484."""
+
+    warnings: list[str] = []
+    for row, (embedding, code) in enumerate(
+        [((1.0, 0.0, 0.0), (1, -2)), ((0.0, 1.0, 0.0), (3, 4)), ((0.6, 0.8, 0.0), (5, 6))]
+    ):
+        inserted = connection.execute(
+            f"INSERT INTO {vector_table} VALUES (:id, :embedding, :code)",
+            {
+                "id": row + 1,
+                "embedding": VectorBind(embedding, "FLOAT32"),
+                "code": VectorBind(code, "INT8"),
+            },
+            StatementKind.DML,
+            limits,
+        )
+        warnings += inserted.warnings
+    nearest = connection.execute(
+        f"SELECT id, ROUND(VECTOR_DISTANCE(embedding, :query, COSINE), 4)"
+        f" FROM {vector_table} ORDER BY 2 FETCH FIRST 2 ROWS ONLY",
+        {"query": VectorBind((0.0, 1.0, 0.0), "FLOAT32")},
+        StatementKind.QUERY,
+        limits,
+    )
+    stored = _select(connection, f"SELECT code FROM {vector_table} WHERE id = 1", limits)
+    assert nearest.result_set is not None
+    evidence.note(
+        "VECTOR binds",
+        f"nearest to [0, 1, 0]: `{nearest.result_set.rows}`; INT8 stored as "
+        f"`{stored.rows[0][0]!r}`; warnings `{warnings + nearest.warnings}`",
+    )
+
+    assert nearest.result_set.rows == [[2, 0], [3, 0.2]]
+    with pytest.raises(Exception, match="ORA-01484"):
+        connection.execute(
+            f"SELECT COUNT(*) FROM {vector_table} WHERE VECTOR_DISTANCE(embedding, :q) < 1",
+            {"q": [0.0, 1.0, 0.0]},
+            StatementKind.QUERY,
+            limits,
+        )
+    if old_client:
+        assert stored.rows[0][0]["values"] == [1, -2]
+        assert all(old_client in warning for warning in warnings + nearest.warnings)
+        assert len(warnings) == 3
+        return
+    assert stored.rows[0][0] == {
+        "kind": "vector",
+        "format": "INT8",
+        "dimensions": 2,
+        "values": [1, -2],
+        "truncated": False,
+    }
+    assert warnings == [] and nearest.warnings == []
+
+
+def test_a_vector_index_serves_an_approximate_search(
+    connection: OracleConnection,
+    limits: ExecutionLimits,
+    evidence: Evidence,
+    vector_table: str,
+) -> None:
+    connection.execute(
+        f"INSERT INTO {vector_table} (id, embedding)"
+        " SELECT level, TO_VECTOR('[' || level || ', 1, 0]', 3, FLOAT32) FROM dual"
+        " CONNECT BY level <= 50",
+        {},
+        StatementKind.DML,
+        limits,
+    )
+    connection.commit()
+    connection.execute(
+        f"CREATE VECTOR INDEX {vector_table}_ivf ON {vector_table} (embedding)"
+        " ORGANIZATION NEIGHBOR PARTITIONS DISTANCE COSINE",
+        {},
+        StatementKind.DDL,
+        limits,
+    )
+    found = _select(
+        connection,
+        f"SELECT id FROM {vector_table}"
+        " ORDER BY VECTOR_DISTANCE(embedding, TO_VECTOR('[50, 1, 0]'), COSINE)"
+        " FETCH APPROX FIRST 1 ROWS ONLY",
+        limits,
+    )
+    evidence.note("IVF vector index", f"approximate nearest to [50, 1, 0]: `{found.rows}`")
+    assert found.rows == [[50]]
+
+    try:
+        connection.execute(
+            f"CREATE VECTOR INDEX {vector_table}_hnsw ON {vector_table} (code)"
+            " ORGANIZATION INMEMORY NEIGHBOR GRAPH DISTANCE COSINE",
+            {},
+            StatementKind.DDL,
+            limits,
+        )
+    except Exception as exc:  # noqa: BLE001 - the pool is the database's configuration
+        if "ORA-51962" not in str(exc):
+            raise
+        evidence.gap(
+            "HNSW vector index",
+            "ORA-51962: the database has no vector memory pool (VECTOR_MEMORY_SIZE).",
+        )
+    else:
+        evidence.note("HNSW vector index", "created")

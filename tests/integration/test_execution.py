@@ -476,3 +476,35 @@ def test_idempotency_accepts_reordered_binds_and_rejects_legacy_records(
         db.commit()
     rejected = client.post(url, headers=developer, json=payload)
     assert rejected.status_code == 400, rejected.text
+
+
+def test_a_bind_hinted_as_a_vector_must_hold_one(client: TestClient, developer, targets) -> None:
+    """Refused before any database is involved, so it holds for every target."""
+
+    session_id = open_worksheet(client, developer, targets["development"]["id"])
+    response = client.post(
+        f"/api/v1/worksheets/{session_id}/execute",
+        headers=developer,
+        json={
+            "statement": "SELECT :q FROM dual",
+            "binds": [{"name": "q", "value": [1, "x"], "typeHint": "vector"}],
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["detail"] == {"bind": "q"}
+
+
+@pytest.mark.stand_in_only
+def test_the_stand_in_says_it_cannot_bind_a_vector(client: TestClient, developer, targets) -> None:
+    session_id = open_worksheet(client, developer, targets["development"]["id"])
+    body = execute(
+        client,
+        developer,
+        session_id,
+        "SELECT :q FROM dual",
+        binds=[{"name": "q", "value": [1, 2], "typeHint": "vector"}],
+    )
+
+    assert body["outcome"]["state"] == "failed"
+    assert body["outcome"]["error"]["code"] == "capability_unavailable"
