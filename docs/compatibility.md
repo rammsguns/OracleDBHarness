@@ -13,7 +13,7 @@ claim. Where something has not been tested, it says so.
 | Oracle backend | Local stand-in (SQLite) | Full test suite |
 | **Oracle Database** | **19c Enterprise Edition 19.9.1.0.0, non-CDB, AL32UTF8** | `tests/qualification` (47 checks), `tests/integration` and `tests/e2e` against one instance, two recorded runs on 2026-09-11 (Windows). Repeated on 2026-10-14 (Linux) against a second 19.9.1.0.0 non-CDB, in thin and thick mode, with a restricted account, the K-4 catalog and process death. See [Recording a run](#recording-a-run) |
 | **Oracle Database** | **Oracle AI Database 26ai Free 23.26.3.0.0, PDB `FREEPDB1` in a CDB, AL32UTF8** | The same three suites, thin mode, one recorded run on 2026-10-14 (Linux), including the PDB container identity, the restricted account, the K-4 catalog and process death |
-| **Oracle Database** | **19c Enterprise Edition 19.9.1.0.0, non-CDB, WE8MSWIN1252, on a remote host** | The whole test suite in thin mode, one recorded run on 2026-10-14 (Linux client, database across a real network), including the K-4 catalog and process death. Provisioned without `SYS`, so the restricted account was probed but not claimed. See "The D4 run, 2026-10-14" |
+| **Oracle Database** | **19c Enterprise Edition 19.9.1.0.0, non-CDB, WE8MSWIN1252, on a remote host** | The whole test suite in thin mode, one recorded run on 2026-10-14 (Linux client, database across a real network), including the K-4 catalog and process death. Provisioned without `SYS`; the `SYS` grants were added later the same day, and the restricted account is now claimed. See "The D4 run, 2026-10-14" |
 | **Oracle Database** | **Autonomous Database 26ai (Always Free) 23.26.4.1.0, a PDB, AL32UTF8, over TCPS with its wallet** | The same three suites in thin mode and in thick mode with Instant Client 21.4, recorded runs on 2026-10-14 (Linux client, Oracle Cloud), with D1 as the second target, the admin account for the kills, the K-4 catalog and process death. A shared database, so no restricted or lab account. See "The D3 run, 2026-10-14" and "Thick mode over TCPS, and VECTOR binds, 2026-10-14" |
 | python-oracledb | 4.0.2, thin mode | The runs above |
 | python-oracledb | 4.0.2, thick mode, Oracle Instant Client 21.4.0.0.0 | The same three suites against the 19.9 non-CDB, the 23.26 Free PDB, D4 (19.9, `WE8MSWIN1252`, remote) and D3 (Autonomous Database 23.26.4.1.0 over TCPS), recorded runs on 2026-10-14 (Linux). Against 23.26 this client predates `BOOLEAN` and `VECTOR`; see "Thick mode against 23.26, 2026-10-14" |
@@ -336,9 +336,10 @@ and the lab checks.
 ### The D4 run, 2026-10-14
 
 D4 is a 19c 19.9.1.0.0 non-CDB in `WE8MSWIN1252` on a remote host, the first target
-that is neither AL32UTF8 nor local. `SYS` is not available on it, so it was
-provisioned as `SYSTEM` (see `DB_TEST_PLAN.md`): the restricted account cannot read the
-tablespace views, and `HARNESS_APP` already held `SELECT_CATALOG_ROLE`. The run used
+that is neither AL32UTF8 nor local. `SYS` was not available when it was provisioned, so
+it was provisioned as `SYSTEM` (see `DB_TEST_PLAN.md`): the restricted account could not
+read the tablespace views, and `HARNESS_APP` already held `SELECT_CATALOG_ROLE`. The
+`SYS` grants were added afterwards; see "D4 with the `SYS` grants" below. The run used
 D1 as its second target (run R6 in the plan), thin mode and
 `HARNESS_QUAL_REQUIRE=admin,second_target`, and
 ran the whole test suite rather than the three Oracle suites alone.
@@ -359,6 +360,25 @@ against 0.0 s locally, with the same outcomes.
 Rerun of the two changed files on D4: 23 passed, 4 skipped. The commit-window check
 was inconclusive on this run (the commit finished before the kill landed); it passed
 on D1 and D2.
+
+### D4 with the `SYS` grants, 2026-10-14
+
+The server's administrator ran the grants `SYSTEM` could not: the seven `SYS` view
+grants to `HARNESS_DIAGNOSTICS_ROLE` from `oracle/grants/harness_roles.sql`, and
+`DBA_TABLESPACES` and `DBA_TABLESPACE_USAGE_METRICS` to `HARNESS_RESTRICTED`, the shape in
+`oracle/qualification/README.md`. All nine were checked as `SYSTEM` in `DBA_TAB_PRIVS`,
+and again after the server rebooted. `HARNESS_APP` keeps `SELECT_CATALOG_ROLE`, so it
+still reads more of the dictionary than the script intends.
+
+The restricted account now probes as the README describes. `DBA_TABLESPACES` is
+available, so the tablespaces panel works. `V$SESSION`, `V$SQL`, `DBMS_XPLAN.DISPLAY_CURSOR`
+and the scheduler views fail with `ORA-00942`, and the sessions, blocking and scheduler
+panels report `capability_unavailable` naming the missing view. Before the grants the
+tablespaces panel was unavailable too. Both restricted-account checks passed, and D4 runs
+now claim `restricted_account`.
+
+The three Oracle suites were then rerun in thin mode with `restricted_account` required:
+824 passed, 45 skipped and 0 failed in 48 minutes. No finding.
 
 ### The D3 run, 2026-10-14
 
@@ -1252,3 +1272,114 @@ Observed Oracle behaviour:
 | Process death during a read | API process 1973490 ended with SIGKILL at `statement_returned`. Dead session 10569,12826 cleaned up after 0.1s (the session left V$SESSION and its row lock was free). Restart recorded `failed` with no verification required. |
 | Process death during a write (applied, uncommitted, answer not recorded) | API process 1973517 ended with SIGKILL at `statement_returned`. Dead session 10569,5526 cleaned up after 0.1s (the session left V$SESSION and its row lock was free). Restart recorded `outcome_unknown` with verification required. The independent session read salary 11500 (was 11500): Oracle rolled the dead session's transaction back. Recorded finding `not_applied`. |
 | Process death while a write waits inside the database | API process 1973537 ended with SIGKILL at `statement_sent`. Dead session 10569,34126 cleaned up after 0.1s (the session left V$SESSION and its row lock was free). The session was waiting on `enq: TX - row lock contention (blocked by SID 14)` when killed; immediately after the kill V$SESSION still showed it as {'status': 'ACTIVE', 'blockingSession': 14, 'event': 'enq: TX - row lock contention', 'module': 'OracleDBHarness'}. After the lock was released the independent session read salary 11500 (was 11500). Restart recorded `outcome_unknown`. |
+
+### Run 2026-10-14 22:40 UTC
+
+- Harness build: `de33e1f`
+- Target: `D4 (remote host, see `databases/INVENTORY.md`), service `ORCL`` as `harness_app`, schema `HARNESS_APP`
+- Platform: Linux-7.0.0-38-generic-x86_64-with-glibc2.43, Python 3.11.16
+- driverMode: `thin`
+- pythonOracledb: `4.0.2`
+
+Run R6 after the `SYS` grants: D4 primary, D1 second target, thin, the three Oracle
+suites, with `HARNESS_QUAL_REQUIRE=admin,second_target,restricted_account`. Result: 824
+passed, 45 skipped, 0 failed in 2,856 s (see "D4 with the `SYS` grants, 2026-10-14").
+A first attempt was stopped at 16% when the server rebooted, and none of its results
+are used. The skips each give their reason; the report lists `BOOLEAN`, `VECTOR`, the
+PDB identity and the lab workload as not exercised.
+
+Database, as reported by the database:
+
+- characterSet: `WE8MSWIN1252`
+- containerId: `0`
+- containerName: `ORCL`
+- currentSchema: `HARNESS_APP`
+- currentUser: `HARNESS_APP`
+- databaseName: `ORCL`
+- dbUniqueName: `ORCL`
+- driver.driverMode: `thin`
+- driver.pythonOracledb: `4.0.2`
+- hostName: `27e1d5797223`
+- instanceName: `ORCL`
+- isCdb: `False`
+- nationalCharacterSet: `AL16UTF16`
+- version: `19.9.1.0.0`
+- versionFull: `19.9.1.0.0`
+
+Observed Oracle behaviour:
+
+| Question | What this database did |
+| --- | --- |
+| BLOB under a 256-byte preview limit | byteLength `20000`, preview 512 hex characters, truncated=`True` |
+| Capabilities on the restricted account | connect: available<br>session_schema: available<br>all_objects: available<br>explain_plan: available<br>display_cursor: unavailable (ORA-00942: table or view does not exist<br>Help: https://docs.oracle.com/error-help/db/ora-00942/)<br>v_session: unavailable (ORA-00942: table or view does not exist<br>Help: https://docs.oracle.com/error-help/db/ora-00942/)<br>v_sql: unavailable (ORA-00942: table or view does not exist<br>Help: https://docs.oracle.com/error-help/db/ora-00942/)<br>dba_tablespaces: available<br>dba_scheduler_jobs: unavailable (ORA-00942: table or view does not exist<br>Help: https://docs.oracle.com/error-help/db/ora-00942/)<br>dbms_stats: available<br>compile_objects: available |
+| Capabilities on this account | connect: available<br>session_schema: available<br>all_objects: available<br>explain_plan: available<br>display_cursor: available<br>v_session: available<br>v_sql: available<br>dba_tablespaces: available<br>dba_scheduler_jobs: available<br>dbms_stats: available<br>compile_objects: available |
+| Compiler errors for the seeded invalid body | line 5 col 39: PL/SQL: ORA-00942: table or view does not exist; line 5 col 5: PL/SQL: SQL Statement ignored |
+| Container identity | non-CDB: CON_ID `0`, CON_NAME `ORCL`, DB_UNIQUE_NAME `ORCL`; harness reported isCdb=`False`, containerName=`ORCL`, databaseName=`ORCL`. |
+| DBA panels on the restricted account | Probe found missing: ['dba_scheduler_jobs', 'display_cursor', 'v_session', 'v_sql']<br>sessions: unavailable, `capability_unavailable`, missing ['v_session']<br>blocking: unavailable, `capability_unavailable`, missing ['v_session']<br>tablespaces: available<br>invalidObjects: available<br>schedulerJobs: unavailable, `capability_unavailable`, missing ['dba_scheduler_jobs']<br>schedulerFailures: unavailable, `capability_unavailable`, missing ['dba_scheduler_jobs'] |
+| Database character set | `WE8MSWIN1252`, not AL32UTF8. Treat the Unicode bind results as specific to this character set. |
+| Database major version | 19c (`19.9.1.0.0`) |
+| Does DBMS_OUTPUT reach the adapter? | Yes - 1 line(s): ['headcount=3'] |
+| Does DDL commit pending DML? | Yes - the row inserted before the CREATE was visible to another session without an explicit commit. |
+| Does ROLLBACK TO SAVEPOINT leave the transaction open? | Adapter reports open=True; the row before the savepoint survived (1 == 1) and the row after it did not (0 == 0). |
+| Does a PL/SQL block leave a transaction open? | Yes - the adapter's assumption holds. |
+| Does a cancellation roll back earlier work in the same transaction? | No - the earlier insert was still pending, as assumed. |
+| Does the blocking panel show a real blocked session? | Session 27 waiting on 50: shown as `[27, 'HARNESS_APP', 'enq: TX - row lock contention', 0]` blocked by SID `50`, 0.2s after the wait began |
+| EMPTY_CLOB() vs NULL | EMPTY_CLOB() arrived as `{'kind': 'lob', 'preview': '', 'charLength': 0, 'truncated': False}`; a NULL CLOB as `None`; EMPTY_BLOB() as `{'kind': 'lob', 'preview': '', 'byteLength': 0, 'truncated': False}`. |
+| How do TIMESTAMP columns arrive? | TIMESTAMP: `datetime.datetime(2026, 3, 1, 12, 34, 56, 789012)`<br>WITH TIME ZONE: `datetime.datetime(2026, 3, 1, 12, 34, 56, 789012)`<br>WITH LOCAL TIME ZONE: `datetime.datetime(2026, 3, 1, 12, 34, 56, 789012)`<br>Warning: `TIMESTAMP WITH TIME ZONE column(s) TS_TZ are shown without their offset: the driver returns the wall-clock time only. Select them with TO_CHAR(column, 'YYYY-MM-DD HH24:MI:SS.FF TZH:TZM') to see the offset.` |
+| How does NUMBER(20,10) arrive? | As `Decimal` with value `1234567890.0123456789` |
+| Is DBMS_OUTPUT bounded? | Yes - a 512-byte budget returned 8 line(s) (480 bytes) and set the truncated flag. |
+| Is a lost connection during a write reported as outcome_unknown? | Raised `OutcomeUnknownError` with code `outcome_unknown`. |
+| Is a session reusable after a cancellation? | Yes - the connection stayed healthy and answered a query afterwards. |
+| Is an empty VARCHAR2 stored as NULL? | v_ascii read back as `None`; NVL says `'was-null'`. |
+| K-4 dependency, subprogram and source lookups | rows as on the stand-in |
+| K-4 trigger, link and scheduler lookups | rows as on the stand-in; no link |
+| Large CLOB under a 1 KiB preview limit | reported charLength `65534`, preview is 1024 characters / 1024 bytes, truncated=`True` |
+| Lost connection during COMMIT | Raised `OutcomeUnknownError` with code `outcome_unknown` |
+| NCLOB of 4,000 two-byte characters: reported length | charLength `4000`, byteLength `None` |
+| PL/Scope absence | EMPLOYEE_REPORT reports NOT COLLECTED; the function is read |
+| Runtime error from a PL/SQL block | Oracle code `ORA-20001`, message `ORA-20001: qualification probe<br>ORA-06512: at line 1` |
+| Second target identity | separate databases on separate instances. Primary: DBID `1773258920`, CON_DBID `1773258920`, CON_NAME `ORCL`, DB_UNIQUE_NAME `ORCL`, instance `ORCL` on `27e1d5797223`, user `HARNESS_APP`. Second: DBID `1771485732`, CON_DBID `1771485732`, CON_NAME `ORCL`, DB_UNIQUE_NAME `ORCL`, instance `ORCL` on `90520b67e617`, user `HARNESS_APP`. |
+| Shape of a small CLOB | `{'kind': 'lob', 'preview': 'short clob', 'charLength': 10, 'truncated': False}` |
+| Unicode lookup by bind | Not checked: the database character set is `WE8MSWIN1252`, not AL32UTF8, so a VARCHAR bind cannot carry the sample characters. Read-back above passed. |
+| Unicode read back | `'こんにちは — café — مرحبا'` |
+| What does a broken statement raise? | `CancelledError_` with code `execution_cancelled`. Returned after 3.3s of a 30s statement. |
+| What does a killed session raise mid-statement? | `OutcomeUnknownError` / harness code `outcome_unknown` |
+| What enforces the execution deadline? | A 5s budget stopped a 30s statement after 5.3s, raising `TimeoutError_`. |
+| What happens when a block fills the DBMS_OUTPUT server buffer? | Stopped with `ORA-20000`; the next block's output was `['after']`. |
+
+Not exercised by this run:
+
+- BOOLEAN: the target is 19.9.1.0.0; the SQL BOOLEAN type arrived in 23ai.
+- Lab workloads: HARNESS_QUAL_LAB_USER is not set. The lab workload checks need a read-only account over a schema with realistic data, named by HARNESS_QUAL_LAB_SCHEMA.
+- PDB identity: the target is a non-CDB (CON_ID 0, `ORCL`).
+- Thick mode: This run is thin mode; thick needs a separate process.
+- VECTOR: the target is 19.9.1.0.0; the SQL VECTOR type arrived in 23ai.
+
+### Process-death run 2026-10-14 22:29 UTC
+
+- Harness build: `de33e1f`
+- Target: `D4 (remote host, see `databases/INVENTORY.md`), service `ORCL`` as `harness_app`, schema `HARNESS_APP`
+- Platform: Linux-7.0.0-38-generic-x86_64-with-glibc2.43, Python 3.11.16
+- driverMode: `thin`
+- pythonOracledb: `4.0.2`
+
+Run R6 after the `SYS` grants: `tests/integration/test_process_death.py`, inside the run
+above.
+
+Database, as reported by the database:
+
+- containerName: `ORCL`
+- databaseName: `ORCL`
+- isCdb: `False`
+- versionFull: `19.9.1.0.0`
+
+Observed Oracle behaviour:
+
+| Question | What this database did |
+| --- | --- |
+| Process death before dispatch | API process 2011915 ended with SIGKILL at `before_dispatch`. Dead session 48,39286 cleaned up after 0.5s (the session left V$SESSION and its row lock was free). Restart recorded `cancelled`; an independent session read salary 11500, unchanged. |
+| Process death during COMMIT (COMMIT returned, answer not recorded) | API process 2012132 ended with SIGKILL at `commit_returned`. Dead session 27,56004 cleaned up after 0.4s (the session left V$SESSION and its row lock was free). Restart listed the session under `commitsUnknown`, with no successful commit audited. The independent session read salary 4545 (was 11500): durable. Recorded finding `applied`. |
+| Process death during COMMIT (intent recorded, COMMIT not sent) | API process 2012093 ended with SIGKILL at `commit_before_send`. Dead session 27,54308 cleaned up after 0.4s (the session left V$SESSION and its row lock was free). Restart listed the session under `commitsUnknown`. The independent session read salary 11500 (was 11500): not durable. Recorded finding `not_applied`. |
+| Process death during a read | API process 2011944 ended with SIGKILL at `statement_returned`. Dead session 48,48591 cleaned up after 0.4s (the session left V$SESSION and its row lock was free). Restart recorded `failed` with no verification required. |
+| Process death during a write (applied, uncommitted, answer not recorded) | API process 2011977 ended with SIGKILL at `statement_returned`. Dead session 48,39735 cleaned up after 0.4s (the session left V$SESSION and its row lock was free). Restart recorded `outcome_unknown` with verification required. The independent session read salary 11500 (was 11500): Oracle rolled the dead session's transaction back. Recorded finding `not_applied`. |
+| Process death while a write waits inside the database | API process 2012074 ended with SIGKILL at `statement_sent`. Dead session 48,17694 cleaned up after 0.5s (the session left V$SESSION and its row lock was free). The session was waiting on `enq: TX - row lock contention (blocked by SID 26)` when killed; immediately after the kill V$SESSION still showed it as {'status': 'ACTIVE', 'blockingSession': 26, 'event': 'enq: TX - row lock contention', 'module': 'OracleDBHarness'}. After the lock was released the independent session read salary 11500 (was 11500). Restart recorded `outcome_unknown`. |
