@@ -242,5 +242,5 @@ was never read, so no vector could be bound. `typeHint: "vector"` (or `vector:fl
 `vector:int8`) now binds an `array.array`, or vector text, with a warning, for an Oracle
 Client older than 23.4. Binds into `VECTOR` columns, `VECTOR_DISTANCE` and an IVF index
 pass on both databases. HNSW passes on D3 and is a recorded gap on D2, whose Free PDB has
-no vector memory pool. The console does not offer a type hint yet. Recorded in
-`docs/compatibility.md`.
+no vector memory pool. The console's worksheet offers the type hint on each bind. Recorded
+in `docs/compatibility.md`.

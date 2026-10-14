@@ -4,9 +4,30 @@ import type { ExecutionOutcome, PolicyDecision, Target, WorksheetSession } from 
 import { ResultGrid } from "../components/ResultGrid";
 import { SqlEditor } from "../components/SqlEditor";
 
+/**
+ * How a bind's text is sent. "auto" sends a number when the text is one, otherwise the
+ * text. A vector is a JSON array of numbers sent with a type hint: without one the
+ * driver binds an array as a PL/SQL collection and SQL refuses it with ORA-01484.
+ */
+const BIND_TYPES = [
+  { value: "auto", label: "auto" },
+  { value: "vector", label: "vector (FLOAT32)" },
+  { value: "vector:float64", label: "vector (FLOAT64)" },
+  { value: "vector:int8", label: "vector (INT8)" },
+] as const;
+
+type BindType = (typeof BIND_TYPES)[number]["value"];
+
 interface Bind {
   name: string;
   value: string;
+  type: BindType;
+}
+
+interface BindPayload {
+  name: string;
+  value: unknown;
+  typeHint?: string;
 }
 
 /**
@@ -72,7 +93,7 @@ export function WorksheetView({
   const [statement, setStatement] = useState(
     "SELECT last_name, salary\n  FROM employees\n WHERE department_id = :dept\n ORDER BY salary DESC",
   );
-  const [binds, setBinds] = useState<Bind[]>([{ name: "dept", value: "20" }]);
+  const [binds, setBinds] = useState<Bind[]>([{ name: "dept", value: "20", type: "auto" }]);
   const [maxRows, setMaxRows] = useState(100);
 
   // Read only what belongs to the selected target. State written by a request that
@@ -138,16 +159,16 @@ export function WorksheetView({
       applyFor(startedFor, (previous) => ({ ...previous, session: null, error: WRONG_TARGET }));
       return;
     }
+    let payload: BindPayload[];
+    try {
+      payload = binds.filter((bind) => bind.name.trim()).map(toPayload);
+    } catch (cause) {
+      applyFor(startedFor, (previous) => ({ ...previous, error: describe(cause) }));
+      return;
+    }
     applyFor(startedFor, (previous) => ({ ...previous, running: true, error: null }));
     try {
-      const response = await api.execute(
-        session.sessionId,
-        statement,
-        binds
-          .filter((bind) => bind.name.trim())
-          .map((bind) => ({ name: bind.name.trim(), value: coerce(bind.value) })),
-        { maxRows },
-      );
+      const response = await api.execute(session.sessionId, statement, payload, { maxRows });
       applyFor(startedFor, (previous) => ({
         ...previous,
         outcome: response.outcome,
@@ -282,7 +303,9 @@ export function WorksheetView({
             onChange={(event) => setMaxRows(Number(event.target.value))}
           />
         </label>
-        <button onClick={() => setBinds([...binds, { name: "", value: "" }])}>Add bind</button>
+        <button onClick={() => setBinds([...binds, { name: "", value: "", type: "auto" }])}>
+          Add bind
+        </button>
         <button onClick={() => onAsk(statement)}>Explain this statement</button>
       </div>
 
@@ -301,7 +324,8 @@ export function WorksheetView({
                 }}
               />
               <input
-                placeholder="value"
+                placeholder={bind.type === "auto" ? "value" : "[0.1, 0.2, 0.3]"}
+                aria-label={`value of bind ${index + 1}`}
                 value={bind.value}
                 style={{ width: 150 }}
                 onChange={(event) => {
@@ -310,6 +334,21 @@ export function WorksheetView({
                   setBinds(next);
                 }}
               />
+              <select
+                aria-label={`type of bind ${index + 1}`}
+                value={bind.type}
+                onChange={(event) => {
+                  const next = [...binds];
+                  next[index] = { ...bind, type: event.target.value as BindType };
+                  setBinds(next);
+                }}
+              >
+                {BIND_TYPES.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
               <button onClick={() => setBinds(binds.filter((_, i) => i !== index))}>x</button>
             </span>
           ))}
@@ -406,6 +445,29 @@ function stateClass(state: string): string {
   if (state === "outcome_unknown") return "badge danger";
   if (state === "failed" || state === "cancelled") return "badge warn";
   return "badge";
+}
+
+function toPayload(bind: Bind): BindPayload {
+  const name = bind.name.trim();
+  if (bind.type === "auto") return { name, value: coerce(bind.value) };
+  if (bind.value.trim() === "") return { name, value: null, typeHint: bind.type };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(bind.value);
+  } catch {
+    parsed = undefined;
+  }
+  if (
+    !Array.isArray(parsed) ||
+    parsed.length === 0 ||
+    !parsed.every((element) => typeof element === "number")
+  ) {
+    throw new Error(
+      `Bind :${name} is a vector, so its value must be an array of numbers such as ` +
+        "[0.1, 0.2, 0.3]. Nothing was run.",
+    );
+  }
+  return { name, value: parsed, typeHint: bind.type };
 }
 
 function coerce(value: string): unknown {

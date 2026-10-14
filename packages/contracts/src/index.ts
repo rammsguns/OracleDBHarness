@@ -516,7 +516,7 @@ export class HarnessClient {
   execute(
     sessionId: string,
     statement: string,
-    binds: Array<{ name: string; value: unknown }> = [],
+    binds: Array<{ name: string; value: unknown; typeHint?: string }> = [],
     options: { maxRows?: number; deadlineSeconds?: number; idempotencyKey?: string } = {},
   ) {
     return this.post<{ outcome: ExecutionOutcome; policy: PolicyDecision; session: WorksheetSession }>(
