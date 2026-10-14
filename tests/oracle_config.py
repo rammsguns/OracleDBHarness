@@ -46,6 +46,7 @@ ENV_CLIENT_LIB_DIR = f"{ENV_PREFIX}ORACLE_CLIENT_LIB_DIR"
 ENV_SCHEMA = f"{ENV_PREFIX}ORACLE_SCHEMA"
 ENV_PROTOCOL = f"{ENV_PREFIX}PROTOCOL"
 ENV_WALLET_DIR = f"{ENV_PREFIX}WALLET_DIR"
+ENV_WALLET_PASSWORD_FILE = f"{ENV_PREFIX}WALLET_PASSWORD_FILE"  # noqa: S105 - a path
 ENV_ADMIN_DSN = f"{ENV_PREFIX}ADMIN_DSN"
 ENV_ADMIN_USER = f"{ENV_PREFIX}ADMIN_USER"
 ENV_ADMIN_PASSWORD_FILE = f"{ENV_PREFIX}ADMIN_PASSWORD_FILE"  # noqa: S105 - a path
@@ -58,6 +59,11 @@ ENV_SECOND_DSN = f"{ENV_PREFIX}SECOND_DSN"
 ENV_SECOND_USER = f"{ENV_PREFIX}SECOND_USER"
 ENV_SECOND_PASSWORD_FILE = f"{ENV_PREFIX}SECOND_PASSWORD_FILE"  # noqa: S105 - a path
 ENV_SECOND_SCHEMA = f"{ENV_PREFIX}SECOND_SCHEMA"
+# The second database's transport is its own: a cloud primary reached over TCPS with a
+# wallet is typically paired with a plain TCP database, and one setting cannot say both.
+ENV_SECOND_PROTOCOL = f"{ENV_PREFIX}SECOND_PROTOCOL"
+ENV_SECOND_WALLET_DIR = f"{ENV_PREFIX}SECOND_WALLET_DIR"
+ENV_SECOND_WALLET_PASSWORD_FILE = f"{ENV_PREFIX}SECOND_WALLET_PASSWORD_FILE"  # noqa: S105
 
 # An account deliberately missing some of the grants in oracle/grants/harness_roles.sql,
 # on the primary database unless a DSN says otherwise. The full-grant fixture account
@@ -143,6 +149,36 @@ def _read_password(variable: str) -> str:
     return password
 
 
+def _transport(
+    protocol_var: str, wallet_dir_var: str, wallet_password_var: str
+) -> tuple[str, str | None, str | None]:
+    """Protocol, wallet directory and wallet password from one group of variables.
+
+    A wallet password is needed when the wallet's ``ewallet.pem`` holds an encrypted key,
+    as an Autonomous Database wallet does; thin mode cannot open it otherwise.
+    """
+
+    protocol = os.environ.get(protocol_var, "").strip().lower() or "tcp"
+    if protocol not in ("tcp", "tcps"):
+        raise ConfigurationProblem(f"{protocol_var} must be 'tcp' or 'tcps'.")
+    wallet_dir = os.environ.get(wallet_dir_var, "").strip() or None
+    wallet_password = (
+        _read_password(wallet_password_var)
+        if os.environ.get(wallet_password_var, "").strip()
+        else None
+    )
+    if wallet_password is not None and wallet_dir is None:
+        raise ConfigurationProblem(
+            f"{wallet_password_var} is set but {wallet_dir_var} is not. The password opens "
+            "a wallet, so name the wallet directory too."
+        )
+    if wallet_dir is not None and not Path(wallet_dir).is_dir():
+        raise ConfigurationProblem(
+            f"{wallet_dir_var} points at {wallet_dir!r}, which is not a directory."
+        )
+    return protocol, wallet_dir, wallet_password
+
+
 def _split_dsn(dsn: str, variable: str) -> tuple[str, int, str]:
     """Split ``host:port/service`` into its parts.
 
@@ -170,7 +206,8 @@ class Endpoint:
 
     Carries exactly the fields a ``ConnectionProfile`` has columns for, so the demo
     seed can be pointed at a real target without inventing anything the application
-    could not express.
+    could not express. The transport is per endpoint because two databases in one run
+    can need different ones.
     """
 
     host: str
@@ -179,6 +216,9 @@ class Endpoint:
     username: str
     password: str = field(repr=False)
     schema: str
+    protocol: str = "tcp"
+    wallet_dir: str | None = None
+    wallet_password: str | None = field(default=None, repr=False)
 
     @property
     def dsn(self) -> str:
@@ -194,8 +234,6 @@ class OracleTestConfig:
     admin: Endpoint | None
     driver_mode: str
     client_lib_dir: str
-    protocol: str
-    wallet_dir: str | None
     report_path: Path | None
     restricted: Endpoint | None = None
     lab: Endpoint | None = None
@@ -227,6 +265,14 @@ class OracleTestConfig:
     def dsn(self) -> str:
         return self.primary.dsn
 
+    @property
+    def protocol(self) -> str:
+        return self.primary.protocol
+
+    @property
+    def wallet_dir(self) -> str | None:
+        return self.primary.wallet_dir
+
     def spec_for(self, endpoint: Endpoint, profile_id: str) -> ConnectionSpec:
         return ConnectionSpec(
             profile_id=profile_id,
@@ -236,8 +282,9 @@ class OracleTestConfig:
             username=endpoint.username,
             password=endpoint.password,
             driver_mode=self.driver_mode,
-            protocol=self.protocol,
-            wallet_dir=self.wallet_dir,
+            protocol=endpoint.protocol,
+            wallet_dir=endpoint.wallet_dir,
+            wallet_password=endpoint.wallet_password,
             default_schema=endpoint.schema,
         )
 
@@ -305,6 +352,9 @@ def load() -> OracleTestConfig:
             "must be a separate process from a thin one."
         )
 
+    protocol, wallet_dir, wallet_password = _transport(
+        ENV_PROTOCOL, ENV_WALLET_DIR, ENV_WALLET_PASSWORD_FILE
+    )
     primary = Endpoint(
         host=host,
         port=port,
@@ -312,18 +362,34 @@ def load() -> OracleTestConfig:
         username=username,
         password=_read_password(ENV_PASSWORD_FILE),
         schema=os.environ.get(ENV_SCHEMA, "").strip().upper() or DEMO_SCHEMA,
+        protocol=protocol,
+        wallet_dir=wallet_dir,
+        wallet_password=wallet_password,
     )
 
     second = _optional_endpoint(
         ENV_SECOND_DSN, ENV_SECOND_USER, ENV_SECOND_PASSWORD_FILE, ENV_SECOND_SCHEMA
     )
+    if second is not None:
+        second_protocol, second_wallet, second_wallet_password = _transport(
+            ENV_SECOND_PROTOCOL, ENV_SECOND_WALLET_DIR, ENV_SECOND_WALLET_PASSWORD_FILE
+        )
+        second = replace(
+            second,
+            protocol=second_protocol,
+            wallet_dir=second_wallet,
+            wallet_password=second_wallet_password,
+        )
     if second is not None and second.dsn == primary.dsn:
         raise ConfigurationProblem(
             f"{ENV_SECOND_DSN} names the same database as {ENV_DSN} ({primary.dsn}). "
             "The isolation checks compare two targets and would pass trivially."
         )
 
+    # The admin account is on the primary database, so it shares the primary's transport.
     admin = _optional_endpoint(ENV_ADMIN_DSN, ENV_ADMIN_USER, ENV_ADMIN_PASSWORD_FILE, None)
+    if admin is not None:
+        admin = _with_transport(admin, primary)
     restricted = _restricted_endpoint(primary)
     lab = _lab_endpoint(primary)
     required = _requirements()
@@ -349,12 +415,19 @@ def load() -> OracleTestConfig:
         admin=admin,
         driver_mode=driver_mode,
         client_lib_dir=client_lib_dir,
-        protocol=os.environ.get(ENV_PROTOCOL, "tcp").strip() or "tcp",
-        wallet_dir=os.environ.get(ENV_WALLET_DIR, "").strip() or None,
         report_path=Path(report) if report else None,
         restricted=restricted,
         lab=lab,
         required=required,
+    )
+
+
+def _with_transport(endpoint: Endpoint, primary: Endpoint) -> Endpoint:
+    return replace(
+        endpoint,
+        protocol=primary.protocol,
+        wallet_dir=primary.wallet_dir,
+        wallet_password=primary.wallet_password,
     )
 
 
@@ -412,6 +485,9 @@ def _restricted_endpoint(primary: Endpoint) -> Endpoint | None:
         username=username,
         password=_read_password(ENV_RESTRICTED_PASSWORD_FILE),
         schema=primary.schema,
+        protocol=primary.protocol,
+        wallet_dir=primary.wallet_dir,
+        wallet_password=primary.wallet_password,
     )
 
 
@@ -450,6 +526,9 @@ def _lab_endpoint(primary: Endpoint) -> Endpoint | None:
         username=username,
         password=_read_password(ENV_LAB_PASSWORD_FILE),
         schema=schema,
+        protocol=primary.protocol,
+        wallet_dir=primary.wallet_dir,
+        wallet_password=primary.wallet_password,
     )
 
 

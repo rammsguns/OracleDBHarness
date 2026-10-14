@@ -19,6 +19,7 @@ from sqlalchemy import delete, select
 
 from harness_api.config import Settings
 from harness_api.db import build_engine, build_session_factory
+from harness_api.execution import ExecutionService
 from harness_api.models import ConnectionProfile, RunbookDefinition, SecretReference
 from harness_api.seed import DEMO_TARGETS, TargetEndpoint, _resolve_endpoints, seed
 from harness_worker.errors import ConfigurationError
@@ -218,6 +219,88 @@ def test_the_privileged_connection_does_not_enter_the_fixture_schema(
     assert spec.default_schema is None
 
 
+def _cloud_and_local(
+    monkeypatch: pytest.MonkeyPatch, password_file: Path, wallet: Path, **extra: str
+) -> None:
+    """A TCPS primary with an encrypted wallet, a plain TCP second database."""
+
+    wallet_password = wallet / "wallet.password"
+    wallet_password.write_text("a-wallet-password\n", encoding="utf-8")
+    configure(
+        monkeypatch,
+        HARNESS_QUAL_ORACLE_DSN="adb.example.com:1522/abc_medium.adb.example.com",
+        HARNESS_QUAL_ORACLE_USER="harness_app",
+        HARNESS_QUAL_ORACLE_PASSWORD_FILE=str(password_file),
+        HARNESS_QUAL_PROTOCOL="TCPS",
+        HARNESS_QUAL_WALLET_DIR=str(wallet),
+        HARNESS_QUAL_WALLET_PASSWORD_FILE=str(wallet_password),
+        HARNESS_QUAL_SECOND_DSN="localhost:1521/ORCL",
+        HARNESS_QUAL_SECOND_USER="harness_app",
+        HARNESS_QUAL_SECOND_PASSWORD_FILE=str(password_file),
+        **extra,
+    )
+
+
+def test_each_database_keeps_its_own_transport(
+    monkeypatch: pytest.MonkeyPatch, password_file: Path, tmp_path: Path
+) -> None:
+    """A cloud primary over TCPS and a local second database over TCP, in one run. With
+    one protocol for the whole run, one of the two could never connect."""
+
+    _cloud_and_local(
+        monkeypatch,
+        password_file,
+        tmp_path,
+        HARNESS_QUAL_ADMIN_DSN="adb.example.com:1522/abc_medium.adb.example.com",
+        HARNESS_QUAL_ADMIN_USER="admin",
+        HARNESS_QUAL_ADMIN_PASSWORD_FILE=str(password_file),
+    )
+    config = oracle_config.load()
+
+    primary = config.connection_spec()
+    assert (primary.protocol, primary.wallet_dir) == ("tcps", str(tmp_path))
+    assert primary.wallet_password == "a-wallet-password"
+    second = config.second_spec()
+    assert second is not None
+    assert (second.protocol, second.wallet_dir, second.wallet_password) == ("tcp", None, None)
+    # The admin account is on the primary database, so it travels the same way.
+    admin = config.admin_spec()
+    assert admin is not None
+    assert (admin.protocol, admin.wallet_password) == ("tcps", "a-wallet-password")
+
+    assert "a-wallet-password" not in repr(config)
+    assert "a-wallet-password" not in repr(primary)
+
+
+def test_an_unknown_protocol_is_refused(
+    monkeypatch: pytest.MonkeyPatch, password_file: Path
+) -> None:
+    configure(
+        monkeypatch,
+        HARNESS_QUAL_ORACLE_DSN="dbhost:1521/ORCLPDB1",
+        HARNESS_QUAL_ORACLE_USER="harness_app",
+        HARNESS_QUAL_ORACLE_PASSWORD_FILE=str(password_file),
+        HARNESS_QUAL_PROTOCOL="https",
+    )
+    with pytest.raises(oracle_config.ConfigurationProblem, match="'tcp' or 'tcps'"):
+        oracle_config.load()
+
+
+def test_a_wallet_password_without_a_wallet_is_refused(
+    monkeypatch: pytest.MonkeyPatch, password_file: Path
+) -> None:
+    configure(
+        monkeypatch,
+        HARNESS_QUAL_ORACLE_DSN="dbhost:1521/ORCLPDB1",
+        HARNESS_QUAL_ORACLE_USER="harness_app",
+        HARNESS_QUAL_ORACLE_PASSWORD_FILE=str(password_file),
+        HARNESS_QUAL_PROTOCOL="tcps",
+        HARNESS_QUAL_WALLET_PASSWORD_FILE=str(password_file),
+    )
+    with pytest.raises(oracle_config.ConfigurationProblem, match="WALLET_DIR is not"):
+        oracle_config.load()
+
+
 # -- pointing the demonstration seed somewhere else ------------------------------------
 
 
@@ -413,6 +496,45 @@ def test_seeding_against_overridden_endpoints_keeps_their_credentials_apart(
         assert secrets["development"] is not None and secrets["test"] is not None
         assert secrets["development"].id != secrets["test"].id
         assert secrets["test"].locator == "second.password"
+
+
+def test_a_seeded_target_carries_its_transport_to_the_connection(tmp_path: Path) -> None:
+    """The profile keeps protocol, wallet and a reference to the wallet password, and
+    the connection the API builds from it opens the wallet with that password."""
+
+    settings = _seed_settings(tmp_path)
+    (tmp_path / "secrets" / "wallet.password").write_text("a-wallet-password", encoding="utf-8")
+
+    seed(
+        settings,
+        probe=False,
+        endpoints={
+            "development": TargetEndpoint(
+                host="adb.example.com",
+                port=1522,
+                service_name="abc_medium",
+                protocol="tcps",
+                wallet_dir="/wallets/adb",
+                wallet_secret_name="wallet",  # noqa: S106 - a reference name
+                wallet_secret_locator="wallet.password",  # noqa: S106 - a file name
+            ),
+        },
+    )
+
+    factory = build_session_factory(build_engine(settings))
+    with factory() as db:
+        profiles = {p.name: p for p in db.scalars(select(ConnectionProfile))}
+        cloud = profiles["development"]
+        assert (cloud.protocol, cloud.wallet_dir) == ("tcps", "/wallets/adb")
+        assert cloud.wallet_secret_reference_id is not None
+        # The other targets are unchanged: plain TCP, no wallet.
+        assert profiles["test"].protocol == "tcp"
+        assert profiles["test"].wallet_secret_reference_id is None
+
+    spec = ExecutionService(settings, factory).connection_spec(cloud, None)
+    assert (spec.protocol, spec.wallet_dir) == ("tcps", "/wallets/adb")
+    assert spec.wallet_password == "a-wallet-password"
+    assert "a-wallet-password" not in repr(spec)
 
 
 # -- the skips ------------------------------------------------------------------------

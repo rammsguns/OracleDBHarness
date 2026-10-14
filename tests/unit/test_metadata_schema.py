@@ -52,6 +52,7 @@ def _version(engine: Engine) -> str:
 # rather than hand-written per test, is what stops these fixtures quietly becoming
 # current-schema stores with an old number stamped on them -- which would test nothing.
 _ADDED_BY_VERSION: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "5": (("connection_profiles.wallet_secret_reference_id",), ()),
     "4": (
         (
             "executions.owner_id",
@@ -197,6 +198,17 @@ def test_a_version_3_store_gains_the_reconciliation_columns(engine: Engine) -> N
     assert "store_owner" in tables
     with Session(engine) as session:
         assert session.scalars(select(StoreOwner)).one().runtime_id == ""
+
+
+def test_a_version_4_store_gains_the_wallet_secret_column(engine: Engine) -> None:
+    """The 4 -> 5 step. Existing profiles keep no wallet password, as before."""
+
+    _store_as_of(engine, "4")
+    assert "wallet_secret_reference_id" not in _columns(engine, "connection_profiles")
+
+    assert initialize_schema(engine) == SCHEMA_VERSION
+    assert _version(engine) == SCHEMA_VERSION
+    assert "wallet_secret_reference_id" in _columns(engine, "connection_profiles")
 
 
 def test_a_version_1_sqlite_store_is_refused_with_what_to_do(engine: Engine) -> None:

@@ -101,6 +101,11 @@ class ConnectionProfile(Base):
     protocol: Mapped[str] = mapped_column(String(10), default="tcp")
     wallet_dir: Mapped[str] = mapped_column(String(500), default="")
     secret_reference_id: Mapped[str] = mapped_column(ForeignKey("secret_references.id"))
+    # Opens a wallet whose ewallet.pem holds an encrypted key, as an Autonomous Database
+    # wallet does. Thin mode cannot read such a wallet without it. No foreign key: the
+    # 4 -> 5 migration cannot add one to an existing SQLite table, and a new store
+    # should match an upgraded one. ExecutionService refuses a reference that is gone.
+    wallet_secret_reference_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
     # Free-form worksheets are opt-in per profile. Production profiles never get them.
     worksheets_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     mutating_runbooks_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
