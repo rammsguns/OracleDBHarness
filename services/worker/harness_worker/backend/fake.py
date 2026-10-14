@@ -116,8 +116,8 @@ CREATE TABLE IF NOT EXISTS order_lines (
 -- Dictionary stand-ins. Real Oracle views are read-only; these are seeded tables
 -- with the same column names so the reviewed diagnostic queries run unchanged.
 CREATE TABLE IF NOT EXISTS all_objects (
-    owner TEXT, object_name TEXT, object_type TEXT, status TEXT,
-    created TEXT, last_ddl_time TEXT
+    object_id INTEGER PRIMARY KEY, owner TEXT, object_name TEXT, subobject_name TEXT,
+    object_type TEXT, status TEXT, created TEXT, last_ddl_time TEXT
 );
 CREATE TABLE IF NOT EXISTS all_tab_columns (
     owner TEXT, table_name TEXT, column_name TEXT, data_type TEXT,
@@ -1140,12 +1140,29 @@ class FakeOracleConnection(OracleConnection):
     def _as_error(self, exc: sqlite3.Error) -> Exception:
         """Map a SQLite failure, treating a requested break as Oracle's ORA-01013 does."""
 
+        # SQLite rolls back the whole transaction when it interrupts a write inside one
+        # (and on some other errors); Oracle rolls back only the statement. Left stale,
+        # the flag said a transaction was open while every later write autocommitted, so a
+        # ROLLBACK the user asked for kept them (found by the 2026-10-14 capacity rehearsal).
+        lost = self._transaction_open and not self._conn.in_transaction
+        self._transaction_open = self._conn.in_transaction
         if self._cancel_requested.is_set() and "interrupted" in str(exc).lower():
             # Reported as the Oracle adapter reports ORA-01013. Left as an OracleError it
             # came back ``failed``, so work a user cancelled on the stand-in looked like SQL
             # the database had refused.
             from harness_worker.errors import CancelledError_
 
+            if lost:
+                return CancelledError_(
+                    "The statement was cancelled before it finished. The stand-in rolled "
+                    "back the whole transaction, including earlier uncommitted work; Oracle "
+                    "would roll back only the statement.",
+                    detail={
+                        "oracleCode": "ORA-01013",
+                        "statementStarted": True,
+                        "transactionRolledBack": True,
+                    },
+                )
             return CancelledError_(
                 "The statement was cancelled before it finished. Oracle rolled it back; "
                 "any earlier work in this transaction is still pending.",
@@ -1520,9 +1537,11 @@ class FakeOracleConnection(OracleConnection):
             self._hard_commit()
 
     def rollback(self) -> None:
-        if self._transaction_open:
+        # SQLite may already have rolled the transaction back itself (see _as_error).
+        still_open = self._transaction_open if self._closed else self._conn.in_transaction
+        if still_open:
             self._conn.execute("ROLLBACK")
-            self._transaction_open = False
+        self._transaction_open = False
 
     def cancel(self) -> bool:
         self._cancel_requested.set()

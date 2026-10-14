@@ -70,6 +70,8 @@ def evidence(oracle_config: qual_config.OracleTestConfig) -> Iterator[Evidence]:
         record.gap("Second target", qual_config.NO_SECOND_TARGET_REASON)
     if oracle_config.restricted is None:
         record.gap("Restricted account", qual_config.NO_RESTRICTED_ACCOUNT_REASON)
+    if oracle_config.lab is None:
+        record.gap("Lab workloads", qual_config.NO_LAB_SCHEMA_REASON)
     if oracle_config.driver_mode == "thin":
         record.gap("Thick mode", "This run is thin mode; thick needs a separate process.")
     try:

@@ -35,7 +35,7 @@ claim. Where something has not been tested, it says so.
 | Sign-in in a real browser | The console's sign-in code has run against Keycloak under Node, and the token endpoint's CORS answer has been checked. `tests/browser` now drives Chromium through the console's sign-in, callback, API access, sign-out and expiry: its fixture mode runs in the CI `identity` job against the Keycloak realm (first passed on pull request #16, CI run 34788083498: 24 checks passed, 2 observed), and a rehearsal against a local stand-in provider has passed. **No browser run against the pilot's registration, deployed origin or proxy has happened**, and a fixture run cannot stand in for one. See tests/identity/README.md, "Browser qualification". |
 | A real model provider | The Anthropic adapter is written against the current Messages API; no call has been made. |
 | OracleDataForge | Not integrated. See `integrations/dataforge/COMPATIBILITY.md`. |
-| Load | The pilot target is ten concurrent users across three databases. **Not measured.** The runner and runbook exist (`python -m tests.capacity`, docs/capacity.md) and have only rehearsed against the stand-in; the thresholds in the example workload are proposals nobody has agreed. |
+| Load | The pilot target is ten concurrent users across three databases. **Rehearsed, not qualified.** On 2026-10-14 `python -m tests.capacity` ran ten users against two local Oracle targets (D1 19.9 and D2 23.26 FREEPDB1), with the API, the load client and both databases on one workstation: every correctness check passed, with no errors under saturation. See "Capacity rehearsal, 2026-10-14 (T-5)" below. Three databases, a separate API host and agreed thresholds are still missing; the thresholds in the example workload are proposals nobody has agreed. |
 
 ## Why the stand-in is not evidence
 
@@ -263,6 +263,63 @@ update the connection-loss check uses.
 Still open after the 2026-10-14 runs: TCPS and wallets (R5, which needs Autonomous
 Database and has not been approved), `VECTOR` and `BOOLEAN` values, and everything
 listed under "Still open after the 2026-09-11 run".
+
+### Lab schemas, 2026-10-14 (T-5)
+
+`tests/qualification/test_lab_workloads.py` registers a lab schema as a development
+target through a read-only account (`HARNESS_LAB`: the diagnostics role, which carries
+`CREATE SESSION`, and `SELECT` on the lab owner's objects). It then walks every DBA panel, pages the
+schema browser, opens every browsable object, explains a join and opens a cached query's
+plan. It writes nothing. It ran on `SH` (D1, 102 objects, `SALES` close to a million
+rows over 28 partitions) and on `SALES_LAB` (D2, 19 objects).
+
+| Finding | Kind | Effect | Fix |
+| --- | --- | --- | --- |
+| Paging the schema browser over a partitioned table repeated some rows and dropped others | Harness defect | On `SH`, five pages of 25 returned 102 rows but only 48 distinct ones. `list_objects.sql` did not select `SUBOBJECT_NAME`, so every partition of a table looked identical. It also ordered by type and name only, which is not a total order, so Oracle was free to order the ties differently on each page. | `list_objects.sql` selects `SUBOBJECT_NAME` (as the last column, because the web UI reads the first three by position) and orders by type, name, subobject and `OBJECT_ID`. The stand-in carries both columns. `tests/integration/test_targets_and_access.py::test_paging_objects_lists_every_partition_exactly_once` pages 12 partitions in pages of 5; it fails without the fix |
+| The harness's own `EXPLAIN PLAN` statements show up in cursor search, and have no plan | Observation | A text filter on the schema name finds the explain the workbench just ran. Its detail shows an empty plan, as Oracle keeps no `V$SQL_PLAN` rows for `EXPLAIN PLAN` or for a child with a zero plan hash. | None in the harness. The test opens a query cursor that has a plan hash, and fails if that one comes back empty. Filtering the harness's own statements out of search is a possible improvement |
+
+Every panel answered inside the default deadline. Each page stayed within its limit,
+and nothing reported unavailable, because the probe found no capability missing for
+this account.
+
+| Schema | Calls | Total | Slowest |
+| --- | --- | --- | --- |
+| `SH` on 19.9 | 28 | 4.2 s | schemas 0.25 s, DBA overview 0.23 s, detail of `CAL_MONTH_SALES_MV` 0.20 s (0.74 s on a cold first run) |
+| `SALES_LAB` on 23.26 | 13 | 2.3 s | schemas 0.32 s, DBA overview 0.24 s, detail of `LLM_SALES_MONTHLY_REPORT` 0.23 s |
+
+### Capacity rehearsal, 2026-10-14 (T-5)
+
+`python -m tests.capacity` ran the example workload (10 users, seed 20260913: 20%
+metadata, 45% bounded reads, 28% transactions, 7% cancellations) on the stand-in and
+on Oracle. The Oracle run used two targets, D1 (19.9) and D2 (23.26, `FREEPDB1`), each
+with the marker table in `HARNESS_APP` only. The API ran in thin mode, with the SQLite
+metadata store and declared limits of 8 workers and 30 requests in flight. The API, the
+load client and the databases shared one workstation. The marker tables were dropped
+after the run. The full reports are in `databases/reports/2026-10-14-capacity-*.md`.
+
+| Steady phase, client p50 / p95 ms | Stand-in (`cap-d0b4053e1210`) | Oracle (`cap-cece4ec67213`) |
+| --- | --- | --- |
+| metadata | 15 / 43 | 404 / 509 |
+| boundedRead | 14 / 40 | 56 / 71 (database p95 44) |
+| transaction | 23 / 63 | 33 / 62 (database p95 2) |
+| cancellation | 164 / 176 | 168 / 174 |
+| Application overhead p95 (client minus database) | 49 | 53 |
+| Saturation error rate | 3.26% | 0.00% |
+| Recovery after saturation | 0 s | 0 s |
+| Commits / rollbacks / cross-user probes / contamination | 420 / 94 / 128 / 0 | 464 / 87 / 137 / 0 |
+
+On Oracle the overhead the harness adds is about the same as on the stand-in, close to
+50 ms at p95. Metadata panels are the slowest requests, at about 0.5 s p95. Under
+saturation (two streams per user, no think time), client p95 rose to about 1.4 s for
+metadata and about 0.8 s for the rest, and nothing failed. The rehearsal is SOUND.
+It is not a pilot qualification: it had two targets, not three, everything ran on one
+host, and the thresholds are proposed.
+
+| Finding | Kind | Effect | Fix |
+| --- | --- | --- | --- |
+| A rolled-back marker stayed visible on the stand-in (run `cap-2ba157bb8e52`) | Stand-in defect | SQLite rolls back the whole transaction when it interrupts a write. The stand-in kept the transaction flag set while later writes autocommitted, so a rollback the user asked for kept them. | `backend/fake.py` resyncs the flag from SQLite after an error, says so in the cancellation error (`transactionRolledBack`), and rolls back only what is still open. `tests/unit/test_fake_cancellation.py` pins it. The rerun found no contamination |
+| HTTP 500s and "database is locked" under saturation on the stand-in | Local limit | SQLite allows one writer, so the metadata store and the stand-in's data both lock under saturation (3 to 9% errors). The Oracle run, which still uses a SQLite metadata store, had none. | None. Production uses PostgreSQL. Answering a lock with a typed, retryable error instead of a 500 is a possible improvement |
+| The Oracle backend did not report database time (run `cap-ad908054428a`) | Harness defect | `database_elapsed_ms` was never set, so the overhead criterion read "not measured" on Oracle. | `backend/oracle.py` times the execute and the bounded fetch. `tests/unit/test_oracle_adapter.py::test_execution_reports_the_time_spent_in_the_database` pins it. The rerun measured 53 ms |
 
 ## Recording a run
 

@@ -83,6 +83,47 @@ def test_a_restricted_dsn_without_an_account_is_refused(
         oracle_config.load()
 
 
+# -- the lab account -------------------------------------------------------------------
+
+
+def test_the_lab_account_reads_the_named_lab_schema(
+    monkeypatch: pytest.MonkeyPatch, password_file: Path
+) -> None:
+    _primary(
+        monkeypatch,
+        password_file,
+        HARNESS_QUAL_LAB_USER="harness_lab",
+        HARNESS_QUAL_LAB_PASSWORD_FILE=str(password_file),
+        HARNESS_QUAL_LAB_SCHEMA="sh",
+    )
+    spec = oracle_config.load().lab_spec()
+    assert spec is not None
+    assert spec.dsn() == "dbhost:1521/ORCLPDB1"
+    assert spec.username == "harness_lab"
+    assert spec.default_schema == "SH"
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        ({"HARNESS_QUAL_LAB_DSN": "dbhost:1521/ORCLPDB1"}, "LAB_USER"),
+        ({"HARNESS_QUAL_LAB_USER": "harness_lab"}, "LAB_SCHEMA"),
+        (
+            {"HARNESS_QUAL_LAB_USER": "harness_lab", "HARNESS_QUAL_LAB_SCHEMA": "harness_app"},
+            "fixture schema",
+        ),
+    ],
+)
+def test_a_half_named_or_fixture_lab_schema_is_refused(
+    monkeypatch: pytest.MonkeyPatch, password_file: Path, extra: dict[str, str], message: str
+) -> None:
+    """The lab checks must never point at the schema the fixtures drop and recreate."""
+
+    _primary(monkeypatch, password_file, HARNESS_QUAL_LAB_PASSWORD_FILE=str(password_file), **extra)
+    with pytest.raises(oracle_config.ConfigurationProblem, match=message):
+        oracle_config.load()
+
+
 # -- required environments -------------------------------------------------------------
 
 
@@ -92,6 +133,7 @@ def test_a_restricted_dsn_without_an_account_is_refused(
         ("admin", "HARNESS_QUAL_ADMIN_DSN"),
         ("second_target", "HARNESS_QUAL_SECOND_DSN"),
         ("restricted_account", "HARNESS_QUAL_RESTRICTED_USER"),
+        ("lab_schema", "HARNESS_QUAL_LAB_USER"),
     ],
 )
 def test_a_required_environment_that_is_not_configured_fails_the_run(

@@ -296,6 +296,17 @@ def test_dml_opens_a_transaction_and_commit_closes_it(pair) -> None:
     assert connection.transaction_open is False
 
 
+def test_execution_reports_the_time_spent_in_the_database(pair, monkeypatch) -> None:
+    driver, connection = pair
+    ticks = iter([10.0, 10.25])
+    monkeypatch.setattr("harness_worker.backend.oracle.time.perf_counter", lambda: next(ticks))
+
+    result = run(connection, "UPDATE employees SET salary = 1", StatementKind.DML)
+
+    # Without it the capacity report cannot separate the harness's overhead from Oracle's.
+    assert result.database_elapsed_ms == 250
+
+
 def test_rollback_closes_the_transaction(pair) -> None:
     driver, connection = pair
     run(connection, "UPDATE employees SET salary = 1", StatementKind.DML)

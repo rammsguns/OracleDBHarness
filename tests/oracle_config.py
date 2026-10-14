@@ -66,12 +66,20 @@ ENV_RESTRICTED_DSN = f"{ENV_PREFIX}RESTRICTED_DSN"
 ENV_RESTRICTED_USER = f"{ENV_PREFIX}RESTRICTED_USER"
 ENV_RESTRICTED_PASSWORD_FILE = f"{ENV_PREFIX}RESTRICTED_PASSWORD_FILE"  # noqa: S105 - a path
 
+# A read-only account over a schema with realistic data (a lab schema such as SH), on the
+# primary database unless a DSN says otherwise. The fixtures never run there: the lab
+# checks only read, through the diagnostics role and object grants on the lab schema.
+ENV_LAB_DSN = f"{ENV_PREFIX}LAB_DSN"
+ENV_LAB_USER = f"{ENV_PREFIX}LAB_USER"
+ENV_LAB_PASSWORD_FILE = f"{ENV_PREFIX}LAB_PASSWORD_FILE"  # noqa: S105 - a path
+ENV_LAB_SCHEMA = f"{ENV_PREFIX}LAB_SCHEMA"
+
 # Environments a run is meant to qualify. Without this, a missing admin account, second
 # database, restricted account or PDB is a skip, which is right for a partial run and
 # wrong for the run that is supposed to close the gate: a skip is indistinguishable from a
 # pass in a summary line. Naming an area here turns its absence into a failure.
 ENV_REQUIRE = f"{ENV_PREFIX}REQUIRE"
-REQUIREMENTS = ("admin", "second_target", "restricted_account", "pdb")
+REQUIREMENTS = ("admin", "second_target", "restricted_account", "pdb", "lab_schema")
 
 SKIP_REASON = (
     f"No Oracle target is configured. Set {ENV_DSN} (and {ENV_USER}, "
@@ -102,6 +110,11 @@ NO_SECOND_TARGET_REASON = (
 NO_RESTRICTED_ACCOUNT_REASON = (
     f"{ENV_RESTRICTED_USER} is not set. Degraded panels need an account that is really "
     "missing grants; the full-grant fixture account has every capability."
+)
+
+NO_LAB_SCHEMA_REASON = (
+    f"{ENV_LAB_USER} is not set. The lab workload checks need a read-only account over a "
+    f"schema with realistic data, named by {ENV_LAB_SCHEMA}."
 )
 
 
@@ -185,6 +198,7 @@ class OracleTestConfig:
     wallet_dir: str | None
     report_path: Path | None
     restricted: Endpoint | None = None
+    lab: Endpoint | None = None
     required: frozenset[str] = frozenset()
 
     # -- convenience for the qualification suite, which only uses the primary ------
@@ -255,6 +269,11 @@ class OracleTestConfig:
             return None
         return self.spec_for(self.restricted, profile_id)
 
+    def lab_spec(self, profile_id: str = "qualification-lab") -> ConnectionSpec | None:
+        if self.lab is None:
+            return None
+        return self.spec_for(self.lab, profile_id)
+
     def requires(self, area: str) -> bool:
         return area in self.required
 
@@ -306,12 +325,14 @@ def load() -> OracleTestConfig:
 
     admin = _optional_endpoint(ENV_ADMIN_DSN, ENV_ADMIN_USER, ENV_ADMIN_PASSWORD_FILE, None)
     restricted = _restricted_endpoint(primary)
+    lab = _lab_endpoint(primary)
     required = _requirements()
 
     missing = {
         "admin": (admin, ENV_ADMIN_DSN),
         "second_target": (second, ENV_SECOND_DSN),
         "restricted_account": (restricted, ENV_RESTRICTED_USER),
+        "lab_schema": (lab, ENV_LAB_USER),
     }
     for area, (endpoint, variable) in missing.items():
         if area in required and endpoint is None:
@@ -332,6 +353,7 @@ def load() -> OracleTestConfig:
         wallet_dir=os.environ.get(ENV_WALLET_DIR, "").strip() or None,
         report_path=Path(report) if report else None,
         restricted=restricted,
+        lab=lab,
         required=required,
     )
 
@@ -390,6 +412,44 @@ def _restricted_endpoint(primary: Endpoint) -> Endpoint | None:
         username=username,
         password=_read_password(ENV_RESTRICTED_PASSWORD_FILE),
         schema=primary.schema,
+    )
+
+
+def _lab_endpoint(primary: Endpoint) -> Endpoint | None:
+    """The read-only lab account, on the primary database unless its own DSN is given.
+
+    Its schema is the lab schema it reads, never the fixture schema: the lab checks must
+    not touch the objects the fixtures drop and recreate, and the fixtures must never run
+    in a lab schema.
+    """
+
+    username = os.environ.get(ENV_LAB_USER, "").strip()
+    dsn = os.environ.get(ENV_LAB_DSN, "").strip()
+    if not username:
+        if dsn:
+            raise ConfigurationProblem(f"{ENV_LAB_DSN} is set but {ENV_LAB_USER} is not.")
+        return None
+    schema = os.environ.get(ENV_LAB_SCHEMA, "").strip().upper()
+    if not schema:
+        raise ConfigurationProblem(
+            f"{ENV_LAB_USER} is set but {ENV_LAB_SCHEMA} is not. Name the lab schema the "
+            "account reads; it is not the account's own."
+        )
+    if schema == DEMO_SCHEMA or schema == primary.schema:
+        raise ConfigurationProblem(
+            f"{ENV_LAB_SCHEMA} names the fixture schema ({schema}). The lab checks read a "
+            "schema with realistic data that the fixtures never touch."
+        )
+    host, port, service = (
+        _split_dsn(dsn, ENV_LAB_DSN) if dsn else (primary.host, primary.port, primary.service_name)
+    )
+    return Endpoint(
+        host=host,
+        port=port,
+        service_name=service,
+        username=username,
+        password=_read_password(ENV_LAB_PASSWORD_FILE),
+        schema=schema,
     )
 
 

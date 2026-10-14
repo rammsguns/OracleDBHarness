@@ -1,0 +1,625 @@
+{
+  "format": 1,
+  "caseSetVersion": "lab-2026-10-14.1",
+  "description": "T-5 lab inputs for K-7: explain prompts on real objects in the D1 (19c: HR, OE, CO, SH) and D2 (23.26: SALES_LAB) lab schemas, with known answers drawn read-only from the data dictionary on 2026-10-14. NOT the scored set: it does not change cases.json, its version or its denominator, and does not replace the paid-provider run or the DBA review K-7 needs. The runner's stand-in backend does not hold these objects, so these cases are for review and a later run against the lab targets only.",
+  "correctnessDenominator": 9,
+  "defaults": {},
+  "cases": [
+    {
+      "id": "LAB-SALES-01",
+      "category": "explain",
+      "gates": [
+        "correctness"
+      ],
+      "review": "dba",
+      "request": {
+        "action": "explain",
+        "userMessage": "A caller runs llm_sales_add_order with p_amount => 150000 as a single top-level call and gets an error. What happens, and is there a record of it afterwards?",
+        "targetReference": "lab:D2:SALES_LAB",
+        "databaseVersion": "23.26.0.0.0",
+        "schema": "SALES_LAB",
+        "attachments": [
+          {
+            "category": "selected_source",
+            "name": "LLM_SALES_ADD_ORDER",
+            "content": [
+              "procedure llm_sales_add_order(p_region_id number, p_customer varchar2, p_channel varchar2, p_amount number, p_order_json clob) as",
+              "  v_error varchar2(4000);",
+              "begin",
+              "  insert into llm_sales_orders values (llm_sales_order_seq.nextval, trunc(sysdate), p_region_id, p_customer, p_channel, p_amount, p_order_json);",
+              "exception when others then",
+              "  v_error := sqlerrm;",
+              "  insert into llm_sales_load_errors values (llm_sales_error_seq.nextval, 'LLM_SALES_ADD_ORDER', v_error, p_order_json, systimestamp); raise;",
+              "end;"
+            ],
+            "provenance": "D2 dictionary, read-only, 2026-10-14"
+          },
+          {
+            "category": "selected_source",
+            "name": "LLM_SALES_ORDER_AUDIT",
+            "content": [
+              "trigger llm_sales_order_audit before insert or update on llm_sales_orders for each row",
+              "begin if :new.amount > 100000 then raise_application_error(-20001, 'Training lab: order amount exceeds review threshold'); end if; end;"
+            ],
+            "provenance": "D2 dictionary, read-only, 2026-10-14"
+          },
+          {
+            "category": "selected_source",
+            "name": "TRG_REJECT_HIGH_VALUE_ORDER",
+            "content": [
+              "TRIGGER trg_reject_high_value_order",
+              "BEFORE INSERT ON LLM_SALES_ORDERS",
+              "FOR EACH ROW",
+              "DECLARE",
+              "    v_review_threshold NUMBER := 100000;",
+              "BEGIN",
+              "    IF :NEW.AMOUNT > v_review_threshold THEN",
+              "      RAISE_APPLICATION_ERROR(-20001, 'Order value exceeds review threshold.');",
+              "    END IF;",
+              "END;"
+            ],
+            "provenance": "D2 dictionary, read-only, 2026-10-14"
+          },
+          {
+            "category": "schema_metadata",
+            "name": "SALES_LAB.LLM_SALES_ORDERS",
+            "content": [
+              "Table SALES_LAB.LLM_SALES_ORDERS:",
+              "  ORDER_ID NUMBER NOT NULL, ORDER_DATE DATE NOT NULL, REGION_ID NUMBER NOT NULL,",
+              "  CUSTOMER_NAME VARCHAR2 NOT NULL, CHANNEL VARCHAR2 NOT NULL, AMOUNT NUMBER NOT NULL, ORDER_JSON CLOB",
+              "  Primary key LLM_SALES_ORDERS_PK (ORDER_ID, ORDER_DATE)",
+              "  Indexes: LLM_SALES_REGION_DATE_IX (REGION_ID, ORDER_DATE), LLM_SALES_CHANNEL_IX (CHANNEL)",
+              "Table SALES_LAB.LLM_SALES_LOAD_ERRORS: ERROR_ID NUMBER NOT NULL, SOURCE_NAME VARCHAR2, ERROR_MESSAGE VARCHAR2, PAYLOAD CLOB, LOGGED_AT TIMESTAMP(6)",
+              "Triggers on LLM_SALES_ORDERS (both ENABLED, no FOLLOWS/PRECEDES clause):",
+              "  LLM_SALES_ORDER_AUDIT        BEFORE EACH ROW, INSERT OR UPDATE",
+              "  TRG_REJECT_HIGH_VALUE_ORDER  BEFORE EACH ROW, INSERT"
+            ],
+            "provenance": "D2 dictionary, read-only, 2026-10-14"
+          }
+        ]
+      },
+      "permittedContext": [
+        "selected_source",
+        "schema_metadata",
+        "user_message"
+      ],
+      "expect": {
+        "outcome": "answer",
+        "proposal": "forbidden"
+      },
+      "expectedBehavior": "The insert is rejected by a BEFORE ROW trigger with ORA-20001. The handler writes a row to LLM_SALES_LOAD_ERRORS and re-raises; because the exception leaves the top-level call unhandled, Oracle rolls back the work of that call, including the error-log row, so nothing is recorded. Persisting the log needs an autonomous-transaction logger (or the caller must handle the error and commit). Which of the two trigger messages appears is not determined, because two BEFORE ROW triggers with the same timing have no FOLLOWS clause.",
+      "rubric": [
+        "Says a BEFORE ROW trigger rejects the insert with ORA-20001 before the row is stored.",
+        "Says the error-log insert is undone when the re-raised exception reaches the caller (same transaction, statement-level rollback of the call), so no LLM_SALES_LOAD_ERRORS row remains.",
+        "Names PRAGMA AUTONOMOUS_TRANSACTION in a separate logging routine, or the caller handling and committing, as the way to keep the log.",
+        "Notes that the two triggers duplicate the rule and their firing order (and so the message) is undefined without FOLLOWS; or at least does not claim a fixed message.",
+        "Does not claim to have run the procedure or queried the error table."
+      ]
+    },
+    {
+      "id": "LAB-SALES-02",
+      "category": "explain",
+      "gates": [
+        "correctness"
+      ],
+      "review": "dba",
+      "request": {
+        "action": "explain",
+        "userMessage": "Explain the two triggers on LLM_SALES_ORDERS. Is there anything I should clean up?",
+        "targetReference": "lab:D2:SALES_LAB",
+        "databaseVersion": "23.26.0.0.0",
+        "schema": "SALES_LAB",
+        "attachments": [
+          {
+            "category": "selected_source",
+            "name": "LLM_SALES_ORDER_AUDIT",
+            "content": [
+              "trigger llm_sales_order_audit before insert or update on llm_sales_orders for each row",
+              "begin if :new.amount > 100000 then raise_application_error(-20001, 'Training lab: order amount exceeds review threshold'); end if; end;"
+            ],
+            "provenance": "D2 dictionary, read-only, 2026-10-14"
+          },
+          {
+            "category": "selected_source",
+            "name": "TRG_REJECT_HIGH_VALUE_ORDER",
+            "content": [
+              "TRIGGER trg_reject_high_value_order",
+              "BEFORE INSERT ON LLM_SALES_ORDERS",
+              "FOR EACH ROW",
+              "DECLARE",
+              "    v_review_threshold NUMBER := 100000;",
+              "BEGIN",
+              "    IF :NEW.AMOUNT > v_review_threshold THEN",
+              "      RAISE_APPLICATION_ERROR(-20001, 'Order value exceeds review threshold.');",
+              "    END IF;",
+              "END;"
+            ],
+            "provenance": "D2 dictionary, read-only, 2026-10-14"
+          },
+          {
+            "category": "schema_metadata",
+            "name": "SALES_LAB.LLM_SALES_ORDERS",
+            "content": [
+              "Table SALES_LAB.LLM_SALES_ORDERS:",
+              "  ORDER_ID NUMBER NOT NULL, ORDER_DATE DATE NOT NULL, REGION_ID NUMBER NOT NULL,",
+              "  CUSTOMER_NAME VARCHAR2 NOT NULL, CHANNEL VARCHAR2 NOT NULL, AMOUNT NUMBER NOT NULL, ORDER_JSON CLOB",
+              "  Primary key LLM_SALES_ORDERS_PK (ORDER_ID, ORDER_DATE)",
+              "  Indexes: LLM_SALES_REGION_DATE_IX (REGION_ID, ORDER_DATE), LLM_SALES_CHANNEL_IX (CHANNEL)",
+              "Table SALES_LAB.LLM_SALES_LOAD_ERRORS: ERROR_ID NUMBER NOT NULL, SOURCE_NAME VARCHAR2, ERROR_MESSAGE VARCHAR2, PAYLOAD CLOB, LOGGED_AT TIMESTAMP(6)",
+              "Triggers on LLM_SALES_ORDERS (both ENABLED, no FOLLOWS/PRECEDES clause):",
+              "  LLM_SALES_ORDER_AUDIT        BEFORE EACH ROW, INSERT OR UPDATE",
+              "  TRG_REJECT_HIGH_VALUE_ORDER  BEFORE EACH ROW, INSERT"
+            ],
+            "provenance": "D2 dictionary, read-only, 2026-10-14"
+          }
+        ]
+      },
+      "permittedContext": [
+        "selected_source",
+        "schema_metadata",
+        "user_message"
+      ],
+      "expect": {
+        "outcome": "answer",
+        "proposal": "forbidden"
+      },
+      "expectedBehavior": "Both triggers enforce the same 100000 limit with the same error code, ORA-20001, but different messages. LLM_SALES_ORDER_AUDIT also covers UPDATE, so TRG_REJECT_HIGH_VALUE_ORDER is redundant for inserts. The threshold is hard-coded twice, the firing order is undefined, and the name 'audit' is misleading because it audits nothing. Suggests keeping one trigger (or a check constraint, amount <= 100000) with the threshold in one place.",
+      "rubric": [
+        "Identifies that both triggers enforce the same amount > 100000 rule with -20001.",
+        "Notes that only LLM_SALES_ORDER_AUDIT covers UPDATE, so the other is redundant.",
+        "Mentions undefined firing order between same-timing triggers, or the two different messages a user may see.",
+        "Suggests consolidating (one trigger or a CHECK constraint) with a single threshold, and does not present an edit as applied."
+      ]
+    },
+    {
+      "id": "LAB-SALES-03",
+      "category": "explain",
+      "gates": [
+        "correctness"
+      ],
+      "review": "dba",
+      "request": {
+        "action": "explain",
+        "userMessage": "What does llm_sales_region_total return for a region id that doesn't exist?",
+        "targetReference": "lab:D2:SALES_LAB",
+        "databaseVersion": "23.26.0.0.0",
+        "schema": "SALES_LAB",
+        "attachments": [
+          {
+            "category": "selected_source",
+            "name": "LLM_SALES_REGION_TOTAL",
+            "content": [
+              "function llm_sales_region_total(p_region_id number) return number as v_total number;",
+              "begin select nvl(sum(amount),0) into v_total from llm_sales_orders where region_id=p_region_id; return v_total; end;"
+            ],
+            "provenance": "D2 dictionary, read-only, 2026-10-14"
+          },
+          {
+            "category": "schema_metadata",
+            "name": "SALES_LAB.LLM_SALES_ORDERS",
+            "content": [
+              "Table SALES_LAB.LLM_SALES_ORDERS:",
+              "  ORDER_ID NUMBER NOT NULL, ORDER_DATE DATE NOT NULL, REGION_ID NUMBER NOT NULL,",
+              "  CUSTOMER_NAME VARCHAR2 NOT NULL, CHANNEL VARCHAR2 NOT NULL, AMOUNT NUMBER NOT NULL, ORDER_JSON CLOB",
+              "  Primary key LLM_SALES_ORDERS_PK (ORDER_ID, ORDER_DATE)",
+              "  Indexes: LLM_SALES_REGION_DATE_IX (REGION_ID, ORDER_DATE), LLM_SALES_CHANNEL_IX (CHANNEL)",
+              "Table SALES_LAB.LLM_SALES_LOAD_ERRORS: ERROR_ID NUMBER NOT NULL, SOURCE_NAME VARCHAR2, ERROR_MESSAGE VARCHAR2, PAYLOAD CLOB, LOGGED_AT TIMESTAMP(6)",
+              "Triggers on LLM_SALES_ORDERS (both ENABLED, no FOLLOWS/PRECEDES clause):",
+              "  LLM_SALES_ORDER_AUDIT        BEFORE EACH ROW, INSERT OR UPDATE",
+              "  TRG_REJECT_HIGH_VALUE_ORDER  BEFORE EACH ROW, INSERT"
+            ],
+            "provenance": "D2 dictionary, read-only, 2026-10-14"
+          }
+        ]
+      },
+      "permittedContext": [
+        "selected_source",
+        "schema_metadata",
+        "user_message"
+      ],
+      "expect": {
+        "outcome": "answer",
+        "proposal": "forbidden"
+      },
+      "expectedBehavior": "It returns 0. An aggregate without GROUP BY always returns exactly one row, so there is no NO_DATA_FOUND; SUM over no rows is NULL and NVL turns it into 0. A missing region and a region with no orders are therefore indistinguishable, and a NULL p_region_id also returns 0. To tell them apart, check LLM_SALES_REGIONS. The REGION_ID, ORDER_DATE index supports the lookup.",
+      "rubric": [
+        "Says it returns 0, not NO_DATA_FOUND, because an aggregate query always returns one row.",
+        "Points out that an unknown region, a region without orders and a NULL argument all give 0.",
+        "Suggests checking the region exists (LLM_SALES_REGIONS) if the distinction matters.",
+        "Does not invent a missing-index problem: the metadata shows an index leading on REGION_ID."
+      ]
+    },
+    {
+      "id": "LAB-SALES-04",
+      "category": "explain",
+      "gates": [
+        "correctness"
+      ],
+      "review": "dba",
+      "request": {
+        "action": "explain",
+        "userMessage": "Sales were entered this morning but LLM_SALES_REGION_MV still shows yesterday's revenue. Why?",
+        "targetReference": "lab:D2:SALES_LAB",
+        "databaseVersion": "23.26.0.0.0",
+        "schema": "SALES_LAB",
+        "attachments": [
+          {
+            "category": "selected_source",
+            "name": "LLM_SALES_REGION_MV",
+            "content": [
+              "select r.region_name, count(o.order_id) order_count, nvl(sum(o.amount),0) revenue",
+              "from llm_sales_regions r left join llm_sales_orders o on o.region_id=r.region_id",
+              " group by r.region_name"
+            ],
+            "provenance": "D2 dictionary, read-only, 2026-10-14"
+          },
+          {
+            "category": "schema_metadata",
+            "name": "SALES_LAB.LLM_SALES_REGION_MV",
+            "content": [
+              "Materialized view SALES_LAB.LLM_SALES_REGION_MV: REFRESH COMPLETE ON DEMAND",
+              "No materialized view logs exist on LLM_SALES_ORDERS or LLM_SALES_REGIONS."
+            ],
+            "provenance": "D2 dictionary, read-only, 2026-10-14"
+          }
+        ]
+      },
+      "permittedContext": [
+        "selected_source",
+        "schema_metadata",
+        "user_message"
+      ],
+      "expect": {
+        "outcome": "answer",
+        "proposal": "forbidden"
+      },
+      "expectedBehavior": "The MV is REFRESH COMPLETE ON DEMAND, so it changes only when someone refreshes it (DBMS_MVIEW.REFRESH or a scheduled job); new orders make it stale until then. It cannot be ON COMMIT or fast-refreshed as it stands, because there are no MV logs. Options: schedule a complete refresh, or add MV logs and make it fast-refreshable. Regions without orders appear with 0 because of the LEFT JOIN.",
+      "rubric": [
+        "Explains that ON DEMAND means no automatic refresh, so the MV is stale until refreshed.",
+        "Names DBMS_MVIEW.REFRESH (or a scheduled refresh) as the remedy.",
+        "Notes that fast or ON COMMIT refresh would need materialized view logs, which do not exist.",
+        "Does not claim to have refreshed the MV or checked its staleness."
+      ]
+    },
+    {
+      "id": "LAB-HR-01",
+      "category": "explain",
+      "gates": [
+        "correctness"
+      ],
+      "review": "dba",
+      "request": {
+        "action": "explain",
+        "userMessage": "Why did the second job change for employee 101 fail with ORA-00001 on JOB_HISTORY?",
+        "targetReference": "lab:D1:HR",
+        "databaseVersion": "19.9.0.0.0",
+        "schema": "HR",
+        "attachments": [
+          {
+            "category": "selected_source",
+            "name": "UPDATE_JOB_HISTORY",
+            "content": [
+              "TRIGGER update_job_history",
+              "  AFTER UPDATE OF job_id, department_id ON employees",
+              "  FOR EACH ROW",
+              "BEGIN",
+              "  add_job_history(:old.employee_id, :old.hire_date, sysdate,",
+              "                  :old.job_id, :old.department_id);",
+              "END;"
+            ],
+            "provenance": "D1 dictionary, read-only, 2026-10-14"
+          },
+          {
+            "category": "selected_source",
+            "name": "ADD_JOB_HISTORY",
+            "content": [
+              "PROCEDURE add_job_history",
+              "  (  p_emp_id          job_history.employee_id%type",
+              "   , p_start_date      job_history.start_date%type",
+              "   , p_end_date        job_history.end_date%type",
+              "   , p_job_id          job_history.job_id%type",
+              "   , p_department_id   job_history.department_id%type",
+              "   )",
+              "IS",
+              "BEGIN",
+              "  INSERT INTO job_history (employee_id, start_date, end_date,",
+              "                           job_id, department_id)",
+              "    VALUES(p_emp_id, p_start_date, p_end_date, p_job_id, p_department_id);",
+              "END add_job_history;"
+            ],
+            "provenance": "D1 dictionary, read-only, 2026-10-14"
+          },
+          {
+            "category": "schema_metadata",
+            "name": "HR.JOB_HISTORY",
+            "content": [
+              "Table HR.JOB_HISTORY constraints:",
+              "  JHIST_EMP_ID_ST_DATE_PK PRIMARY KEY (EMPLOYEE_ID, START_DATE)",
+              "  JHIST_DATE_INTERVAL CHECK (end_date > start_date)",
+              "  NOT NULL: EMPLOYEE_ID, START_DATE, END_DATE, JOB_ID"
+            ],
+            "provenance": "D1 dictionary, read-only, 2026-10-14"
+          }
+        ]
+      },
+      "permittedContext": [
+        "selected_source",
+        "schema_metadata",
+        "user_message"
+      ],
+      "expect": {
+        "outcome": "answer",
+        "proposal": "forbidden"
+      },
+      "expectedBehavior": "The trigger always records :old.hire_date as the start of the job being closed. The second change for the same employee inserts the same (EMPLOYEE_ID, START_DATE) pair again, which violates JHIST_EMP_ID_ST_DATE_PK. The start date should be the end of the previous job-history row (or the date the current job began), not the hire date. Because the trigger fires inside the UPDATE, the failure rolls back the employee update as well.",
+      "rubric": [
+        "Identifies :old.hire_date being reused as START_DATE as the cause.",
+        "Connects it to the primary key on (EMPLOYEE_ID, START_DATE).",
+        "Says the start date should come from the previous history row's end date (or the current job's start), not the hire date.",
+        "Notes that the employee UPDATE fails too, since the trigger error aborts the statement.",
+        "Does not claim to have queried JOB_HISTORY for employee 101."
+      ]
+    },
+    {
+      "id": "LAB-HR-02",
+      "category": "explain",
+      "gates": [
+        "correctness"
+      ],
+      "review": "dba",
+      "request": {
+        "action": "explain",
+        "userMessage": "Explain how SECURE_EMPLOYEES restricts changes to EMPLOYEES. Is it doing its job?",
+        "targetReference": "lab:D1:HR",
+        "databaseVersion": "19.9.0.0.0",
+        "schema": "HR",
+        "attachments": [
+          {
+            "category": "selected_source",
+            "name": "SECURE_EMPLOYEES",
+            "content": [
+              "TRIGGER secure_employees",
+              "  BEFORE INSERT OR UPDATE OR DELETE ON employees",
+              "BEGIN",
+              "  secure_dml;",
+              "END secure_employees;"
+            ],
+            "provenance": "D1 dictionary, read-only, 2026-10-14"
+          },
+          {
+            "category": "selected_source",
+            "name": "SECURE_DML",
+            "content": [
+              "PROCEDURE secure_dml",
+              "IS",
+              "BEGIN",
+              "  IF TO_CHAR (SYSDATE, 'HH24:MI') NOT BETWEEN '08:00' AND '18:00'",
+              "        OR TO_CHAR (SYSDATE, 'DY') IN ('SAT', 'SUN') THEN",
+              "        RAISE_APPLICATION_ERROR (-20205,",
+              "                'You may only make changes during normal office hours');",
+              "  END IF;",
+              "END secure_dml;"
+            ],
+            "provenance": "D1 dictionary, read-only, 2026-10-14"
+          },
+          {
+            "category": "schema_metadata",
+            "name": "HR.SECURE_EMPLOYEES",
+            "content": [
+              "Trigger HR.SECURE_EMPLOYEES: BEFORE STATEMENT, INSERT OR UPDATE OR DELETE ON EMPLOYEES, status DISABLED"
+            ],
+            "provenance": "D1 dictionary, read-only, 2026-10-14"
+          }
+        ]
+      },
+      "permittedContext": [
+        "selected_source",
+        "schema_metadata",
+        "user_message"
+      ],
+      "expect": {
+        "outcome": "answer",
+        "proposal": "forbidden"
+      },
+      "expectedBehavior": "A statement-level trigger calls SECURE_DML, which raises ORA-20205 outside 08:00-18:00 or at weekends. The trigger is DISABLED, so no restriction applies today. Even when enabled, SYSDATE is the database server's clock and time zone, not the user's; 'DY' depends on NLS_DATE_LANGUAGE, so the weekend check fails silently in a non-English session; the string BETWEEN lets 18:00-18:00:59 through; and it applies to everyone, including batch jobs.",
+      "rubric": [
+        "Explains the statement-level trigger calling SECURE_DML and the -20205 error.",
+        "Points out the trigger is DISABLED, so it currently restricts nothing.",
+        "Mentions at least one of: server time zone of SYSDATE, NLS-dependent 'DY' (use 'DY','NLS_DATE_LANGUAGE=ENGLISH'), or the inclusive 18:00 minute.",
+        "Does not claim to have enabled the trigger or checked the session settings."
+      ]
+    },
+    {
+      "id": "LAB-OE-01",
+      "category": "explain",
+      "gates": [
+        "correctness"
+      ],
+      "review": "dba",
+      "request": {
+        "action": "explain",
+        "userMessage": "Explain get_phone_number_f. When does it fail instead of returning NULL?",
+        "targetReference": "lab:D1:OE",
+        "databaseVersion": "19.9.0.0.0",
+        "schema": "OE",
+        "attachments": [
+          {
+            "category": "selected_source",
+            "name": "GET_PHONE_NUMBER_F",
+            "content": [
+              "FUNCTION get_phone_number_f",
+              "  (p_in INTEGER, p_phonelist phone_list_typ)",
+              "RETURN VARCHAR2 AS",
+              "  TYPE phone_list IS VARRAY(5) OF VARCHAR2(25);",
+              "  phone_out varchar2(25) := null;",
+              "  v_size INTEGER;",
+              "BEGIN",
+              "    IF p_phonelist.FIRST IS NULL OR",
+              "        p_in > (p_phonelist.LAST + 1) - p_phonelist.FIRST THEN",
+              "        RETURN phone_out;",
+              "    ELSE",
+              "        phone_out := p_phonelist(p_in);",
+              "        RETURN phone_out;",
+              "    END IF;",
+              "END;"
+            ],
+            "provenance": "D1 dictionary, read-only, 2026-10-14"
+          },
+          {
+            "category": "schema_metadata",
+            "name": "OE.PHONE_LIST_TYP",
+            "content": [
+              "TYPE phone_list_typ AS VARRAY(5) OF VARCHAR2(25);"
+            ],
+            "provenance": "D1 dictionary, read-only, 2026-10-14"
+          }
+        ]
+      },
+      "permittedContext": [
+        "selected_source",
+        "schema_metadata",
+        "user_message"
+      ],
+      "expect": {
+        "outcome": "answer",
+        "proposal": "forbidden"
+      },
+      "expectedBehavior": "It returns the p_in-th phone number, or NULL for an empty list or an index past the end. It does not guard the lower bound: p_in of 0 or a negative number raises ORA-06532 (subscript outside of limit). A NULL collection (not just an empty one) raises ORA-06531 when FIRST is read. A NULL p_in falls through to p_phonelist(NULL), which raises an error rather than returning NULL. The local TYPE phone_list and v_size are unused.",
+      "rubric": [
+        "Explains the normal path: returns element p_in, NULL when the list is empty or p_in is beyond the end.",
+        "Identifies p_in <= 0 as raising a subscript error (ORA-06532) instead of returning NULL.",
+        "Mentions at least one of: an atomically NULL collection (ORA-06531) or a NULL p_in.",
+        "Notes the unused local type or variable, or at least does not claim they are used."
+      ]
+    },
+    {
+      "id": "LAB-CO-01",
+      "category": "explain",
+      "gates": [
+        "correctness"
+      ],
+      "review": "dba",
+      "request": {
+        "action": "explain",
+        "userMessage": "Three views in CO show as INVALID but USER_ERRORS has nothing for them. Are they broken?",
+        "targetReference": "lab:D1:CO",
+        "databaseVersion": "19.9.0.0.0",
+        "schema": "CO",
+        "attachments": [
+          {
+            "category": "schema_metadata",
+            "name": "CO invalid views",
+            "content": [
+              "Objects in schema CO (dictionary, 2026-10-14):",
+              "  VIEW  CUSTOMER_ORDER_PRODUCTS  INVALID  created 2026-09-11 18:13:08  last DDL 18:13:08",
+              "  VIEW  PRODUCT_ORDERS           INVALID  created 2026-09-11 18:13:08  last DDL 18:13:08",
+              "  VIEW  STORE_ORDERS             INVALID  created 2026-09-11 18:13:08  last DDL 18:13:08",
+              "  VIEW  PRODUCT_REVIEWS          VALID    created 2026-09-11 18:13:08",
+              "  TABLE CUSTOMERS, STORES, PRODUCTS, ORDERS  VALID  last DDL 2026-09-11 18:13:12",
+              "  TABLE ORDER_ITEMS              VALID    last DDL 18:13:08",
+              "USER_ERRORS: no rows for any CO view.",
+              "Dependencies (DBA_DEPENDENCIES):",
+              "  CUSTOMER_ORDER_PRODUCTS -> CUSTOMERS, ORDERS, ORDER_ITEMS, PRODUCTS",
+              "  PRODUCT_ORDERS          -> CUSTOMERS, ORDERS, ORDER_ITEMS, PRODUCTS",
+              "  STORE_ORDERS            -> ORDERS, ORDER_ITEMS, STORES",
+              "  PRODUCT_REVIEWS         -> PRODUCTS"
+            ],
+            "provenance": "D1 dictionary, read-only, 2026-10-14"
+          },
+          {
+            "category": "selected_source",
+            "name": "PRODUCT_ORDERS",
+            "content": [
+              "select p.product_name, o.order_status,",
+              "       sum ( oi.quantity * oi.unit_price ) total_sales,",
+              "       count (*) order_count",
+              "  from   orders o",
+              "  join   order_items oi",
+              "  on     o.order_id = oi.order_id",
+              "  join   customers c",
+              "  on     o.customer_id = c.customer_id",
+              "  join   products p",
+              "  on     oi.product_id = p.product_id",
+              "  group  by p.product_name, o.order_status"
+            ],
+            "provenance": "D1 dictionary, read-only, 2026-10-14"
+          }
+        ]
+      },
+      "permittedContext": [
+        "selected_source",
+        "schema_metadata",
+        "user_message"
+      ],
+      "expect": {
+        "outcome": "answer",
+        "proposal": "forbidden"
+      },
+      "expectedBehavior": "Probably not broken. The base tables had DDL (constraints or indexes) at 18:13:12, after the views were created at 18:13:08, which invalidated the dependent views. No compilation was attempted, so there are no errors. Oracle recompiles an invalid view automatically on first use; ALTER VIEW ... COMPILE or UTL_RECOMP does it explicitly. If a recompile then fails, USER_ERRORS will show why. PRODUCT_REVIEWS is VALID, which most likely means it has been used or compiled since.",
+      "rubric": [
+        "Explains INVALID with no errors as invalidation by DDL on referenced tables, not a compile failure.",
+        "Uses the timestamps (table DDL after view creation) as the evidence.",
+        "Says the views recompile on next use, or with ALTER VIEW ... COMPILE / UTL_RECOMP, and errors appear only if that fails.",
+        "Does not claim to have recompiled or queried the views."
+      ]
+    },
+    {
+      "id": "LAB-SH-01",
+      "category": "explain",
+      "gates": [
+        "correctness"
+      ],
+      "review": "dba",
+      "request": {
+        "action": "explain",
+        "userMessage": "My query summing SALES.AMOUNT_SOLD by TIMES.CALENDAR_MONTH_DESC doesn't use CAL_MONTH_SALES_MV, although query rewrite is on. Why?",
+        "targetReference": "lab:D1:SH",
+        "databaseVersion": "19.9.0.0.0",
+        "schema": "SH",
+        "attachments": [
+          {
+            "category": "selected_source",
+            "name": "CAL_MONTH_SALES_MV",
+            "content": [
+              "SELECT   t.calendar_month_desc",
+              "  ,        sum(s.amount_sold) AS dollars",
+              "  FROM     sales s",
+              "  ,        times t",
+              "  WHERE    s.time_id = t.time_id",
+              "  GROUP BY t.calendar_month_desc"
+            ],
+            "provenance": "D1 dictionary, read-only, 2026-10-14"
+          },
+          {
+            "category": "schema_metadata",
+            "name": "SH.CAL_MONTH_SALES_MV",
+            "content": [
+              "Materialized view SH.CAL_MONTH_SALES_MV:",
+              "  REFRESH FORCE ON DEMAND, REWRITE_ENABLED = Y, COMPILE_STATE = VALID",
+              "  STALENESS = UNKNOWN, UNKNOWN_PREBUILT = Y, last refresh 2026-09-11",
+              "No materialized view logs in SH.",
+              "Instance parameters: query_rewrite_enabled = TRUE, query_rewrite_integrity = enforced"
+            ],
+            "provenance": "D1 dictionary, read-only, 2026-10-14"
+          }
+        ]
+      },
+      "permittedContext": [
+        "selected_source",
+        "schema_metadata",
+        "user_message"
+      ],
+      "expect": {
+        "outcome": "answer",
+        "proposal": "forbidden"
+      },
+      "expectedBehavior": "The MV is built on a prebuilt table, so Oracle cannot vouch for its contents and staleness is UNKNOWN. With query_rewrite_integrity = ENFORCED, the optimizer rewrites only to MVs it knows are fresh, so this one is never used. Setting the integrity to TRUSTED (or STALE_TOLERATED) at session level allows the rewrite, at the cost of trusting the data; a complete refresh does not change the prebuilt flag. DBMS_MVIEW.EXPLAIN_REWRITE shows the reason. Without MV logs, FORCE refresh will be complete.",
+      "rubric": [
+        "Identifies the prebuilt table / UNKNOWN staleness as the reason under ENFORCED integrity.",
+        "Names query_rewrite_integrity = TRUSTED or STALE_TOLERATED as the way to allow it, with the trade-off.",
+        "Suggests DBMS_MVIEW.EXPLAIN_REWRITE (or an execution plan) to confirm.",
+        "Does not blame the query text or claim the MV is stale in data terms, and does not claim to have run anything."
+      ]
+    }
+  ]
+}

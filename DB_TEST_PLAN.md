@@ -1,7 +1,7 @@
 # Testing against real databases
 
-Status: drafted 2026-10-14. T-0 to T-4 done 2026-10-14 (R1 to R4 green); T-5 and T-6
-open; R5 awaits approval. Owner: the harness maintainers.
+Status: drafted 2026-10-14. T-0 to T-5 done 2026-10-14 (R1 to R4 green); T-6 open;
+R5 awaits approval. Owner: the harness maintainers.
 
 The harness has been qualified against exactly one database: a 19c EE 19.9 non-CDB, in
 thin mode, on 2026-09-11 (see `docs/compatibility.md`). The checks for a PDB, a
@@ -142,3 +142,30 @@ Progress, 2026-10-14: R1 to R4 pass with their require sets and are recorded (T-
 They found one already-fixed fixture defect (PR #20), one provisioning gap (the K-4
 grants, now in T-0) and two test defects (fixed in the tests themselves). No harness
 defect.
+
+T-5 lab workloads, 2026-10-14: `SH` (D1) and `SALES_LAB` (D2) pass through read-only
+accounts. They found the first harness defect of this plan: paging the object list
+repeated partitions and skipped objects (48 distinct of 102 on `SH`), because the order
+did not tell a table's partitions apart. Fixed in `list_objects.sql`, pinned by an
+integration test on the stand-in.
+
+T-5 capacity, 2026-10-14: the rehearsal is SOUND on Oracle. Ten users ran on D1 and D2,
+with the markers in `HARNESS_APP`, now dropped. There were no errors under saturation
+and no contamination, and the steady overhead p95 was 53 ms against the stand-in's 49 ms.
+It found two defects, both fixed with a unit test. The stand-in kept a stale transaction
+flag after SQLite rolled back a transaction it had interrupted, and the Oracle backend
+never reported database time. It also recorded one local limit: SQLite locks under
+saturation, which only affects the stand-in. Recorded in `docs/compatibility.md`.
+
+T-5 Kiwi inputs, 2026-10-14: nine explain cases in `tests/copilot/eval/lab_cases.json`,
+on real objects read from the dictionary only (no lab object was executed, recompiled or
+queried). `SALES_LAB` (D2): an error log written in the same transaction as the failing
+insert, so the re-raise rolls it back; two triggers enforcing one threshold with an
+undefined firing order; a NVL(SUM) that cannot tell an unknown region from an empty one;
+an ON DEMAND MV with no logs. D1: `HR`'s job-history trigger reusing the hire date as a
+primary-key start date, and its disabled, NLS-dependent office-hours check; an unguarded
+lower bound in `OE.GET_PHONE_NUMBER_F`; three `CO` views invalidated by later table DDL
+(no errors, no defect); and `SH` prebuilt MVs that ENFORCED rewrite integrity never uses.
+The file is a separate `lab-*` case set and leaves the scored set, its version and its
+denominator unchanged. K-7 still needs the paid-provider run and the DBA review.
+

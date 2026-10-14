@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+import time
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -318,10 +319,16 @@ class OracleDbConnection(OracleConnection):
                 cur.arraysize = min(limits.max_rows, 500)
                 cur.prefetchrows = cur.arraysize + 1
                 cur.outputtypehandler = _output_type_handler
+                # Database time is the statement's own round trips: the execute and
+                # the bounded fetch. The capacity report subtracts it from the client's
+                # latency to find what the harness itself adds.
+                started = time.perf_counter()
                 cur.execute(statement, binds or {})
                 result = StatementResult(statement_kind=kind)
                 if cur.description:
                     result.result_set = self._fetch_bounded(cur, limits)
+                result.database_elapsed_ms = int((time.perf_counter() - started) * 1000)
+                if result.result_set is not None:
                     lost_offsets = _columns_without_offsets(result.result_set)
                     if lost_offsets:
                         result.warnings.append(_TIME_ZONE_WARNING.format(", ".join(lost_offsets)))

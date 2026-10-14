@@ -75,3 +75,47 @@ def test_an_interruption_nobody_asked_for_is_still_an_error(tmp_path: Path) -> N
             "SELECT * FROM no_such_table", {}, StatementKind.QUERY, ExecutionLimits()
         )
     connection.close()
+
+
+def test_a_write_after_a_cancelled_write_still_rolls_back(tmp_path: Path) -> None:
+    """SQLite drops the whole transaction when it interrupts a write; Oracle does not.
+
+    The stand-in kept saying a transaction was open, so the next write autocommitted and a
+    ROLLBACK the user asked for kept it. The 2026-10-14 capacity rehearsal found a
+    rolled-back marker row in the table this way.
+    """
+
+    backend = FakeOracleBackend(tmp_path)
+    connection = backend.connect(
+        ConnectionSpec(
+            profile_id="p", host="localhost", port=1521, service_name="LOST", username="u"
+        )
+    )
+    limits = ExecutionLimits()
+    connection.execute("CREATE TABLE markers (id NUMBER)", {}, StatementKind.DDL, limits)
+    connection.execute("INSERT INTO markers VALUES (1)", {}, StatementKind.DML, limits)
+    raised: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            connection.execute("INSERT INTO markers " + ENDLESS, {}, StatementKind.DML, limits)
+        except BaseException as exc:  # noqa: BLE001 - the raised type is the assertion
+            raised.append(exc)
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    time.sleep(0.3)
+    connection.cancel()
+    worker.join(10)
+    assert not worker.is_alive(), "the interrupted write did not stop"
+    assert raised and isinstance(raised[0], CancelledError_), raised
+    # The stand-in cannot keep the earlier insert, and must say so rather than claim it.
+    assert raised[0].detail.get("transactionRolledBack") is True
+    assert connection.transaction_open is False
+
+    connection.execute("INSERT INTO markers VALUES (2)", {}, StatementKind.DML, limits)
+    assert connection.transaction_open is True
+    connection.rollback()
+    assert connection.transaction_open is False
+    result = connection.execute("SELECT COUNT(*) FROM markers", {}, StatementKind.QUERY, limits)
+    assert result.result_set is not None and result.result_set.rows == [[0]]
