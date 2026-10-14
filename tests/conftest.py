@@ -8,8 +8,8 @@ Configure an Oracle target (``tests/oracle_config.py``) and these same suites ru
 against it instead: the ``settings`` fixture switches the backend, the demonstration
 seed is pointed at the real endpoints, and the fixture schema is built from the
 reviewed DDL in ``oracle/qualification/``. Tests that can only work against the
-stand-in — the ones that inject a fault into it, or monkeypatch its class — are
-marked ``stand_in_only`` and skip.
+stand-in — the ones that inject a fault into it, monkeypatch its class, or read
+objects only it seeds — are marked ``stand_in_only`` and skip.
 """
 
 from __future__ import annotations
@@ -39,9 +39,9 @@ from tests.oracle_fixtures import (
 
 MARKERS = [
     (
-        "stand_in_only: cannot run against Oracle. Either it injects a fault the "
-        "stand-in exposes for the purpose, or it patches the stand-in's class. The "
-        "Oracle equivalent lives in tests/qualification."
+        "stand_in_only: cannot run against Oracle. It injects a fault the stand-in "
+        "exposes for the purpose, patches the stand-in's class, or reads objects only "
+        "the stand-in seeds. The Oracle equivalent lives in tests/qualification."
     ),
     ("needs_second_target: needs two genuinely separate databases (HARNESS_QUAL_SECOND_DSN)."),
     (
@@ -73,9 +73,9 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     have_second = (not on_oracle) or oracle_config.has_second_target()
 
     stand_in = pytest.mark.skip(
-        reason="Marked stand_in_only: it injects a fault into the stand-in or patches "
-        "its class, so it cannot run against Oracle. The Oracle equivalent is in "
-        "tests/qualification."
+        reason="Marked stand_in_only: it injects a fault into the stand-in, patches "
+        "its class, or reads objects only the stand-in seeds, so it cannot run against "
+        "Oracle. The Oracle equivalent is in tests/qualification."
     )
     no_second = pytest.mark.skip(reason=oracle_config.NO_SECOND_TARGET_REASON)
     no_oracle = pytest.mark.skip(reason=f"Marked oracle_only. {oracle_config.SKIP_REASON}")

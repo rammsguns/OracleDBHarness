@@ -14,6 +14,10 @@ from harness_api.models import ConnectionProfile, TargetCapability
 from tests.conftest import execute, open_worksheet
 
 
+def where(identity: dict) -> tuple:
+    return identity["databaseName"], identity["hostName"], identity["containerName"]
+
+
 @pytest.mark.needs_second_target
 def test_two_targets_do_not_mix_identity_or_state(client: TestClient, developer, targets) -> None:
     development = targets["development"]["id"]
@@ -21,7 +25,9 @@ def test_two_targets_do_not_mix_identity_or_state(client: TestClient, developer,
 
     dev_identity = client.post(f"/api/v1/targets/{development}/test", headers=developer).json()
     test_identity = client.post(f"/api/v1/targets/{test_target}/test", headers=developer).json()
-    assert dev_identity["identity"]["databaseName"] != test_identity["identity"]["databaseName"]
+    # Two databases can share a name (D1 and D4 are both ORCL), so compare where each
+    # one runs as well as what it is called.
+    assert where(dev_identity["identity"]) != where(test_identity["identity"])
 
     dev_session = open_worksheet(client, developer, development)
     test_session = open_worksheet(client, developer, test_target)

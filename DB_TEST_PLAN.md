@@ -1,6 +1,6 @@
 # Testing against real databases
 
-Status: drafted 2026-10-14. T-0 to T-6 done 2026-10-14 (R1 to R4 green); R5 awaits
+Status: drafted 2026-10-14. T-0 to T-6 done 2026-10-14 (R1 to R4 and R6 green); R5 awaits
 approval. Owner: the harness maintainers.
 
 The harness has been qualified against exactly one database: a 19c EE 19.9 non-CDB, in
@@ -84,6 +84,7 @@ Exit: each run below is a single command.
 | **R3** | D1 | D2 | thick (Instant Client 21.4 at `/opt/oracle/instantclient_21_4`) | as R1 | Thick mode, never run |
 | **R4** | D1, then D2 | none | thin | none | `tests/integration/test_process_death.py`: NP-01 on Oracle, Linux host |
 | **R5** | D3 | D1 | thin, TCPS + wallet | `second_target` | First TCPS/wallet path and first ADB. **Gated on approval** |
+| **R6** | D4 | D1 | thin | `admin,second_target` | First non-AL32UTF8 character set and first database across a real network |
 
 Each run executes `tests/qualification`, `tests/integration` and `tests/e2e` (the switch
 in `tests/oracle_config.py` covers all three).
@@ -191,3 +192,11 @@ adapter's guard is the right check. 26.0.0 fixes nothing here, so the pin stays 
 Recorded in `docs/compatibility.md` and reported upstream as
 [oracle/python-oracledb#619](https://github.com/oracle/python-oracledb/issues/619).
 The probe ran from scratch virtualenvs; the repository's lock file is unchanged.
+
+R6 on D4, 2026-10-14: the whole test suite ran, with 779 passed, 4 failed and 33 skipped
+in 45 minutes. All four failures were test defects. Three Kiwi catalog tests in
+`tests/copilot` read objects only the stand-in seeds; they are now `stand_in_only`, and
+their Oracle versions passed. The two-target check told databases apart by name, but D4
+and D1 are both `ORCL`; it now compares name, host and container. The rerun of both files
+passed. Nothing failed because of `WE8MSWIN1252` or the network. No harness defect.
+Recorded in `docs/compatibility.md`.
