@@ -14,6 +14,10 @@ from harness_api.models import ConnectionProfile, TargetCapability
 from tests.conftest import execute, open_worksheet
 
 
+def where(identity: dict) -> tuple:
+    return identity["databaseName"], identity["hostName"], identity["containerName"]
+
+
 @pytest.mark.needs_second_target
 def test_two_targets_do_not_mix_identity_or_state(client: TestClient, developer, targets) -> None:
     development = targets["development"]["id"]
@@ -21,7 +25,9 @@ def test_two_targets_do_not_mix_identity_or_state(client: TestClient, developer,
 
     dev_identity = client.post(f"/api/v1/targets/{development}/test", headers=developer).json()
     test_identity = client.post(f"/api/v1/targets/{test_target}/test", headers=developer).json()
-    assert dev_identity["identity"]["databaseName"] != test_identity["identity"]["databaseName"]
+    # Two databases can share a name (D1 and D4 are both ORCL), so compare where each
+    # one runs as well as what it is called.
+    assert where(dev_identity["identity"]) != where(test_identity["identity"])
 
     dev_session = open_worksheet(client, developer, development)
     test_session = open_worksheet(client, developer, test_target)
@@ -242,3 +248,50 @@ def test_capability_rows_are_stored_per_target(client: TestClient, developer, ta
             by_profile[row.profile_id] = by_profile.get(row.profile_id, 0) + 1
         assert len(by_profile) >= 2
         assert all(count == len(set(r.capability for r in rows)) for count in by_profile.values())
+
+
+@pytest.mark.stand_in_only
+def test_paging_objects_lists_every_partition_exactly_once(
+    client: TestClient, developer, targets, workspace
+) -> None:
+    """Partitions share their table's name, so the page must tell them apart and keep order.
+
+    On 19c the ``SH`` schema lists 56 partitions of two tables. Ordered by type and name
+    alone, OFFSET paging returned some partitions twice and others never, and the list
+    could not say which partition a row was.
+    """
+
+    import sqlite3
+
+    rows = [("HARNESS_APP", "PAGED_SALES", f"P{n:02d}", "TABLE PARTITION") for n in range(12)]
+    for path in (workspace / "fake").glob("*.sqlite3"):
+        with sqlite3.connect(path) as db:
+            db.executemany(
+                "INSERT INTO all_objects (owner, object_name, subobject_name, object_type, "
+                "status, created, last_ddl_time) VALUES (?, ?, ?, ?, 'VALID', "
+                "'2026-01-01', '2026-01-01')",
+                rows,
+            )
+
+    profile_id = targets["development"]["id"]
+    seen: list[tuple[str, str, str]] = []
+    offset = 0
+    while True:
+        page = client.get(
+            f"/api/v1/targets/{profile_id}/objects",
+            headers=developer,
+            params={
+                "owner": "HARNESS_APP",
+                "objectType": "TABLE PARTITION",
+                "offset": offset,
+                "limit": 5,
+            },
+        ).json()
+        # New columns go last: the console reads owner, name and type by position.
+        assert page["columns"][:3] == ["OWNER", "OBJECT_NAME", "OBJECT_TYPE"]
+        assert page["columns"][-1] == "SUBOBJECT_NAME"
+        seen += [(row[1], row[2], row[-1]) for row in page["rows"]]
+        if not page["hasMore"]:
+            break
+        offset += 5
+    assert sorted(seen) == sorted((name, kind, sub) for _, name, sub, kind in rows)

@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import logging
 import re
+import struct
 import threading
+import time
+from array import array
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -179,6 +182,16 @@ _TIME_ZONE_WARNING = (
 )
 
 
+# Thick mode with an Oracle Client older than 23 gets a VECTOR as text the server
+# converted, described as a CLOB; python-oracledb hands it back as a plain list.
+_LISTED_VECTOR_WARNING = (
+    "Column(s) {} arrived as plain lists: Oracle Client {} predates VECTOR, so the server "
+    "converted each vector. Its format is unknown, a BINARY vector shows its bytes, a "
+    "SPARSE vector arrives expanded, and BOOLEAN columns arrive as 1 and 0. Use thin mode "
+    "or Oracle Client 23.4 or later."
+)
+
+
 def initialize(mode: str, lib_dir: str | None = None) -> None:
     """Initialise the driver once per process and refuse a later mode change."""
 
@@ -318,13 +331,24 @@ class OracleDbConnection(OracleConnection):
                 cur.arraysize = min(limits.max_rows, 500)
                 cur.prefetchrows = cur.arraysize + 1
                 cur.outputtypehandler = _output_type_handler
+                # Database time is the statement's own round trips: the execute and
+                # the bounded fetch. The capacity report subtracts it from the client's
+                # latency to find what the harness itself adds.
+                started = time.perf_counter()
                 cur.execute(statement, binds or {})
                 result = StatementResult(statement_kind=kind)
                 if cur.description:
                     result.result_set = self._fetch_bounded(cur, limits)
+                result.database_elapsed_ms = int((time.perf_counter() - started) * 1000)
+                if result.result_set is not None:
                     lost_offsets = _columns_without_offsets(result.result_set)
                     if lost_offsets:
                         result.warnings.append(_TIME_ZONE_WARNING.format(", ".join(lost_offsets)))
+                    listed = _columns_with_listed_vectors(result.result_set)
+                    if listed:
+                        result.warnings.append(
+                            _LISTED_VECTOR_WARNING.format(", ".join(listed), _client_version())
+                        )
                 else:
                     result.rows_affected = cur.rowcount
                     if kind in (StatementKind.DML, StatementKind.PLSQL_BLOCK):
@@ -400,7 +424,8 @@ class OracleDbConnection(OracleConnection):
                 # delivered as a break, python-oracledb 4.0.2 (thin) drops the session
                 # with DPY-4011, and assigning call_timeout on it crashes the process
                 # with an access violation - every user's work, not one statement.
-                # Observed against Oracle 19c; see docs/compatibility.md. A session in
+                # Observed against Oracle 19c on Windows and Linux (SIGSEGV there), on
+                # 4.0.2 and 26.0.0; see docs/compatibility.md. A session in
                 # that state is retired, so there is nothing to reset.
                 if self._session_alive():
                     try:
@@ -471,6 +496,11 @@ class OracleDbConnection(OracleConnection):
             )
             for d in cur.description
         ]
+        text_lobs = {
+            index
+            for index, column in enumerate(columns)
+            if column.type_name in ("DB_TYPE_CLOB", "DB_TYPE_NCLOB")
+        }
         rows: list[list[Any]] = []
         truncated = False
         reason: str | None = None
@@ -480,7 +510,12 @@ class OracleDbConnection(OracleConnection):
             if not batch:
                 break
             for raw in batch:
-                shaped = [_shape(value, limits.lob_preview_bytes) for value in raw]
+                shaped = [
+                    _listed_vector(value, limits.lob_preview_bytes)
+                    if index in text_lobs and isinstance(value, list)
+                    else _shape(value, limits.lob_preview_bytes)
+                    for index, value in enumerate(raw)
+                ]
                 used_bytes += sum(len(repr(v)) for v in shaped)
                 if used_bytes > limits.max_response_bytes:
                     truncated = True
@@ -954,6 +989,10 @@ def _shape(value: Any, lob_preview_bytes: int) -> Any:
             "charLength": size,
             "truncated": len(content) < size,
         }
+    if isinstance(value, array):
+        return _vector(value, lob_preview_bytes)
+    if _is_sparse_vector(value):
+        return _sparse_vector(value, lob_preview_bytes)
     if isinstance(value, bytes):
         return {
             "kind": "raw",
@@ -962,6 +1001,114 @@ def _shape(value: Any, lob_preview_bytes: int) -> Any:
             "truncated": len(value) > lob_preview_bytes,
         }
     return value
+
+
+# A VECTOR column arrives as an array.array whose typecode names the storage format.
+# BINARY packs eight dimensions into each unsigned byte.
+_VECTOR_FORMATS = {"f": "FLOAT32", "d": "FLOAT64", "b": "INT8", "B": "BINARY"}
+
+# The preview budget is in bytes. A FLOAT64 is 8 bytes, the widest element, so this
+# many elements never stand for more than the budget.
+_VECTOR_ELEMENT_BYTES = 8
+
+
+def _vector_element(value: float | int, format_: str) -> float | int:
+    """A FLOAT32 widened to a double prints digits it never had (0.1 as
+    0.10000000149011612), so it is given back as the shortest decimal that rounds to
+    the same float32."""
+
+    if format_ != "FLOAT32":
+        return value
+    packed = struct.pack("f", value)
+    for digits in range(1, 10):
+        candidate = float(f"{value:.{digits}g}")
+        if struct.pack("f", candidate) == packed:
+            return candidate
+    return float(value)
+
+
+def _vector(value: array, lob_preview_bytes: int) -> dict[str, Any]:
+    """A dense VECTOR, bounded like a LOB: the first elements, the dimension count and
+    a truncated flag. A VECTOR can have 65,535 dimensions."""
+
+    format_ = _VECTOR_FORMATS.get(value.typecode, value.typecode)
+    if format_ == "BINARY":
+        # One byte per element, shown as hex like a BLOB preview.
+        shown = value[: max(lob_preview_bytes, 0)]
+        return {
+            "kind": "vector",
+            "format": format_,
+            "dimensions": len(value) * 8,
+            "preview": shown.tobytes().hex(),
+            "truncated": len(shown) < len(value),
+        }
+    shown = value[: max(lob_preview_bytes, 0) // _VECTOR_ELEMENT_BYTES]
+    return {
+        "kind": "vector",
+        "format": format_,
+        "dimensions": len(value),
+        "values": [_vector_element(element, format_) for element in shown],
+        "truncated": len(shown) < len(value),
+    }
+
+
+def _listed_vector(value: list[Any], lob_preview_bytes: int) -> dict[str, Any]:
+    """A VECTOR an older Oracle Client received as converted text. Only the element
+    count is known, not the format or (for BINARY) the dimensions, so it is bounded
+    like a dense vector and says so with a null format."""
+
+    shown = value[: max(lob_preview_bytes, 0) // _VECTOR_ELEMENT_BYTES]
+    return {
+        "kind": "vector",
+        "format": None,
+        "length": len(value),
+        "values": shown,
+        "truncated": len(shown) < len(value),
+    }
+
+
+def _columns_with_listed_vectors(result_set: ResultSet) -> list[str]:
+    listed: list[str] = []
+    for index, column in enumerate(result_set.columns):
+        if any(
+            isinstance(row[index], dict)
+            and row[index].get("kind") == "vector"
+            and row[index].get("format") is None
+            for row in result_set.rows
+        ):
+            listed.append(column.name)
+    return listed
+
+
+def _client_version() -> str:
+    try:
+        return ".".join(str(part) for part in oracledb.clientversion())
+    except Exception:  # noqa: BLE001 - only reached in thick mode; the name is best effort
+        return "unknown"
+
+
+def _is_sparse_vector(value: Any) -> bool:
+    return all(hasattr(value, name) for name in ("num_dimensions", "indices", "values"))
+
+
+def _sparse_vector(value: Any, lob_preview_bytes: int) -> dict[str, Any]:
+    """A SPARSE VECTOR: its dimension count and the first stored (index, value) pairs.
+    Each pair costs an index as well as a value, so half as many fit the budget."""
+
+    values = value.values
+    format_ = _VECTOR_FORMATS.get(getattr(values, "typecode", ""), "")
+    limit = max(lob_preview_bytes, 0) // (2 * _VECTOR_ELEMENT_BYTES)
+    indices = list(value.indices[:limit])
+    return {
+        "kind": "vector",
+        "format": format_,
+        "sparse": True,
+        "dimensions": value.num_dimensions,
+        "storedCount": len(value.indices),
+        "indices": indices,
+        "values": [_vector_element(element, format_) for element in values[:limit]],
+        "truncated": len(indices) < len(value.indices),
+    }
 
 
 def _read_out_binds(cur: Any) -> dict[str, Any]:

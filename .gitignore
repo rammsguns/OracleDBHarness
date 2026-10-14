@@ -19,3 +19,6 @@ build/
 apps/web/.vite/
 .tmp-*/
 .tmp-*
+
+# Local database inventory with credentials (copied from ~/database-inventory). Never commit.
+/databases/

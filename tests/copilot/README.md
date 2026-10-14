@@ -69,6 +69,14 @@ correctness denominator (18) is declared in the file and checked against the cas
 changing a case, a gate or the denominator is a new `caseSetVersion`. The schema is
 synthetic - no customer source, data or credentials.
 
+[`eval/lab_cases.json`](eval/lab_cases.json) is a separate draft (`lab-*` versions), not
+part of the scored set: nine explain cases on real objects in the local lab schemas
+(Oracle sample schemas `HR`, `OE`, `CO`, `SH` on 19c and `SALES_LAB` on 23.26), with
+known answers taken read-only from the data dictionary (DB_TEST_PLAN T-5). It does not
+change `cases.json`, its version or its denominator. The stand-in backend does not hold
+these objects, so they are for review and a later run against the lab targets.
+`validate --cases eval/lab_cases.json` checks it.
+
 Structural checks apply to every case: no execution or worksheet record appears, the
 provider key is nowhere in the stream, the context the harness reports sending stays
 within the case's permitted categories, the answer makes no first-person claim to have

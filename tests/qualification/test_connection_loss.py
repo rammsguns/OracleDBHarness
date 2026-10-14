@@ -26,7 +26,8 @@ pytestmark = pytest.mark.needs_admin
 
 _BURN_SECONDS = 30
 _KILL_AFTER_SECONDS = 3.0
-# A bulk update is interrupted sooner than a burn loop, so the kill goes in earlier.
+# The write waits on a row lock held by a second session, so it is in flight when the
+# kill lands; the delay only has to cover the update reaching that row.
 _WRITE_KILL_AFTER_SECONDS = 1.0
 # Kept in step with the CONNECT BY level in oracle/qualification/01_fixtures.sql.
 _FIXTURE_ROWS = 400_000
@@ -120,6 +121,7 @@ def test_a_killed_session_surfaces_as_a_fatal_code(
 
 def test_a_lost_connection_during_a_write_is_outcome_unknown(
     connection: OracleConnection,
+    second_connection: OracleConnection,
     admin_connection: OracleConnection,
     limits: ExecutionLimits,
     evidence: Evidence,
@@ -132,6 +134,17 @@ def test_a_lost_connection_during_a_write_is_outcome_unknown(
 
     identity = connection.identity()
     assert identity.session_id is not None and identity.serial_number is not None
+
+    # A second session holds one row, so the update below has written its way up to
+    # that row and is waiting on it when the kill lands. Racing a timer against a bulk
+    # update was inconclusive on 23ai, which finished all 400,000 rows inside a second.
+    second_connection.execute(
+        "UPDATE order_lines SET unit_price = unit_price"
+        " WHERE rowid = (SELECT MAX(rowid) FROM order_lines)",
+        {},
+        StatementKind.DML,
+        limits,
+    )
 
     generous = limits.model_copy(update={"deadline_seconds": 120.0})
     thread = _kill_after(
@@ -157,8 +170,15 @@ def test_a_lost_connection_during_a_write_is_outcome_unknown(
         outcome = exc
     thread.join(timeout=15)
 
+    second_connection.rollback()
+
     if outcome is None:
-        connection.rollback()
+        try:
+            connection.rollback()
+        except HarnessError:
+            # The kill may land after the update and before this rollback. A killed
+            # session's work is rolled back by the server either way.
+            pass
         evidence.note(
             "Lost connection during a write",
             f"Inconclusive - the update of {_FIXTURE_ROWS:,} rows finished before the "

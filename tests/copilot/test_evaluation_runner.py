@@ -237,6 +237,18 @@ def test_the_shipped_case_set_meets_the_plan() -> None:
         )
 
 
+def test_the_lab_draft_stays_outside_the_scored_set() -> None:
+    # T-5 lab inputs: real D1/D2 objects with known answers, kept apart from cases.json.
+    scored = load_case_set()
+    lab = load_case_set(Path(__file__).parent / "eval" / "lab_cases.json")
+    assert lab.version.startswith("lab-")
+    assert lab.version != scored.version
+    assert not {c.id for c in lab.cases} & {c.id for c in scored.cases}
+    assert all(c.id.startswith("LAB-") for c in lab.cases)
+    assert all(c.category == "explain" and c.review == "dba" for c in lab.cases)
+    assert lab.correctness_denominator == len(lab.cases)
+
+
 def test_the_case_set_hash_ignores_line_endings(tmp_path: Path) -> None:
     original = load_case_set()
     source = original.path.read_bytes().replace(b"\r\n", b"\n")
