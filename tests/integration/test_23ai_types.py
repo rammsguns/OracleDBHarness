@@ -3,6 +3,10 @@
 Before ``_shape`` handled VECTOR, the worker returned an ``array.array`` that the API
 could not serialise, so a query returning a vector failed in the API rather than
 arriving in the grid. Oracle only: the stand-in has neither type.
+
+In thick mode an Oracle Client older than 23 gets both converted by the server: the
+vector arrives as a plain list of unknown format, the BOOLEAN as 1, and the worksheet
+says which client caused it.
 """
 
 from __future__ import annotations
@@ -10,9 +14,18 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from tests import oracle_config
 from tests.conftest import execute, open_worksheet
 
 pytestmark = pytest.mark.oracle_only
+
+
+def _thick_client_version(target: oracle_config.OracleTestConfig) -> tuple[int, ...] | None:
+    if target.driver_mode != "thick":
+        return None
+    import oracledb  # thick mode means the driver is installed and initialised
+
+    return tuple(oracledb.clientversion())
 
 
 @pytest.fixture
@@ -26,7 +39,10 @@ def session_id(client: TestClient, developer, targets) -> str:
 
 
 def test_a_vector_and_a_boolean_reach_the_grid(
-    client: TestClient, developer, session_id: str
+    client: TestClient,
+    developer,
+    session_id: str,
+    oracle_target: oracle_config.OracleTestConfig | None,
 ) -> None:
     body = execute(
         client,
@@ -37,6 +53,24 @@ def test_a_vector_and_a_boolean_reach_the_grid(
 
     outcome = body["outcome"]
     assert outcome["state"] == "succeeded", body
+    assert oracle_target is not None
+    thick_client = _thick_client_version(oracle_target)
+    if thick_client is not None and thick_client[0] < 23:
+        client_version = ".".join(map(str, thick_client))
+        assert outcome["resultSet"]["rows"] == [
+            [
+                {
+                    "kind": "vector",
+                    "format": None,
+                    "length": 2,
+                    "values": [1.5, 2.0],
+                    "truncated": False,
+                },
+                1,
+            ]
+        ]
+        assert any(client_version in warning for warning in outcome["warnings"]), outcome
+        return
     assert outcome["resultSet"]["rows"] == [
         [
             {

@@ -68,8 +68,9 @@ function renderCell(value: unknown): string {
     if (lob.kind === "vector") {
       // A sparse vector lists only its stored elements, each with its index.
       const vector = value as {
-        format?: string;
+        format?: string | null;
         dimensions?: number;
+        length?: number;
         sparse?: boolean;
         indices?: number[];
         values?: number[];
@@ -81,8 +82,12 @@ function renderCell(value: unknown): string {
         (vector.sparse
           ? `{${values.map((v, i) => `${vector.indices?.[i]}: ${v}`).join(", ")}}`
           : `[${values.join(", ")}]`);
-      const kind = `${vector.sparse ? "sparse " : ""}${vector.format ?? ""}`;
       const more = vector.truncated ? ", preview only" : "";
+      if (!vector.format) {
+        // An older Oracle Client: only the element count is known.
+        return `${shown} (vector, ${vector.length ?? 0} elements${more})`;
+      }
+      const kind = `${vector.sparse ? "sparse " : ""}${vector.format}`;
       return `${shown} (${kind} ${vector.dimensions ?? 0} dimensions${more})`;
     }
     return JSON.stringify(value);

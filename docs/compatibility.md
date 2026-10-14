@@ -15,7 +15,7 @@ claim. Where something has not been tested, it says so.
 | **Oracle Database** | **Oracle AI Database 26ai Free 23.26.3.0.0, PDB `FREEPDB1` in a CDB, AL32UTF8** | The same three suites, thin mode, one recorded run on 2026-10-14 (Linux), including the PDB container identity, the restricted account, the K-4 catalog and process death |
 | **Oracle Database** | **19c Enterprise Edition 19.9.1.0.0, non-CDB, WE8MSWIN1252, on a remote host** | The whole test suite in thin mode, one recorded run on 2026-10-14 (Linux client, database across a real network), including the K-4 catalog and process death. Provisioned without `SYS`, so the restricted account was probed but not claimed. See "The D4 run, 2026-10-14" |
 | python-oracledb | 4.0.2, thin mode | The runs above |
-| python-oracledb | 4.0.2, thick mode, Oracle Instant Client 21.4.0.0.0 | The same three suites against the 19.9 non-CDB, one recorded run on 2026-10-14 (Linux). Not run against 23.26 |
+| python-oracledb | 4.0.2, thick mode, Oracle Instant Client 21.4.0.0.0 | The same three suites against the 19.9 non-CDB, the 23.26 Free PDB and D4 (19.9, `WE8MSWIN1252`, remote), recorded runs on 2026-10-14 (Linux). Against 23.26 this client predates `BOOLEAN` and `VECTOR`; see "Thick mode against 23.26, 2026-10-14" |
 | Copilot provider | Fixture provider | Copilot test suite |
 | Protocol | 1.0 | Contract tests, adapter tests |
 | Identity provider | Keycloak 26.3, local container | `tests/identity` and `apps/web/src/oidc.keycloak.test.ts`, in CI. See [Identity providers](#identity-providers) |
@@ -27,8 +27,8 @@ claim. Where something has not been tested, it says so.
 | **Oracle beyond two local instances** | Two instances have been qualified on 2026-10-14: a 19.9 non-CDB and a 23.26 Free PDB, each as the other's second target, so the two-target isolation check has run in both directions. A third, D4, was qualified the same day: a 19.9 non-CDB in `WE8MSWIN1252` on a remote host, with D1 as its second target. Not run: a later 19c release update, a PDB on 19c, `CDB$ROOT`, RAC, Standard Edition, and character sets other than AL32UTF8 and WE8MSWIN1252. The restricted account was the README's shape only (`CREATE SESSION` plus the two tablespace views); other partial grant sets have not been probed. |
 | **Restart after process death, on Oracle** | Run on 2026-10-14 against 19.9 (thin and thick) and 23.26 (thin), on a Linux host: on both releases the dead session left `V$SESSION` with its row lock freed at once, an applied but uncommitted write was rolled back, and both `COMMIT` cases were reconciled correctly. See the process-death entries under [Recording a run](#recording-a-run). Not run on Windows, where the 2026-09-11 runs were. A host that loses power or network, rather than a killed process, is not covered at all. |
 | **Kiwi's K-4 lookups on Oracle** | Run on 2026-10-14 against 19.9 and 23.26: every entry returned rows of the shape the stand-in returns, and PL/Scope absence was reported for the unit compiled without it. Needs the extra grants in `oracle/qualification/README.md` (`CREATE TRIGGER`, `CREATE JOB` and the rules-engine privileges for chains). No database link exists in either fixture, so `db_links_referenced` was checked for shape with no rows. |
-| Oracle 23ai/26ai beyond the Free PDB | One Free 23.26.3.0.0 PDB, thin mode only. `BOOLEAN` and `VECTOR` were checked on it as selected values and a `BOOLEAN` bind (see "BOOLEAN and VECTOR, 2026-10-14"); a `VECTOR` bind, `VECTOR` columns in a table and vector indexes were not. Autonomous Database has not been connected to. |
-| python-oracledb thick mode beyond one client | Instant Client 21.4 on Linux against 19.9 only. Other client versions, Windows, and thick mode against 23.26 are not run. |
+| Oracle 23ai/26ai beyond the Free PDB | One Free 23.26.3.0.0 PDB, in thin mode and in thick mode with Instant Client 21.4. `BOOLEAN` and `VECTOR` were checked on it as selected values and a `BOOLEAN` bind (see "BOOLEAN and VECTOR, 2026-10-14"); a `VECTOR` bind, `VECTOR` columns in a table and vector indexes were not. Autonomous Database has not been connected to. |
+| python-oracledb thick mode beyond one client | Instant Client 21.4 on Linux against 19.9 (D1 and D4) and 23.26. Other client versions (23.4 or later in particular, which knows `BOOLEAN` and `VECTOR`) and Windows are not run. |
 | python-oracledb 26.0.0 | Tried on 2026-09-11 against the qualified 19c instance, for the `call_timeout` crash below only. **It does not fix it:** assigning `call_timeout` on a session dropped with `DPY-4011` still ends the process with `0xC0000005`, in every attempt that dropped the session (13 of 13 in one batch, and every later attempt). On the dropped session it otherwise behaves like 4.0.2: reading `call_timeout`, `close()`, `cursor.close()` and `is_healthy()` are safe; `ping()` and `rollback()` raise `DPY-1001`. Repeated on 2026-10-14 on Linux (Python 3.11) against 19.9, with SYSTEM killing the session either idle or during a call: the setter ends the process with `SIGSEGV` in 13 of 13 attempts per case on **both 26.0.0 and 4.0.2**, so the crash is in the thin driver, not specific to Windows. Controls stayed clean (0 of 13): the setter on a live session, and every other call on the dropped session. A session killed server-side but not yet noticed by the driver reports `is_healthy()` true and takes the setter safely; `is_healthy()` turns false on the first call that hits `DPY-4011`, which is exactly when the setter becomes fatal, so the adapter's guard holds. The suites have not been run on 26.0.0, and it fixes nothing here, so 4.0.2 stays pinned. Reported upstream as [oracle/python-oracledb#619](https://github.com/oracle/python-oracledb/issues/619) on 2026-10-14. |
 | TCPS and wallets | Not exercised. `ConnectionSpec` carries the fields; the path is untested. |
 | PostgreSQL as the metadata store | The schema is portable SQLAlchemy and the container is configured, but the suite runs on SQLite. |
@@ -286,8 +286,51 @@ new checks fail that way on D2.
 | A `VECTOR` value could not be serialised | Harness defect | Every query returning a `VECTOR` column failed in the API | `_shape` returns `{"kind": "vector", "format", "dimensions", "values", "truncated"}`, bounded by the LOB preview budget at 8 bytes per element (a `VECTOR` can have 65,535 dimensions). `BINARY` reports its dimensions in bits and a hex preview; `SPARSE` adds `sparse`, `storedCount` and the stored `indices`. `FLOAT32` elements are given as the shortest decimal that rounds to the same float32, so 0.1 is not shown as 0.10000000149011612. The console renders the shape. Pinned by unit tests on `_shape` |
 
 Not checked: binding a `VECTOR` (a JSON array arrives as a list, not an
-`array.array`), `VECTOR` columns in a table, vector indexes and `VECTOR_DISTANCE`,
-and thick mode.
+`array.array`), `VECTOR` columns in a table, vector indexes and `VECTOR_DISTANCE`.
+Thick mode with an older client is covered in the next section.
+
+### Thick mode against 23.26, 2026-10-14
+
+R3's configuration pointed at D2: thick mode, Instant Client 21.4, the three suites.
+The first run failed the six `BOOLEAN` and `VECTOR` checks. Everything else passed.
+
+Instant Client 21.4 predates both types, so the server converts them for it. A
+`BOOLEAN` is described as `NUMBER` and arrives as `1`, `0` or `NULL`. A bound Python
+`bool` goes as a `NUMBER` too, so `CASE WHEN :value` fails with `ORA-00920`. A
+`VECTOR` is described as a `CLOB` but arrives as a plain Python list:
+
+- its format is lost;
+- a `BINARY` vector arrives as its bytes;
+- a `SPARSE` vector arrives with every dimension filled in;
+- `FLOAT32` 0.1 arrives as 0.100000001.
+
+This is how that client works, not a harness defect. Two things in the harness did
+need changing, though. The list went to the grid whole, bypassing the preview limit
+that bounds a vector in thin mode, and nothing told the user why the values looked
+wrong.
+
+| Finding | Kind | Effect | Fix |
+| --- | --- | --- | --- |
+| An Oracle Client older than 23 receives `BOOLEAN` and `VECTOR` converted | Expected client difference | `BOOLEAN` shows as 1 or 0 and cannot be bound; a vector loses its format and, if `SPARSE`, its indices | None in the harness; use thin mode or Oracle Client 23.4 or later |
+| A vector from that client was not bounded | Harness defect | A 65,535-dimension vector went to the grid in full | `_fetch_bounded` shapes a list in a `CLOB` or `NCLOB` column as `{"kind": "vector", "format": null, "length", "values", "truncated"}`, under the same preview limit. The console shows "N elements" |
+| Nothing explained the converted values | Missing warning | A user saw 1 and 0, or a vector with no format, and no reason | The statement warns, naming the columns and the Oracle Client version |
+
+`tests/qualification/test_23ai_types.py` and `tests/integration/test_23ai_types.py`
+now check the old client's behaviour exactly: the 1/0 values, the `ORA-00920` on a
+bind, the expanded `SPARSE` vector and the warning. A client that changes any of them
+fails a check. The rerun had 162 passed, 17 skipped and 0 failed. The skips are 13
+`stand_in_only` tests and 4 PostgreSQL store tests.
+
+The same suites in thick mode against D4 (remote host, see `databases/INVENTORY.md`;
+19.9, `WE8MSWIN1252`) had 155 passed, 24 skipped and 0 failed in 23 minutes. The six
+`BOOLEAN` and `VECTOR` checks skip on 19.9, and the lab checks skip because the profile
+names no lab account. Every evidence row matches thin R6, including the
+`WE8MSWIN1252` Unicode notes and the cancellation and deadline timings.
+
+With these changes the whole test suite was rerun against D4 in thin mode (R6): 790
+passed, 0 failed and 41 skipped, in 46 minutes. Each skip names its reason: 16
+`stand_in_only` tests, 11 PostgreSQL store tests, 7 Keycloak tests, 6 23ai type checks
+and the lab checks.
 
 ### The D4 run, 2026-10-14
 

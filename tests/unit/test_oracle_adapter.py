@@ -1046,6 +1046,66 @@ def test_a_sparse_vector_keeps_its_indices() -> None:
     assert oracle_backend._shape(sparse, 16)["indices"] == [1]
 
 
+class _ListCursor:
+    """A query whose VECTOR column an Oracle Client older than 23 described as a CLOB."""
+
+    arraysize = 100
+
+    def __init__(self, type_name: str, value: Any) -> None:
+        self.description = [("V", SimpleNamespace(name=type_name), None, None, None, None, True)]
+        self._rows = [(value,)]
+
+    def fetchmany(self, count: int) -> list:
+        rows, self._rows = self._rows, []
+        return rows
+
+
+def test_a_listed_vector_from_an_old_client_is_bounded_with_its_format_unknown() -> None:
+    connection = OracleDbConnection(SPEC, StubConnection())
+    limits = LIMITS.model_copy(update={"lob_preview_bytes": 16})
+
+    result = connection._fetch_bounded(_ListCursor("DB_TYPE_CLOB", [0.0, 1.5, 0.0, 2.5]), limits)
+
+    assert result.rows == [
+        [
+            {
+                "kind": "vector",
+                "format": None,
+                "length": 4,
+                "values": [0.0, 1.5],
+                "truncated": True,
+            }
+        ]
+    ]
+    json.dumps(result.rows)
+    assert oracle_backend._columns_with_listed_vectors(result) == ["V"]
+
+
+def test_only_a_text_lob_column_holding_a_list_counts_as_a_vector() -> None:
+    connection = OracleDbConnection(SPEC, StubConnection())
+
+    clob = connection._fetch_bounded(_ListCursor("DB_TYPE_CLOB", "[1, 2]"), LIMITS)
+    other = connection._fetch_bounded(_ListCursor("DB_TYPE_JSON", [1, 2]), LIMITS)
+
+    assert oracle_backend._columns_with_listed_vectors(clob) == []
+    assert oracle_backend._columns_with_listed_vectors(other) == []
+    assert other.rows == [[[1, 2]]]
+
+
+def test_the_client_version_is_named_even_when_it_cannot_be_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = SimpleNamespace(clientversion=lambda: (21, 4, 0, 0, 0))
+    monkeypatch.setattr(oracle_backend, "oracledb", driver)
+    assert oracle_backend._client_version() == "21.4.0.0.0"
+
+    def thin_only() -> tuple[int, ...]:
+        raise RuntimeError("DPY-2021: not supported in thin mode")
+
+    driver.clientversion = thin_only
+    assert oracle_backend._client_version() == "unknown"
+
+
 # -- connection setup --------------------------------------------------------------
 
 

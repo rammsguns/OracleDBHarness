@@ -182,6 +182,16 @@ _TIME_ZONE_WARNING = (
 )
 
 
+# Thick mode with an Oracle Client older than 23 gets a VECTOR as text the server
+# converted, described as a CLOB; python-oracledb hands it back as a plain list.
+_LISTED_VECTOR_WARNING = (
+    "Column(s) {} arrived as plain lists: Oracle Client {} predates VECTOR, so the server "
+    "converted each vector. Its format is unknown, a BINARY vector shows its bytes, a "
+    "SPARSE vector arrives expanded, and BOOLEAN columns arrive as 1 and 0. Use thin mode "
+    "or Oracle Client 23.4 or later."
+)
+
+
 def initialize(mode: str, lib_dir: str | None = None) -> None:
     """Initialise the driver once per process and refuse a later mode change."""
 
@@ -334,6 +344,11 @@ class OracleDbConnection(OracleConnection):
                     lost_offsets = _columns_without_offsets(result.result_set)
                     if lost_offsets:
                         result.warnings.append(_TIME_ZONE_WARNING.format(", ".join(lost_offsets)))
+                    listed = _columns_with_listed_vectors(result.result_set)
+                    if listed:
+                        result.warnings.append(
+                            _LISTED_VECTOR_WARNING.format(", ".join(listed), _client_version())
+                        )
                 else:
                     result.rows_affected = cur.rowcount
                     if kind in (StatementKind.DML, StatementKind.PLSQL_BLOCK):
@@ -481,6 +496,11 @@ class OracleDbConnection(OracleConnection):
             )
             for d in cur.description
         ]
+        text_lobs = {
+            index
+            for index, column in enumerate(columns)
+            if column.type_name in ("DB_TYPE_CLOB", "DB_TYPE_NCLOB")
+        }
         rows: list[list[Any]] = []
         truncated = False
         reason: str | None = None
@@ -490,7 +510,12 @@ class OracleDbConnection(OracleConnection):
             if not batch:
                 break
             for raw in batch:
-                shaped = [_shape(value, limits.lob_preview_bytes) for value in raw]
+                shaped = [
+                    _listed_vector(value, limits.lob_preview_bytes)
+                    if index in text_lobs and isinstance(value, list)
+                    else _shape(value, limits.lob_preview_bytes)
+                    for index, value in enumerate(raw)
+                ]
                 used_bytes += sum(len(repr(v)) for v in shaped)
                 if used_bytes > limits.max_response_bytes:
                     truncated = True
@@ -1025,6 +1050,41 @@ def _vector(value: array, lob_preview_bytes: int) -> dict[str, Any]:
         "values": [_vector_element(element, format_) for element in shown],
         "truncated": len(shown) < len(value),
     }
+
+
+def _listed_vector(value: list[Any], lob_preview_bytes: int) -> dict[str, Any]:
+    """A VECTOR an older Oracle Client received as converted text. Only the element
+    count is known, not the format or (for BINARY) the dimensions, so it is bounded
+    like a dense vector and says so with a null format."""
+
+    shown = value[: max(lob_preview_bytes, 0) // _VECTOR_ELEMENT_BYTES]
+    return {
+        "kind": "vector",
+        "format": None,
+        "length": len(value),
+        "values": shown,
+        "truncated": len(shown) < len(value),
+    }
+
+
+def _columns_with_listed_vectors(result_set: ResultSet) -> list[str]:
+    listed: list[str] = []
+    for index, column in enumerate(result_set.columns):
+        if any(
+            isinstance(row[index], dict)
+            and row[index].get("kind") == "vector"
+            and row[index].get("format") is None
+            for row in result_set.rows
+        ):
+            listed.append(column.name)
+    return listed
+
+
+def _client_version() -> str:
+    try:
+        return ".".join(str(part) for part in oracledb.clientversion())
+    except Exception:  # noqa: BLE001 - only reached in thick mode; the name is best effort
+        return "unknown"
 
 
 def _is_sparse_vector(value: Any) -> bool:
