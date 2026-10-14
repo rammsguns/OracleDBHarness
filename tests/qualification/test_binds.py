@@ -116,6 +116,23 @@ def test_unicode_round_trips_in_both_directions(
     evidence.note("Unicode read back", f"`{stored!r}`")
     assert stored == UNICODE_SAMPLE, f"Expected {UNICODE_SAMPLE!r}, got {stored!r}"
 
+    charset = _one(
+        connection,
+        "SELECT value FROM nls_database_parameters WHERE parameter = 'NLS_CHARACTERSET'",
+        {},
+        limits,
+    )[0]
+    if str(charset).upper() != "AL32UTF8":
+        # A str bind is a VARCHAR bind: the server converts it to the database character
+        # set before comparing, so characters outside that set cannot match an NVARCHAR2
+        # column. That is a property of the database, recorded rather than failed.
+        evidence.note(
+            "Unicode lookup by bind",
+            f"Not checked: the database character set is `{charset}`, not AL32UTF8, so a "
+            "VARCHAR bind cannot carry the sample characters. Read-back above passed.",
+        )
+        return
+
     found = _one(
         connection,
         "SELECT id FROM harness_types WHERE v_unicode = :value",
