@@ -33,6 +33,14 @@ the script intends. That is a deviation recorded here and has not been revoked.
 `HARNESS_RESTRICTED` exists with `CREATE SESSION` only. It cannot read the tablespace
 views until SYS grants them, so D4 runs do not claim `restricted_account`.
 
+Later on 2026-10-14 the server's administrator ran the missing grants as `SYS`: the seven
+view grants to `HARNESS_DIAGNOSTICS_ROLE`, and `DBA_TABLESPACES` and
+`DBA_TABLESPACE_USAGE_METRICS` to `HARNESS_RESTRICTED`. Both match
+`oracle/grants/harness_roles.sql` and the restricted shape in
+`oracle/qualification/README.md`, and were checked as `SYSTEM` in `DBA_TAB_PRIVS`.
+`SELECT_CATALOG_ROLE` was kept on `HARNESS_APP`, so that deviation stands. D4 runs now
+claim `restricted_account`.
+
 Lab schemas on D1 (`HR`, `OE`, `SH`, ...) and D2 (`SALES_LAB`, `HR`, `CO`, ...) hold
 realistic data. **The fixtures never run in them.** Fixtures drop and recreate objects
 such as `EMPLOYEES` and `DEPARTMENTS`, so they run only in a dedicated `HARNESS_APP`
@@ -84,7 +92,7 @@ Exit: each run below is a single command.
 | **R3** | D1 | D2 | thick (Instant Client 21.4 at `/opt/oracle/instantclient_21_4`) | as R1 | Thick mode, never run |
 | **R4** | D1, then D2 | none | thin | none | `tests/integration/test_process_death.py`: NP-01 on Oracle, Linux host |
 | **R5** | D3 | D1 | thin, TCPS + wallet | `second_target` | First TCPS/wallet path and first ADB. **Done 2026-10-14:** 160 passed, 20 skipped, after fixing wallet-password and per-endpoint transport support; thick mode 159 passed, 21 skipped, after naming the wallet in the descriptor; `ANALYZE ANY` and `ALTER ANY PROCEDURE` not granted on the shared D3. See `docs/compatibility.md`, "The D3 run" |
-| **R6** | D4 | D1 | thin | `admin,second_target` | First non-AL32UTF8 character set and first database across a real network |
+| **R6** | D4 | D1 | thin | `admin,second_target,restricted_account` | First non-AL32UTF8 character set and first database across a real network |
 
 Each run executes `tests/qualification`, `tests/integration` and `tests/e2e` (the switch
 in `tests/oracle_config.py` covers all three).
