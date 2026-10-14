@@ -435,8 +435,10 @@ as `INT8`; in thick mode with the old client the binds went as text with the war
 and the values were right.
 
 The stand-in has no `VECTOR` type, so a vector bind there fails with
-`capability_unavailable`. The console's worksheet does not yet offer a type hint, so
-vector binds are available through the API only.
+`capability_unavailable`. The console's worksheet offers the hint as a type on each bind
+(`auto`, or a vector of `FLOAT32`, `FLOAT64` or `INT8`). A vector bind's value is a JSON
+array of numbers, and the console refuses anything else before sending the statement. An
+empty value binds null.
 
 ### Lab schemas, 2026-10-14 (T-5)
 

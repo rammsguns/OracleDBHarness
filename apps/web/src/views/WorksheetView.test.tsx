@@ -290,3 +290,70 @@ describe("acting on a session", () => {
     expect(screen.getByRole("button", { name: /^commit$/i })).toBeTruthy();
   });
 });
+
+describe("binding a vector", () => {
+  beforeEach(() => {
+    worksheets.mockResolvedValue({
+      sessions: [makeSession({ sessionId: "ws_dev" })],
+    });
+    execute.mockResolvedValue({
+      outcome: makeOutcome(),
+      policy: makePolicy(),
+      session: makeSession({ sessionId: "ws_dev" }),
+    });
+  });
+
+  async function setBind(value: string, type: string) {
+    show(development);
+    await screen.findByText("ws_dev");
+    fireEvent.change(screen.getByLabelText("value of bind 1"), {
+      target: { value },
+    });
+    fireEvent.change(screen.getByLabelText("type of bind 1"), {
+      target: { value: type },
+    });
+    // The run settles inside act, so its state updates do not land after the test.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /run statement/i }));
+    });
+  }
+
+  it("sends the array with the type hint the user chose", async () => {
+    // Without the hint the driver binds the array as a PL/SQL collection and SQL
+    // refuses it with ORA-01484.
+    await setBind("[0.5, -1, 2]", "vector:float64");
+
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    expect(execute.mock.calls[0][2]).toEqual([
+      { name: "dept", value: [0.5, -1, 2], typeHint: "vector:float64" },
+    ]);
+  });
+
+  it("sends an empty vector bind as null", async () => {
+    await setBind("", "vector");
+
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    expect(execute.mock.calls[0][2]).toEqual([
+      { name: "dept", value: null, typeHint: "vector" },
+    ]);
+  });
+
+  it("keeps an unhinted bind as it was", async () => {
+    await setBind("20", "auto");
+
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    expect(execute.mock.calls[0][2]).toEqual([{ name: "dept", value: 20 }]);
+  });
+
+  it.each(["0.5, 1", "[]", '[1, "two"]', "[true]", "{}"])(
+    "refuses %s as a vector without running anything",
+    async (value) => {
+      await setBind(value, "vector");
+
+      expect(
+        await screen.findByText(/must be an array of numbers/),
+      ).toBeTruthy();
+      expect(execute).not.toHaveBeenCalled();
+    },
+  );
+});
