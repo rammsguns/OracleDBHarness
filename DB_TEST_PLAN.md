@@ -21,6 +21,17 @@ should be added.
 | **D1** | 19c EE 19.x, non-CDB, AL32UTF8 (container `oracle19c`) | `localhost:1522/ORCL` | Primary target; repeats the recorded baseline and closes the K-4 19c run |
 | **D2** | 26ai Free 23.26, CDB, PDB `FREEPDB1` (container `oracle23ai_dataset`) | `localhost:1521/FREEPDB1` | Second target for the isolation check; primary target for the first PDB and 23ai run |
 | **D3** | 26ai ADB Always Free, TCPS + wallet (Oracle Cloud) | `oracle26ialwaysfree_medium` | Shared with other projects. Used only after an explicit go-ahead, in a dedicated schema |
+| **D4** | 19c EE 19.9, non-CDB, WE8MSWIN1252 (remote VPS) | remote, see `databases/INVENTORY.md` | First non-Unicode character set and first target over a real network. Provisioned as SYSTEM only (below) |
+
+D4 was provisioned on 2026-10-14 without SYS, which is not available on it. SYSTEM
+could create the three roles, grant the system privileges and the K-4 grants, and give
+`HARNESS_APP` the roles and quota. It could not grant the seven `SYS` view grants or
+`EXECUTE ON SYS.DBMS_STATS` (ORA-01031, as `harness_roles.sql` warns). `DBMS_STATS` is
+already granted to `PUBLIC`, so that gap has no effect. `HARNESS_APP` already held
+`SELECT_CATALOG_ROLE` before provisioning, so it reads the dictionary more widely than
+the script intends. That is a deviation recorded here and has not been revoked.
+`HARNESS_RESTRICTED` exists with `CREATE SESSION` only. It cannot read the tablespace
+views until SYS grants them, so D4 runs do not claim `restricted_account`.
 
 Lab schemas on D1 (`HR`, `OE`, `SH`, ...) and D2 (`SALES_LAB`, `HR`, `CO`, ...) hold
 realistic data. **The fixtures never run in them.** Fixtures drop and recreate objects
