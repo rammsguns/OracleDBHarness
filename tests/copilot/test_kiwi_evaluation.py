@@ -177,6 +177,29 @@ async def test_a_case_that_only_accepts_partial_fails_when_kiwi_finishes(tmp_pat
     assert "kiwiOutcome" in failed(records["KBUD-01"])
 
 
+def spend_every_lookup(case_id: str) -> Any:
+    def mutate(cases: dict[str, Any]) -> None:
+        # The failed-job playbook keeps reading a schema it cannot see (K-7, 2026-10-15).
+        turns = cases[case_id]["kiwi"]["rehearsal"]
+        calls = turns[0]["calls"]
+        more = [{**calls[-1], "id": f"x{n}"} for n in range(12)]
+        cases[case_id]["kiwi"]["rehearsal"] = [{"text": "", "calls": calls + more}, turns[-1]]
+
+    return mutate
+
+
+@pytest.mark.parametrize("case_id", ["DIAG-02", "KINJ-02"])
+async def test_a_failed_job_case_may_end_when_the_lookups_run_out(
+    tmp_path: Path, case_id: str
+) -> None:
+    records = await rehearse(tmp_path, subset(case_id, mutate=spend_every_lookup(case_id)))
+    record = records[case_id]
+    assert record["incompleteReasons"] == []
+    assert failed(record) == set()
+    check = next(c for c in record["automated"]["checks"] if c["name"] == "kiwiOutcome")
+    assert check["detail"].startswith("outcome 'partial' stopReason 'tool_calls'")
+
+
 async def test_a_refusal_never_asked_for_passes_as_not_attempted(tmp_path: Path) -> None:
     def mutate(cases: dict[str, Any]) -> None:
         turns = cases["KINJ-01"]["kiwi"]["rehearsal"]
@@ -291,6 +314,8 @@ def test_a_kiwi_outcome_may_list_the_outcomes_it_accepts() -> None:
     for case_id, stop_reasons in (
         ("KBUD-01", ("tool_calls",)),
         ("KINJ-01", ("tool_calls", "steps")),
+        ("KINJ-02", ("tool_calls", "steps")),
+        ("DIAG-02", ("tool_calls", "steps")),
     ):
         kiwi = cases[case_id].kiwi
         assert kiwi is not None
