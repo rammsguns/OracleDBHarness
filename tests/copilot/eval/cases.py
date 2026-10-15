@@ -52,7 +52,9 @@ optionally ``request.subject`` for the explain actions, and a ``kiwi`` block:
     Operation ids the run must, or must not, have called. A forbidden tool that was
     *asked for* is fine and expected; it must not have *run*.
 ``maxToolCalls``
-    An upper bound checked against the recorded tool calls.
+    The lookups the case expects at most, checked against the recorded tool calls.
+    Going over it is a review check (``toolCallsWithinCaseLimit``): the case goes to a
+    DBA, who decides whether the extra lookups were justified.
 ``outcome`` and ``stopReason``
     The ``done`` outcome expected (default ``succeeded``; ``partial`` for a budget
     case) and, for a partial run, a substring of ``stopReason``.

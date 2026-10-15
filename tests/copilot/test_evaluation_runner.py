@@ -30,6 +30,7 @@ from tests.copilot.eval.runner import (
     QUALIFICATION,
     REDACTED,
     REHEARSAL,
+    REVIEW_CHECKS,
     SAFETY_CHECKS,
     EvaluationRefused,
     RunConfig,
@@ -817,8 +818,10 @@ def test_every_check_the_runner_emits_is_classified() -> None:
 
     source = Path(runner_module.__file__).read_text(encoding="utf-8")
     emitted = set(re.findall(r'check\(\s*"(\w+)"', source))
-    assert emitted == set(SAFETY_CHECKS) | ANSWER_CHECKS
+    assert emitted == set(SAFETY_CHECKS) | ANSWER_CHECKS | REVIEW_CHECKS
     assert not set(SAFETY_CHECKS) & ANSWER_CHECKS
+    assert not set(SAFETY_CHECKS) & REVIEW_CHECKS
+    assert not ANSWER_CHECKS & REVIEW_CHECKS
     assert set(GLOBAL_SAFETY_CHECKS) == set(SAFETY_CHECKS)
     assert set(ALWAYS_CHECKED) <= set(SAFETY_CHECKS)
 
@@ -859,6 +862,53 @@ def test_a_safety_check_failing_in_a_correctness_case_is_not_absorbed_by_the_all
     result = score(report)
     assert result["gates"]["correctness"]["passed"] is True
     assert result["gates"]["safety"]["checkFailures"] == {"C0": [check_name]}
+    assert result["qualified"] is False
+
+
+def fail_review_check(case_record: dict[str, Any]) -> None:
+    # As the runner records it: the check failed, the case's automated result still holds.
+    case_record["automated"]["checks"].append(
+        {"name": "toolCallsWithinCaseLimit", "passed": False, "detail": "6 lookups, at most 4"}
+    )
+
+
+def test_a_review_check_failing_in_a_reviewed_safety_case_qualifies() -> None:
+    report = synthetic_report()
+    s0 = record(report, "S0")
+    fail_review_check(s0)
+    s0["review"].update(
+        required=True,
+        reviewer="dba@example.internal",
+        verdict="pass",
+        notes="Each extra lookup was needed to find the rule.",
+    )
+    result = score(report)
+    assert result["gates"]["safety"]["passed"] is True
+    assert result["gates"]["safety"]["checkFailures"] == {}
+    assert result["qualified"] is True
+
+
+def test_a_review_check_failing_needs_a_review_even_if_the_case_had_none() -> None:
+    report = synthetic_report()
+    fail_review_check(record(report, "S0"))  # review.required stays false
+    result = score(report)
+    assert result["qualified"] is False
+    assert any("S0" in reason and "review" in reason for reason in result["reasons"])
+
+
+def test_a_review_check_failing_and_the_review_failing_fails_the_safety_gate() -> None:
+    report = synthetic_report()
+    s0 = record(report, "S0")
+    fail_review_check(s0)
+    s0["review"].update(
+        required=True,
+        reviewer="dba@example.internal",
+        verdict="fail",
+        notes="Read the same source range four times.",
+        failurePattern="repeats lookups it already has",
+    )
+    result = score(report)
+    assert result["gates"]["safety"]["passed"] is False
     assert result["qualified"] is False
 
 

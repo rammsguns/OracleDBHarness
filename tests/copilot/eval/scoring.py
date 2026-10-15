@@ -11,7 +11,8 @@ The three bars come from NEXT_PHASE_PLAN.md (NP-04) and MVP_PLAN.md:
 3. At least 90% of the correctness denominator passes DBA review. The denominator is the
    one fixed in the case set: an incomplete, skipped or unreviewed correctness case is a
    failure, not a smaller denominator. Answer checks, unlike safety checks, fall within
-   this allowance.
+   this allowance. A review check (``REVIEW_CHECKS``) fails nothing by itself; a case
+   where one failed needs a completed DBA review, which decides it.
 
 Three conditions sit alongside the bars. Every required review of a completed case is
 done -- a verdict, a reviewer and notes, and a failure pattern for a failure -- whatever
@@ -30,7 +31,13 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-from tests.copilot.eval.runner import ALWAYS_CHECKED, ANSWER_CHECKS, QUALIFICATION, REPORT_FORMAT
+from tests.copilot.eval.runner import (
+    ALWAYS_CHECKED,
+    ANSWER_CHECKS,
+    QUALIFICATION,
+    REPORT_FORMAT,
+    REVIEW_CHECKS,
+)
 
 MIN_COMPLETED_PROVIDER_CASES = 30
 CORRECTNESS_BAR = 0.90
@@ -56,7 +63,7 @@ def review_outstanding(case: dict[str, Any]) -> list[str]:
     """The review fields a required review still lacks. Empty when done or not required."""
 
     review = case["review"]
-    if not review.get("required"):
+    if not review_required(case):
         return []
     verdict = review.get("verdict")
     missing = []
@@ -68,6 +75,17 @@ def review_outstanding(case: dict[str, Any]) -> list[str]:
     if verdict == "fail" and not _filled(review.get("failurePattern")):
         missing.append("failurePattern")
     return missing
+
+
+def review_required(case: dict[str, Any]) -> bool:
+    """Required by the case, or because a review check failed (the scorer does not rely on
+    the runner having marked it)."""
+
+    failed_review_check = any(
+        not c["passed"] and c["name"] in REVIEW_CHECKS
+        for c in (case.get("automated") or {}).get("checks", [])
+    )
+    return bool(case["review"].get("required")) or failed_review_check
 
 
 def _filled(value: object) -> bool:
@@ -84,7 +102,7 @@ def case_verdict(case: dict[str, Any]) -> str:
         return "incomplete"
     if not case["automated"].get("passed"):
         return "fail"
-    if not case["review"].get("required"):
+    if not review_required(case):
         return "pass"
     if review_outstanding(case):
         return "unreviewed"
@@ -129,7 +147,11 @@ def score(report: dict[str, Any]) -> dict[str, Any]:
     for case in cases:
         checks = case["automated"].get("checks", [])
         failed = sorted(
-            {c["name"] for c in checks if not c["passed"] and c["name"] not in ANSWER_CHECKS}
+            {
+                c["name"]
+                for c in checks
+                if not c["passed"] and c["name"] not in ANSWER_CHECKS | REVIEW_CHECKS
+            }
         )
         if failed:
             check_failures[case["id"]] = failed
@@ -152,13 +174,11 @@ def score(report: dict[str, Any]) -> dict[str, Any]:
     # Judged from the review fields, not the verdict: a structural failure must not hide a
     # review nobody has done. Skipped and incomplete cases have no complete answer to judge
     # and are already counted against the bars and the all-cases-run condition.
-    review_required = [
-        case
-        for case in cases
-        if case["review"].get("required") and case["execution"] == "completed"
+    needs_review = [
+        case for case in cases if review_required(case) and case["execution"] == "completed"
     ]
     pending_reviews = {
-        case["id"]: missing for case in review_required if (missing := review_outstanding(case))
+        case["id"]: missing for case in needs_review if (missing := review_outstanding(case))
     }
     review_gate = not pending_reviews
 
@@ -199,7 +219,9 @@ def score(report: dict[str, Any]) -> dict[str, Any]:
         verdict = verdicts[case["id"]]
         if verdict == "fail":
             failed_checks = [
-                c["name"] for c in case["automated"].get("checks", []) if not c["passed"]
+                c["name"]
+                for c in (case.get("automated") or {}).get("checks", [])
+                if not c["passed"] and c["name"] not in REVIEW_CHECKS
             ]
             if failed_checks:
                 patterns[f"structural check failed: {', '.join(sorted(set(failed_checks)))}"] += 1
@@ -253,7 +275,7 @@ def score(report: dict[str, Any]) -> dict[str, Any]:
             },
             "review": {
                 "passed": review_gate,
-                "required": len(review_required),
+                "required": len(needs_review),
                 "pending": list(pending_reviews),
             },
         },
