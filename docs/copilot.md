@@ -146,12 +146,18 @@ lookup, and the model gets no tools. Source reaches the model only inside
 - **Package.** The body is read in pages, scrubbed of comments and string literals,
   and split into subprograms. Subprograms are summarised in batches (one model call
   per batch), then one final call combines the summaries. One model call is always
-  kept back for the combine step.
+  kept back for the combine step, and so is the time it needs: a further batch is
+  summarised only if a call as slow as the slowest so far would still leave time to
+  combine. Otherwise the summaries made so far are combined and the rest are listed
+  as "not summarised".
 - **Process.** A scheduler job is followed to its chain or program, then through the
   chain steps to the programs they run, then to the package procedures those call.
   Up to three packages are read. Triggers on the tables written are read as well.
-- **Limits.** The existing request budget applies (model calls, lookups, bytes,
-  tokens, wall time). When it runs out the answer is partial, the `done` event says
+- **Limits.** The explain actions have their own, larger per-request budget
+  (`HARNESS_KIWI_EXPLAIN_*`: model calls, lookups, bytes, tokens, and
+  `HARNESS_KIWI_EXPLAIN_MAX_WALL_SECONDS`, 420 s, in place of Kiwi's 180 s). Each
+  summary is a separate model call, which on a local model can take a minute or more.
+  When the budget runs out the answer is partial, the `done` event says
   `partial`, and the lineage notes say which subprograms were "not summarised".
 - **Lineage.** The `lineage` event carries `nodes`, `edges`, `mermaid` and `notes`.
   Every edge has an `evidence` label: `source` (read from source text), `inferred`

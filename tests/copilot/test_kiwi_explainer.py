@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from harness_api.config import Settings
+from harness_api.copilot import service as copilot_service
 from harness_api.copilot.explainer import Lineage, scrub, split_units, table_access
 from harness_worker.backend import etl_fixture as fx
 from tests.copilot.test_copilot import integration_headers, sse
@@ -228,6 +229,72 @@ def test_a_small_budget_gives_a_partial_result_that_says_what_is_missing(
     assert "not summarised" in text
 
 
+class SlowModel(RecordingProvider):
+    """The fixture provider on a clock that each model call moves on by ``seconds``."""
+
+    def __init__(self, seconds: float) -> None:
+        super().__init__(None)  # type: ignore[arg-type]
+        self.seconds = seconds
+        self.now = 0.0
+
+    def perf_counter(self) -> float:
+        return self.now
+
+    def start_conversation(self, system, user_message, tools):
+        self.now += self.seconds
+        return super().start_conversation(system, user_message, tools)
+
+
+def use_slow_model(client: TestClient, monkeypatch, seconds: float) -> SlowModel:
+    provider = SlowModel(seconds)
+    client.app.state.harness.copilot._provider = provider  # type: ignore[attr-defined]
+    monkeypatch.setattr(copilot_service, "time", provider)
+    return provider
+
+
+def test_an_explanation_may_take_longer_than_a_kiwi_turn(
+    client: TestClient, developer, targets, settings: Settings, monkeypatch
+) -> None:
+    # Three summaries and the combination at 60 s each: past Kiwi's 180 s, inside the
+    # explainer's own allowance.
+    use_slow_model(client, monkeypatch, 60)
+    events = explain(
+        client,
+        developer,
+        targets["development"]["id"],
+        "kiwi.explain_package",
+        f"{fx.OWNER}.{fx.PACKAGE}",
+    )
+    done = last(events, "done")
+    assert done["outcome"] == "succeeded", done
+    budget = last(events, "budget")
+    assert budget["elapsedSeconds"] > settings.kiwi_max_wall_seconds
+    assert budget["maxWallSeconds"] == settings.kiwi_explain_max_wall_seconds
+
+
+def test_time_is_kept_back_to_combine_the_summaries(
+    client: TestClient, developer, targets, settings: Settings, monkeypatch
+) -> None:
+    # At 150 s a call, a second summary would leave no time to combine: the explainer
+    # combines what it has and says what it left out.
+    provider = use_slow_model(client, monkeypatch, 150)
+    events = explain(
+        client,
+        developer,
+        targets["development"]["id"],
+        "kiwi.explain_package",
+        f"{fx.OWNER}.{fx.PACKAGE}",
+    )
+    done = last(events, "done")
+    assert done["outcome"] == "partial"
+    assert "wall_time" in done["stopReason"]
+    assert len(provider.conversations) == 2
+    assert last(events, "budget")["elapsedSeconds"] <= settings.kiwi_explain_max_wall_seconds
+    text = "".join(d["text"] for n, d in events if n == "delta")
+    assert "the model budget was spent before the summaries could be combined" not in text
+    assert "not summarised: the wall_time budget was spent" in text
+
+
 def test_a_lookup_budget_stops_reading_and_says_so(
     client: TestClient, developer, targets, settings: Settings
 ) -> None:
@@ -295,6 +362,7 @@ def test_the_explain_actions_are_advertised(client: TestClient, administrator) -
     kiwi = client.get("/api/v1/integrations/capabilities", headers=headers).json()["kiwi"]
     assert "kiwi.explain_package" in kiwi["explainers"]
     assert kiwi["explainLimits"]["maxSourceLines"] >= 3000
+    assert kiwi["explainLimits"]["maxWallSeconds"] > kiwi["limits"]["maxWallSeconds"]
 
 
 def test_a_chain_job_that_names_its_chain_in_program_name_is_still_read(

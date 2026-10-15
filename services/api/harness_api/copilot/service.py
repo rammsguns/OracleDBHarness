@@ -331,7 +331,7 @@ class CopilotService:
                 "maxModelCalls": settings.kiwi_explain_max_model_calls,
                 "maxSourceLines": settings.kiwi_explain_max_source_lines,
                 "maxTokens": settings.kiwi_explain_max_tokens,
-                "maxWallSeconds": settings.kiwi_max_wall_seconds,
+                "maxWallSeconds": settings.kiwi_explain_max_wall_seconds,
             },
         }
 
@@ -578,7 +578,7 @@ class CopilotService:
             max_steps=settings.kiwi_explain_max_model_calls,
             max_tool_calls=settings.kiwi_explain_max_tool_calls,
             max_tokens=settings.kiwi_explain_max_tokens,
-            max_wall_seconds=settings.kiwi_max_wall_seconds,
+            max_wall_seconds=settings.kiwi_explain_max_wall_seconds,
             max_tool_bytes=settings.kiwi_explain_max_tool_bytes,
             started=started,
         )

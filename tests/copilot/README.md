@@ -150,6 +150,11 @@ The key is read from `LOCAL_MODEL_API_KEY` (or `--api-key-env`) and may be absen
 server that needs none. The report records the provider as `local`, the base URL, and
 that local-only was on; every case's cost basis is "not billed (local model)".
 
+`--request-timeout-seconds` (600 by default) is how long the runner waits for one case's
+whole stream, and the provider's timeout for one model call. It has to outlast
+`kiwi_explain_max_wall_seconds` (420), because a package or process explanation makes
+several model calls and a local model can take a minute or more over each.
+
 A run against a billed provider spends money and needs `HARNESS_COPILOT_LOCAL_ONLY=false`.
 Every prerequisite is then a required flag; there are no defaults to fall back on:
 
