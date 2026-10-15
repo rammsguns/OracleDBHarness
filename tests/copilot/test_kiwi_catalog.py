@@ -273,7 +273,9 @@ def test_instructions_in_a_run_log_stay_inside_the_markers(
     assert result["status"] == "succeeded", (result, content)
     lines = content.splitlines()
     assert lines[0] == "----- BEGIN UNTRUSTED TOOL_RESULT dba.scheduler_run_history -----"
-    assert lines[-1] == "----- END UNTRUSTED TOOL_RESULT dba.scheduler_run_history -----"
+    # The data ends at the END marker; only the harness's own count follows it.
+    assert lines[-2] == "----- END UNTRUSTED TOOL_RESULT dba.scheduler_run_history -----"
+    assert lines[-1].startswith("[harness] Lookups used: 1 of ")
     assert "dba.kill_session" in lines[1]
     # The lookup made no other call because of it.
     assert result["rowCount"] >= 1

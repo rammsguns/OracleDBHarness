@@ -216,6 +216,27 @@ async def test_a_truncated_turn_drops_its_tool_calls() -> None:
     assert conversation.finished
 
 
+async def test_a_turn_that_must_answer_drops_any_tool_call() -> None:
+    """Once an answer is required, a call the model makes anyway ends the conversation."""
+
+    first = ToolCall("a", "object_status", {"owner": "HR"})
+    again = ToolCall("b", "object_status", {"owner": "HR"})
+    conversation = FakeProvider(
+        script=[
+            ScriptedTurn(tool_calls=(first,)),
+            ScriptedTurn(text="One more.", tool_calls=(again,)),
+        ]
+    ).start_conversation("s", "u", [STATUS])
+    await run_turn(conversation)
+    conversation.add_tool_results([ToolResult("a", "VALID")])
+    conversation.require_answer()
+    text, end = await run_turn(conversation)
+    assert text == "One more."
+    assert end.tool_calls == () and not end.wants_tools
+    assert conversation.finished
+    assert conversation.pending_calls == ()
+
+
 async def test_a_refusal_is_a_provider_failure_that_still_counts_usage() -> None:
     conversation = FakeProvider(
         script=[ScriptedTurn(text="", stop_reason="refusal")]
@@ -423,6 +444,27 @@ async def test_anthropic_offers_tools_and_resends_the_assistant_turn_unchanged(
     assert (total.prompt_tokens, total.completion_tokens) == (280, 30)
     assert total.model == "claude-test"
     assert total.extra == {"turns": 2, "complete": True}
+
+
+async def test_anthropic_a_turn_that_must_answer_chooses_no_tool(
+    anthropic_errors: None,
+) -> None:
+    use = block("tool_use", id="toolu_1", name="object_status", input={"owner": "HR"})
+    client = StandInClient(
+        responses=[
+            message([use], "tool_use", 100, 20),
+            message([block("text", text="It is INVALID.")], "end_turn", 180, 10),
+        ]
+    )
+    conversation = anthropic(client).start_conversation("sys", "why?", [STATUS])
+    await run_turn(conversation)
+    conversation.add_tool_results([ToolResult("toolu_1", "INVALID")])
+    conversation.require_answer()
+    await run_turn(conversation)
+    assert "tool_choice" not in client.requests[0]
+    # The transcript holds a tool_use block, so the tools stay described.
+    assert client.requests[1]["tools"] == client.requests[0]["tools"]
+    assert client.requests[1]["tool_choice"] == {"type": "none"}
 
 
 async def test_anthropic_failure_on_a_later_turn_is_a_typed_provider_failure(

@@ -92,6 +92,7 @@ SUPPORTED_PROTOCOL_MAJOR = 1
 
 # The parameters echoed in a tool_call event are the model's own words; keep them short.
 _MAX_EVENT_PARAMETER_BYTES = 2048
+_BUDGET_REFUSAL = "Not run: this request has used its lookup budget."
 
 _FENCED_BLOCK = re.compile(r"```(?:sql|plsql)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
 # A block labelled for one part of a multi-part proposal: ```plsql part=spec
@@ -623,13 +624,12 @@ class CopilotService:
         """Alternate model turns and lookups until an answer or a bound.
 
         Every bound is checked by the harness, not left to the model. When lookups run
-        out, the model is told so and gets one more turn to answer with what it has;
-        when turns, tokens or time run out, the loop stops where it is.
+        out, the model is told so and gets one more turn, with no tools, to answer with
+        what it has; when turns, tokens or time run out, the loop stops where it is.
         """
 
         toolbox = self.toolbox()
         conversation = self.provider().start_conversation(system, user_message, toolbox.specs())
-        wrap_up = False
         try:
             while True:
                 state.steps += 1
@@ -655,12 +655,6 @@ class CopilotService:
                 if end.truncated:
                     state.exhaust("max_output_tokens")
                 if not end.wants_tools:
-                    yield ("budget", state.event())
-                    return
-                if wrap_up:
-                    # Told the lookups were spent, it asked again. Stop here.
-                    results = [self._budget_refusal(call) for call in conversation.pending_calls]
-                    conversation.add_tool_results(results)
                     yield ("budget", state.event())
                     return
 
@@ -689,11 +683,21 @@ class CopilotService:
                     state.tool_bytes += outcome.result_bytes
                     yield ("tool_result", outcome.event())
                     results.append(outcome.tool_result())
-                conversation.add_tool_results(results)
                 lookups_spent = state.out_of_lookups()
+                if results and not results[-1].content.startswith(_BUDGET_REFUSAL):
+                    # Outside the UNTRUSTED markers: this line is the harness's, not data.
+                    last = results[-1]
+                    results[-1] = ToolResult(
+                        call_id=last.call_id,
+                        content=last.content + "\n" + self._lookups_note(state, lookups_spent),
+                        is_error=last.is_error,
+                    )
+                conversation.add_tool_results(results)
                 if lookups_spent is not None:
                     state.exhaust(lookups_spent)
-                    wrap_up = True
+                    # Told to answer, a model can still keep asking, so the last turn
+                    # offers no tools and has to be the answer.
+                    conversation.require_answer()
 
                 spent = state.out_of_turns()
                 if spent is not None:
@@ -714,10 +718,22 @@ class CopilotService:
         return ToolResult(
             call_id=call.id,
             content=(
-                "Not run: this request has used its lookup budget. Answer now with what "
-                "you have, and say what you could not check."
+                _BUDGET_REFUSAL + " Answer now with what you have, and say what you could "
+                "not check."
             ),
             is_error=True,
+        )
+
+    @staticmethod
+    def _lookups_note(state: _KiwiRun, spent: str | None) -> str:
+        """The harness's count after a batch, so the model can plan what is left."""
+
+        used = f"[harness] Lookups used: {state.tool_calls} of {state.max_tool_calls}."
+        if spent is None:
+            return used
+        return (
+            used + " That was the last lookup this request allows: answer now with what "
+            "you have, and say what you could not check."
         )
 
     @staticmethod

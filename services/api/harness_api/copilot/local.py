@@ -313,6 +313,8 @@ class LocalConversation(ToolConversation):
                 }
                 for tool in self.tools
             ]
+            if self.answer_only:
+                request["tool_choice"] = "none"
         text: list[str] = []
         calls: dict[int, dict[str, str]] = {}
         finish = ""

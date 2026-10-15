@@ -181,7 +181,9 @@ def test_a_lookup_runs_as_the_user_and_is_recorded(client: TestClient, developer
     assert len(received) == 1
     content = received[0].content
     assert content.startswith("----- BEGIN UNTRUSTED TOOL_RESULT schema.object_status -----")
-    assert content.rstrip().endswith("----- END UNTRUSTED TOOL_RESULT schema.object_status -----")
+    data, harness_note = content.rsplit("\n", 1)
+    assert data.endswith("----- END UNTRUSTED TOOL_RESULT schema.object_status -----")
+    assert harness_note == "[harness] Lookups used: 1 of 12."
 
     # Invariant 3: the same Execution row and AuditEvent a console lookup leaves.
     with db_session(client) as db:
@@ -214,6 +216,7 @@ def test_the_kiwi_prompt_replaces_only_the_execution_rule(
     sse(client, developer, kiwi_payload(targets["development"]["id"]))
     assert provider.conversations[0]._context[0] == KIWI_SYSTEM_PROMPT
     assert "UNTRUSTED" in KIWI_SYSTEM_PROMPT
+    assert "fixed number of lookups" in KIWI_SYSTEM_PROMPT
     assert SYSTEM_PROMPT.split("3.")[1] == KIWI_SYSTEM_PROMPT.split("3.")[1]
 
 
@@ -483,6 +486,51 @@ def test_results_are_capped_and_say_so(client: TestClient, developer, targets) -
     assert "UNTRUSTED TOOL_RESULT" in content
 
 
+def test_parameters_say_how_they_are_matched(execution: ExecutionService, settings) -> None:
+    # A model that does not know names are exact and filters are LIKE patterns spends
+    # its lookups retrying with variations.
+    specs = {spec.name: spec for spec in KiwiToolbox(execution, settings).specs()}
+    listing = specs[tool_name_for("schema.list_objects")].input_schema["properties"]
+    assert "%" in listing["name_filter"]["description"]
+    assert "not a list" in listing["object_type"]["description"]
+    assert "Exact name" in listing["owner"]["description"]
+    for spec in specs.values():
+        for name, schema in spec.input_schema["properties"].items():
+            assert schema.get("description"), f"{spec.name}.{name} has no description"
+
+
+def test_an_empty_result_says_nothing_matched(client: TestClient, developer, targets) -> None:
+    provider = use_script(
+        client,
+        ScriptedTurn(tool_calls=(status_call(name="NO_SUCH_OBJECT"),)),
+        ScriptedTurn(text="There is no such object."),
+    )
+    events = sse(client, developer, kiwi_payload(targets["development"]["id"]))
+    assert last(events, "tool_result")["rowCount"] == 0
+    data = provider.conversations[0].received[0].content.split("----- END")[0]
+    assert "No rows: nothing matched" in data
+
+
+def test_every_result_counts_the_lookups_and_the_last_says_to_answer(
+    client: TestClient, developer, targets
+) -> None:
+    copilot = client.app.state.harness.copilot  # type: ignore[attr-defined]
+    copilot._settings = copilot._settings.model_copy(update={"kiwi_max_tool_calls": 3})
+    provider = use_script(
+        client,
+        ScriptedTurn(tool_calls=(status_call("c1"),)),
+        ScriptedTurn(tool_calls=(status_call("c2"), status_call("c3"))),
+        ScriptedTurn(text="The package is invalid."),
+    )
+    sse(client, developer, kiwi_payload(targets["development"]["id"]))
+    received = provider.conversations[0].received
+    notes = [result.content.splitlines()[-1] for result in received]
+    assert notes[0] == "[harness] Lookups used: 1 of 3."
+    # Only the last result of a batch carries the count.
+    assert notes[1].startswith("----- END UNTRUSTED")
+    assert notes[2].startswith("[harness] Lookups used: 3 of 3. That was the last lookup")
+
+
 def test_injected_text_in_a_result_stays_inside_the_markers(
     execution: ExecutionService, settings, seeded
 ) -> None:
@@ -553,7 +601,7 @@ def test_asking_again_after_the_wrap_up_stops_the_loop(
 ) -> None:
     copilot = client.app.state.harness.copilot  # type: ignore[attr-defined]
     copilot._settings = copilot._settings.model_copy(update={"kiwi_max_tool_calls": 1})
-    use_script(
+    provider = use_script(
         client,
         ScriptedTurn(tool_calls=(status_call("c1"),)),
         ScriptedTurn(text="One more.", tool_calls=(status_call("c2"),)),
@@ -561,6 +609,9 @@ def test_asking_again_after_the_wrap_up_stops_the_loop(
     )
     events = sse(client, developer, kiwi_payload(targets["development"]["id"]))
     assert len([n for n in names(events) if n == "tool_call"]) == 1
+    # The turn after the last lookup offers no tools; the call it made anyway is dropped.
+    assert provider.conversations[0].answer_only_turns == [False, True]
+    assert "One more." in "".join(d["text"] for n, d in events if n == "delta")
     done = last(events, "done")
     assert done["outcome"] == "partial"
     assert done["stopReason"] == "tool_calls"
