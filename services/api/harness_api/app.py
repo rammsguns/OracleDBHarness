@@ -96,6 +96,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        settings.check_copilot_endpoint()
         state = build_state(settings)
         app.state.harness = state
         for warning in settings.startup_warnings():

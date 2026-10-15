@@ -62,8 +62,13 @@ services:
       HARNESS_WORKSHEET_IDLE_SECONDS: "300"
       HARNESS_WORKER_PROCESSES: "4"
       HARNESS_COPILOT_ENABLED: ${HARNESS_COPILOT_ENABLED:-false}
-      HARNESS_COPILOT_PROVIDER: ${HARNESS_COPILOT_PROVIDER:-anthropic}
-      HARNESS_COPILOT_MODEL: ${HARNESS_COPILOT_MODEL:-claude-opus-5}
+      # Only a model on this host is allowed while local-only is on (ADR-0012). Inside
+      # this container 127.0.0.1 is the container itself; see docs/setup.md for
+      # reaching a model served on the host.
+      HARNESS_COPILOT_PROVIDER: ${HARNESS_COPILOT_PROVIDER:-local}
+      HARNESS_COPILOT_LOCAL_ONLY: ${HARNESS_COPILOT_LOCAL_ONLY:-true}
+      HARNESS_COPILOT_BASE_URL: ${HARNESS_COPILOT_BASE_URL:-http://127.0.0.1:8080/v1}
+      HARNESS_COPILOT_MODEL: ${HARNESS_COPILOT_MODEL:-}
       HARNESS_COPILOT_API_KEY_REF: ${HARNESS_COPILOT_API_KEY_REF:-}
     secrets:
       - source: postgres_password

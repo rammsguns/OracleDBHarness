@@ -264,6 +264,8 @@ class CopilotService:
                 max_output_tokens=self._settings.copilot_max_output_tokens,
                 timeout_seconds=self._settings.copilot_request_timeout_seconds,
                 max_retries=self._settings.copilot_provider_max_retries,
+                base_url=self._settings.copilot_base_url,
+                local_only=self._settings.copilot_local_only,
             )
         return self._provider
 
@@ -288,6 +290,7 @@ class CopilotService:
             "provider": self._settings.copilot_provider,
             "model": self._settings.copilot_model,
             "isFixtureProvider": self._settings.copilot_provider == "fake",
+            "localOnly": self._settings.copilot_local_only,
             "limits": {
                 "maxContextBytes": self._settings.copilot_max_context_bytes,
                 "userDailyRequests": self._settings.copilot_user_daily_requests,

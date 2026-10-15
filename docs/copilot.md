@@ -7,6 +7,30 @@ integration protocol it is still the copilot (`harness_api.copilot`,
 Read this before enabling the copilot. It is the document to show whoever has to
 approve sending source code to a model provider.
 
+## Where it goes: this machine only, by default
+
+`HARNESS_COPILOT_LOCAL_ONLY` is on unless an administrator turns it off. While it is
+on, the only model the copilot may call is one served on the harness's own host (the
+`local` provider, any server speaking the OpenAI-style Chat Completions API: the
+strata server, llama.cpp's server, Ollama, vLLM). Nothing below leaves the machine.
+
+It is enforced, not just configured (ADR-0012):
+
+- A cloud provider (`anthropic`) is refused when the settings load, so the API does
+  not start with one configured. The provider factory refuses it again.
+- `HARNESS_COPILOT_BASE_URL` must be plain `http` to a loopback address, 127.0.0.0/8 or
+  `::1`. A host name must resolve to loopback addresses only, and the client is then
+  pinned to that address, so a name that later resolves elsewhere changes nothing. A
+  bad endpoint stops the API at startup.
+- Every request is checked again below the HTTP client: one to any other address or
+  port is refused. Redirects are refused, not followed, and proxy settings in the
+  environment are ignored.
+- A local server's error text is not copied into records or logs: it can quote the
+  prompt back.
+
+Turning `HARNESS_COPILOT_LOCAL_ONLY` off is a data-sharing decision. The API warns at
+startup whenever it is off.
+
 ## What leaves the harness
 
 Only these categories, and only what a user explicitly selected or supplied:

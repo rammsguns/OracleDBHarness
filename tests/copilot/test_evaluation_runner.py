@@ -33,6 +33,7 @@ from tests.copilot.eval.runner import (
     SAFETY_CHECKS,
     EvaluationRefused,
     RunConfig,
+    local_only_from,
     preflight,
     reservation_for,
     run_evaluation,
@@ -118,6 +119,8 @@ def qualification_config(tmp_path: Path, **overrides: Any) -> RunConfig:
         "provider": "anthropic",
         "model": MODEL,
         "api_key_env": KEY_ENV,
+        # These tests exercise the billed path: spend ceilings and prices.
+        "local_only": False,
         "budget_usd": 100.0,
         "pricing": Pricing(input_usd_per_mtok=5.0, output_usd_per_mtok=25.0, source="test"),
         "approved_categories": frozenset({"selected_source", "user_message", "error_text"}),
@@ -365,6 +368,84 @@ def test_preflight_refuses_a_ceiling_below_the_worst_case(tmp_path: Path) -> Non
         preflight(config, cases, {KEY_ENV: KEY})
     allowed = qualification_config(tmp_path, budget_usd=one * 1.5, allow_partial_run=True)
     assert preflight(allowed, cases, {KEY_ENV: KEY}) == KEY
+
+
+# -- a local model ----------------------------------------------------------------------
+
+LOCAL_URL = "http://127.0.0.1:8080/v1"
+
+
+def local_config(tmp_path: Path, **overrides: Any) -> RunConfig:
+    values: dict[str, Any] = {
+        "provider": "local",
+        "base_url": LOCAL_URL,
+        "local_only": True,
+        "budget_usd": None,
+        "pricing": None,
+    }
+    values.update(overrides)
+    return qualification_config(tmp_path, **values)
+
+
+def test_local_only_refuses_a_billed_provider(tmp_path: Path) -> None:
+    config = qualification_config(tmp_path, local_only=True)
+    with pytest.raises(EvaluationRefused) as refused:
+        preflight(config, case_set(case("A")), {KEY_ENV: KEY})
+    assert any("HARNESS_COPILOT_LOCAL_ONLY is on" in p for p in refused.value.problems)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(None, True), ("", True), ("true", True), ("1", True), ("false", False), ("OFF", False)],
+)
+def test_local_only_reads_like_the_api_setting(value: str | None, expected: bool) -> None:
+    environ = {} if value is None else {"HARNESS_COPILOT_LOCAL_ONLY": value}
+    assert local_only_from(environ) is expected
+
+
+def test_a_local_run_needs_no_key_budget_or_prices(tmp_path: Path) -> None:
+    assert preflight(local_config(tmp_path), case_set(case("A")), {}) == ""
+
+
+def test_a_local_run_refuses_an_endpoint_off_this_host_and_a_price(tmp_path: Path) -> None:
+    config = local_config(
+        tmp_path, base_url="http://192.0.2.10:8080/v1", budget_usd=10.0, pricing=Pricing(1, 1)
+    )
+    with pytest.raises(EvaluationRefused) as refused:
+        preflight(config, case_set(case("A")), {})
+    problems = "\n".join(refused.value.problems)
+    assert "not on this machine" in problems
+    assert "not billed" in problems
+
+
+class LocalScriptedProvider(ScriptedProvider):
+    name = "local"
+
+    async def stream(self, system: str, user_message: str) -> AsyncIterator[str]:
+        async for piece in super().stream(system, user_message):
+            yield piece
+        self._usage.provider = "local"
+
+
+async def test_a_local_run_records_the_endpoint_and_charges_nothing(tmp_path: Path) -> None:
+    report = await run_scripted(
+        tmp_path,
+        case_set(case("A")),
+        provider_override=LocalScriptedProvider(leak=KEY),
+        provider="local",
+        base_url=LOCAL_URL,
+        local_only=True,
+        budget_usd=None,
+        pricing=None,
+    )
+    assert report["provider"]["name"] == "local"
+    assert report["provider"]["baseUrl"] == LOCAL_URL
+    assert report["provider"]["localOnly"] is True
+    assert report["pricing"] is None
+    record = by_id(report)["A"]
+    assert record["execution"] == "completed", record
+    assert record["costBasis"] == "not billed (local model)"
+    assert record["estimatedCostUsd"] == 0
 
 
 def test_the_reservation_bounds_the_bytes_sent(tmp_path: Path) -> None:

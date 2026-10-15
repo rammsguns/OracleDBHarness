@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from harness_worker.types import ExecutionLimits
@@ -67,8 +67,14 @@ class Settings(BaseSettings):
     allowed_endpoints: str = ""
 
     copilot_enabled: bool = False
+    # "local" (a model on this machine), "fake" (fixture answers) or "anthropic".
     copilot_provider: str = "fake"
     copilot_model: str = "claude-opus-5"
+    # Prompts stay on this host: only "local" and "fake" are allowed, and the local
+    # endpoint has to be a loopback address. Turning this off is a data-sharing decision.
+    copilot_local_only: bool = True
+    # The local server's OpenAI-style API root, for example http://127.0.0.1:8080/v1.
+    copilot_base_url: str = ""
     copilot_api_key_ref: str = ""
     copilot_max_context_bytes: int = 128 * 1024
     # Thinking counts against this too, so it bounds the whole billed output of a call.
@@ -121,6 +127,30 @@ class Settings(BaseSettings):
             raise ValueError("HARNESS_ORACLE_BACKEND must be 'fake' or 'oracledb'.")
         return value
 
+    @model_validator(mode="after")
+    def _copilot_stays_local(self) -> Settings:
+        if self.copilot_provider not in ("fake", "local", "anthropic"):
+            raise ValueError("HARNESS_COPILOT_PROVIDER must be 'local', 'fake' or 'anthropic'.")
+        if self.copilot_local_only and self.copilot_provider not in ("fake", "local"):
+            raise ValueError(
+                f"HARNESS_COPILOT_PROVIDER is {self.copilot_provider!r}, which sends prompts "
+                "off this host, and HARNESS_COPILOT_LOCAL_ONLY is on. Use 'local', or turn "
+                "HARNESS_COPILOT_LOCAL_ONLY off deliberately."
+            )
+        return self
+
+    def check_copilot_endpoint(self) -> None:
+        """Refuse to start with a local endpoint that is not on this machine.
+
+        The provider checks again when it is built; this makes a bad address a startup
+        failure rather than the first user's error.
+        """
+
+        if self.copilot_enabled and self.copilot_provider == "local":
+            from harness_api.copilot.local import LoopbackEndpoint
+
+            LoopbackEndpoint.resolve(self.copilot_base_url)
+
     @property
     def default_limits(self) -> ExecutionLimits:
         return ExecutionLimits(
@@ -167,6 +197,11 @@ class Settings(BaseSettings):
             warnings.append(
                 "The copilot is enabled with the fixture provider. Answers are canned "
                 "and no model provider is being called."
+            )
+        if not self.copilot_local_only:
+            warnings.append(
+                "HARNESS_COPILOT_LOCAL_ONLY is off. With a cloud provider configured, prompts "
+                "-- database source, plans, errors -- leave this host."
             )
         if self.copilot_log_prompts:
             warnings.append(

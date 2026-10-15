@@ -107,6 +107,8 @@ def evaluation_settings(
     request_timeout_seconds: float,
     daily_requests: int,
     kiwi: bool = False,
+    base_url: str = "",
+    local_only: bool = True,
 ) -> Settings:
     (workspace / "secrets").mkdir(parents=True, exist_ok=True)
     (workspace / "fake").mkdir(parents=True, exist_ok=True)
@@ -122,6 +124,8 @@ def evaluation_settings(
         "copilot_enabled": True,
         "copilot_provider": provider,
         "copilot_model": model,
+        "copilot_base_url": base_url,
+        "copilot_local_only": local_only,
         "copilot_api_key_ref": KEY_REFERENCE if api_key_env else "",
         "copilot_max_output_tokens": max_output_tokens,
         "copilot_request_timeout_seconds": request_timeout_seconds,

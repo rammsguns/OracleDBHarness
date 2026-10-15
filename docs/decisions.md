@@ -248,3 +248,41 @@ compiler errors containing instruction-like text are not followed; the audit eve
 names the user, the target and the proposal.
 
 **Revisit when.** The owner makes the go/no-go, or `Target.environment` changes.
+
+
+## ADR-0012: The copilot uses only a model on this host, by default
+
+**Status.** Accepted 2026-10-15. Implemented: the `local` provider and
+`HARNESS_COPILOT_LOCAL_ONLY`, on by default.
+
+**Decision.** Prompts -- selected source, object definitions, plans, errors, and what
+Kiwi looks up -- go only to a model served on the harness's own host. The `local`
+provider speaks the OpenAI-style Chat Completions API to an `http` endpoint on a
+loopback address (127.0.0.0/8 or `::1`). While `HARNESS_COPILOT_LOCAL_ONLY` is on:
+
+- a cloud provider is refused when settings load and again in the provider factory;
+- a host name has to resolve to loopback addresses only, and the client is pinned to
+  the address it resolved to, so DNS rebinding cannot move it;
+- the transport under the client refuses any request to another address or port, so a
+  URL built elsewhere in the code cannot leave the host;
+- redirects are refused, not followed, and environment proxy settings are ignored;
+- the evaluation runner (K-7) applies the same rule and the same endpoint check.
+
+**Why.** The data-sharing question that every copilot feature has been gated on --
+may this source and these errors go to a third party -- does not arise if they never
+leave the machine. A local server on the same host is a process boundary, not a
+network one. The owner chose loopback-only over a private-network allowlist: an
+allowlist is a list someone has to keep right, and a mistake in it is silent.
+
+**What it gives up.** Model quality and capacity are whatever the host can run. A
+model on another machine in the same private network is not allowed either; that
+would need this ADR revisited, not a configuration change. The Anthropic adapter stays
+in the code, so turning the setting off brings it back; the API warns at startup while
+it is off.
+
+**What does not change.** The context policy (what may be sent at all), the
+no-execution rules of ADR-0008 and ADR-0010, budgets and records. A local model's
+answers are evaluated the same way, by the K-7 runner and a DBA review.
+
+**Revisit when.** A model the harness needs cannot run on its host, or the harness
+moves to a host that cannot run a model.

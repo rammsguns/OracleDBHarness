@@ -3,8 +3,11 @@
 Two modes:
 
 ``qualification``
-    A real provider and an explicitly named model, an approved data-sharing scope, a
-    spend ceiling and supplied prices. Refuses the fixture provider outright, and aborts
+    A real provider and an explicitly named model, an approved data-sharing scope, and
+    for a billed provider a spend ceiling and supplied prices. A local model (the
+    ``local`` provider, on this machine) is not billed, so it needs neither; while
+    ``HARNESS_COPILOT_LOCAL_ONLY`` is on, which it is unless set off, it is the only
+    provider allowed. Refuses the fixture provider outright, and aborts
     if anything in the stream shows fixture answers anyway. Its report is the input to
     DBA review and then to :mod:`tests.copilot.eval.scoring`.
 ``rehearsal``
@@ -39,6 +42,7 @@ import httpx
 
 from harness_api.config import Settings
 from harness_api.copilot.context import ACTION_INSTRUCTIONS, SYSTEM_PROMPT, ContextCategory
+from harness_api.copilot.local import LoopbackEndpoint
 from harness_api.copilot.provider import (
     FakeConversation,
     FakeProvider,
@@ -49,6 +53,7 @@ from harness_api.copilot.provider import (
     create_provider,
 )
 from harness_api.copilot.toolbox import tool_name_for
+from harness_worker.errors import HarnessError
 from tests.copilot.eval.budget import Budget, Pricing
 from tests.copilot.eval.cases import DEFAULT_CASE_FILE, CaseSet, EvalCase
 from tests.copilot.eval.harness import (
@@ -61,7 +66,11 @@ from tests.copilot.eval.harness import (
 REPORT_FORMAT = 1
 QUALIFICATION = "qualification"
 REHEARSAL = "rehearsal"
-SUPPORTED_PROVIDERS = ("anthropic",)
+SUPPORTED_PROVIDERS = ("local", "anthropic")
+# Providers that send prompts off this host, and are refused while local-only is on.
+CLOUD_PROVIDERS = frozenset({"anthropic"})
+# The key variable each provider reads when --api-key-env is not given.
+DEFAULT_KEY_ENV = {"local": "LOCAL_MODEL_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
 REDACTED = "[REDACTED CREDENTIAL]"
 # How long past the provider's own timeout the runner waits before giving up on a stream.
 # The provider's timeout should fire first and leave a clean error record behind.
@@ -143,10 +152,14 @@ AccessCheck = Callable[["RunConfig", str], Awaitable[str]]
 class RunConfig:
     mode: str
     report_path: Path
-    provider: str = "anthropic"
+    provider: str = "local"
     model: str = ""
     case_file: Path = DEFAULT_CASE_FILE
-    api_key_env: str = "ANTHROPIC_API_KEY"
+    api_key_env: str = "LOCAL_MODEL_API_KEY"
+    # The local server's API root; only loopback addresses are accepted.
+    base_url: str = ""
+    # Mirrors HARNESS_COPILOT_LOCAL_ONLY. Turning it off is a data-sharing decision.
+    local_only: bool = True
     budget_usd: float | None = None
     pricing: Pricing | None = None
     approved_categories: frozenset[str] = field(default_factory=frozenset)
@@ -157,10 +170,24 @@ class RunConfig:
     allow_partial_run: bool = False
 
 
-async def anthropic_access_check(config: RunConfig, api_key: str) -> str:
+def local_only_from(environ: dict[str, str]) -> bool:
+    """HARNESS_COPILOT_LOCAL_ONLY as the API reads it: on unless set to a false value."""
+
+    value = environ.get("HARNESS_COPILOT_LOCAL_ONLY", "").strip().lower()
+    return value not in ("0", "false", "no", "off")
+
+
+async def provider_access_check(config: RunConfig, api_key: str) -> str:
     """Check the key and the model without generating anything."""
 
-    provider = create_provider(config.provider, api_key=api_key, model=config.model, max_retries=0)
+    provider = create_provider(
+        config.provider,
+        api_key=api_key,
+        model=config.model,
+        max_retries=0,
+        base_url=config.base_url,
+        local_only=config.local_only,
+    )
     return await provider.check_access()
 
 
@@ -402,26 +429,42 @@ def preflight(config: RunConfig, case_set: CaseSet, environ: dict[str, str]) -> 
         problems.append(
             f"Unsupported provider {config.provider!r}; supported: {', '.join(SUPPORTED_PROVIDERS)}."
         )
+    elif config.provider in CLOUD_PROVIDERS and config.local_only:
+        problems.append(
+            f"HARNESS_COPILOT_LOCAL_ONLY is on, so the case set may not be sent to "
+            f"{config.provider!r}. Use --provider local, or set it off deliberately."
+        )
     if not config.model.strip():
         problems.append("Name the model explicitly with --model; there is no default.")
+    local = config.provider == "local"
+    if local:
+        try:
+            LoopbackEndpoint.resolve(config.base_url)
+        except HarnessError as exc:
+            problems.append(exc.message)
 
     api_key = environ.get(config.api_key_env, "")
-    if not api_key.strip():
+    # A local server may need no key; a billed provider always does.
+    if not api_key.strip() and not local:
         problems.append(
             f"No provider key: environment variable {config.api_key_env} is unset or empty."
         )
 
-    if config.budget_usd is None or config.budget_usd <= 0:
-        problems.append("Set a spend ceiling with --budget-usd.")
-    if (
-        config.pricing is None
-        or config.pricing.input_usd_per_mtok <= 0
-        or config.pricing.output_usd_per_mtok <= 0
-    ):
-        problems.append(
-            "Supply the provider's current prices with --input-usd-per-mtok and "
-            "--output-usd-per-mtok. They are recorded in the report as assumptions."
-        )
+    if local:
+        if config.budget_usd is not None or config.pricing is not None:
+            problems.append("A local model is not billed; leave out --budget-usd and the prices.")
+    else:
+        if config.budget_usd is None or config.budget_usd <= 0:
+            problems.append("Set a spend ceiling with --budget-usd.")
+        if (
+            config.pricing is None
+            or config.pricing.input_usd_per_mtok <= 0
+            or config.pricing.output_usd_per_mtok <= 0
+        ):
+            problems.append(
+                "Supply the provider's current prices with --input-usd-per-mtok and "
+                "--output-usd-per-mtok. They are recorded in the report as assumptions."
+            )
     if config.max_output_tokens <= 0:
         problems.append("--max-output-tokens must be positive.")
     if config.request_timeout_seconds <= 0:
@@ -461,6 +504,12 @@ def preflight(config: RunConfig, case_set: CaseSet, environ: dict[str, str]) -> 
     return api_key
 
 
+def _harness_key_env(config: RunConfig, api_key: str) -> str | None:
+    """The variable the harness reads its key from, or none for a keyless local server."""
+
+    return config.api_key_env if api_key else None
+
+
 # -- the run --------------------------------------------------------------------------
 
 
@@ -469,7 +518,7 @@ async def run_evaluation(
     case_set: CaseSet,
     *,
     environ: dict[str, str] | None = None,
-    access_check: AccessCheck = anthropic_access_check,
+    access_check: AccessCheck = provider_access_check,
     provider_override: Provider | None = None,
 ) -> dict[str, Any]:
     """Run every case and write the report. Returns the report as written."""
@@ -513,6 +562,8 @@ async def run_evaluation(
         "caseSet": case_set.summary(),
         "provider": {
             "name": config.provider,
+            "localOnly": config.local_only,
+            "baseUrl": config.base_url if config.provider == "local" else None,
             "requestedModel": config.model if qualification else "fixture",
             "accessCheckModel": reported_access_model,
             "reportedModels": [],
@@ -546,7 +597,9 @@ async def run_evaluation(
             Path(workspace),
             provider=config.provider,
             model=config.model if qualification else "fixture",
-            api_key_env=config.api_key_env if qualification else None,
+            api_key_env=_harness_key_env(config, api_key) if qualification else None,
+            base_url=config.base_url,
+            local_only=config.local_only,
             max_output_tokens=config.max_output_tokens,
             request_timeout_seconds=config.request_timeout_seconds,
             daily_requests=len(case_set.cases) + 10,
@@ -554,7 +607,7 @@ async def run_evaluation(
         )
         with running_harness(
             settings,
-            api_key_env=config.api_key_env if qualification else None,
+            api_key_env=_harness_key_env(config, api_key) if qualification else None,
             provider_override=provider_override,
         ) as harness:
             timeout = httpx.Timeout(
@@ -654,7 +707,14 @@ async def _run_case(
     elif usage_tokens is not None and config.pricing is not None:
         cost, basis = config.pricing.cost(**usage_tokens), "reported usage"
     elif config.pricing is None:
-        cost, basis = 0.0, "no pricing (rehearsal)"
+        cost, basis = (
+            0.0,
+            (
+                "not billed (local model)"
+                if config.provider == "local"
+                else "no pricing (rehearsal)"
+            ),
+        )
     else:
         cost, basis = reservation, "full reservation: usage unavailable"
     budget.charge(case.id, cost, basis)
