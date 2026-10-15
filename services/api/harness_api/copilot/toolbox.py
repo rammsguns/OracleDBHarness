@@ -38,7 +38,7 @@ _INTEGER_PARAMETERS = frozenset(
 _ROW_LIMIT_PARAMETER = "row_limit"
 _WHY = "why"
 # How the reviewed queries match each parameter, so the model does not spend lookups
-# guessing: names are compared exactly after upper-casing, and only the two filters are
+# guessing: names are compared exactly after upper-casing, and only the filters are
 # LIKE patterns. Keep these in step with oracle/diagnostics.
 _NAME = "Exact name, matched upper-cased (no wildcards)."
 _PARAMETER_DESCRIPTIONS = {
@@ -58,6 +58,10 @@ _PARAMETER_DESCRIPTIONS = {
         "(EMP% or %EMPLOYEE%). Without % it matches one exact name."
     ),
     "text_filter": "LIKE pattern on the SQL text, case-insensitive: use % as the wildcard.",
+    "source_filter": (
+        "LIKE pattern on one line of source, case-insensitive: use % as the wildcard "
+        "(%CHECK_RULE_042% or %PROCEDURE TRANSFORM%). Without % it matches a whole line."
+    ),
     "sql_id": "The cursor's SQL_ID, exactly as reported (case-sensitive).",
     "child_number": "The cursor's child number.",
     "statement_id": "The plan's STATEMENT_ID, exactly.",

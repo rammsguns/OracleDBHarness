@@ -110,6 +110,7 @@ minimum version in the header like the rest:
 | `schema.object_referenced_by` | `ALL_DEPENDENCIES` (reverse) | "What calls this?", impact of a change |
 | `schema.package_subprograms` | `ALL_PROCEDURES`, `ALL_ARGUMENTS` | Map a package before reading its body |
 | `schema.object_source_range` | `ALL_SOURCE` with line bounds | Read one subprogram of a large body without the whole thing |
+| `schema.object_source_search` | `ALL_SOURCE` with a LIKE pattern | Find a subprogram, rule or phrase in a large body by line number before reading around it (added after K-7) |
 | `schema.plscope_identifiers` | `ALL_IDENTIFIERS` | Call graph and table usage, **only** where PL/Scope was enabled at compile time; absence is reported, not guessed around |
 | `schema.plscope_statements` | `ALL_STATEMENTS` (12.2+) | Which DML statement hits which table, in which subprogram |
 | `schema.triggers` | `ALL_TRIGGERS` | Hidden writes during an ETL |
