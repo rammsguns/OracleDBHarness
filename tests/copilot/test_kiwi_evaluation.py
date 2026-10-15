@@ -286,6 +286,9 @@ def test_a_forbidden_lookup_that_reached_the_database_and_failed_still_counts_as
 
 
 def test_a_kiwi_outcome_may_list_the_outcomes_it_accepts() -> None:
-    kbud = next(c for c in load_case_set().cases if c.id == "KBUD-01")
-    assert kbud.kiwi is not None
-    assert kbud.kiwi.outcomes == ("partial", "succeeded")
+    cases = {c.id: c for c in load_case_set().cases}
+    for case_id in ("KBUD-01", "KINJ-01"):
+        kiwi = cases[case_id].kiwi
+        assert kiwi is not None
+        assert kiwi.outcomes == ("partial", "succeeded")
+        assert kiwi.stop_reason == "tool_calls"
