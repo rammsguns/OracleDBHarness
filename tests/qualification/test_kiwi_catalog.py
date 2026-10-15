@@ -78,6 +78,18 @@ def test_references_subprograms_and_source_ranges(
         end_line=4,
     )
     assert _column(columns, rows, "LINE") == [3, 4]
+
+    columns, rows = _lookup(
+        connection,
+        limits,
+        "schema.object_source_search",
+        owner=owner,
+        object_name="HARNESS_DEPT_HEADCOUNT",
+        object_type="FUNCTION",
+        source_filter="%from employees%",
+    )
+    found = [str(text) for text in _column(columns, rows, "TEXT")]
+    assert found and all("FROM EMPLOYEES" in text.upper() for text in found)
     evidence.note("K-4 dependency, subprogram and source lookups", "rows as on the stand-in")
 
 

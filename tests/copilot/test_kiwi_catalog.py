@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from harness_api.copilot.provider import ScriptedTurn, ToolCall
 from harness_api.copilot.toolbox import KiwiToolbox, tool_name_for
 from harness_api.execution import ExecutionService
+from harness_worker.backend import etl_fixture as fx
 from tests.copilot.test_copilot import sse
 from tests.copilot.test_kiwi import kiwi_payload, last, use_script
 
@@ -24,6 +25,7 @@ K4_ENTRIES = {
     "schema.object_referenced_by",
     "schema.package_subprograms",
     "schema.object_source_range",
+    "schema.object_source_search",
     "schema.plscope_identifiers",
     "schema.plscope_statements",
     "schema.triggers",
@@ -158,6 +160,77 @@ def test_a_source_range_returns_only_the_lines_asked_for(
     assert result["status"] == "succeeded", (result, content)
     _, found = rows(content)
     assert [row["LINE"] for row in found] == [3, 4]
+
+
+def test_a_source_search_finds_a_rule_and_its_caller_in_a_long_body(
+    client: TestClient, developer, targets
+) -> None:
+    body = fx.body_lines()
+    result, content = lookup(
+        client,
+        developer,
+        targets["development"]["id"],
+        "schema.object_source_search",
+        owner=fx.OWNER,
+        object_name=fx.PACKAGE,
+        object_type="PACKAGE BODY",
+        source_filter="%check_rule_042%",
+    )
+    assert result["status"] == "succeeded", (result, content)
+    _, found = rows(content)
+    lines = [row["LINE"] for row in found]
+    assert lines == [n for n, text in enumerate(body, 1) if "check_rule_042" in text]
+    # The definition and the call from the dispatcher: two lookups' worth of reading.
+    assert len(lines) >= 2
+    assert {row["NAME"] for row in found} == {fx.PACKAGE}
+
+
+def test_a_source_search_without_an_object_searches_the_owner(
+    client: TestClient, developer, targets
+) -> None:
+    result, content = lookup(
+        client,
+        developer,
+        targets["development"]["id"],
+        "schema.object_source_search",
+        owner=fx.OWNER,
+        source_filter="%check_rule_042%",
+    )
+    assert result["status"] == "succeeded", (result, content)
+    _, found = rows(content)
+    assert {(row["NAME"], row["TYPE"]) for row in found} >= {(fx.PACKAGE, "PACKAGE BODY")}
+
+
+def test_a_source_search_without_a_pattern_returns_nothing(
+    client: TestClient, developer, targets
+) -> None:
+    result, content = lookup(
+        client,
+        developer,
+        targets["development"]["id"],
+        "schema.object_source_search",
+        owner=fx.OWNER,
+        object_name=fx.PACKAGE,
+    )
+    assert result["status"] == "succeeded", (result, content)
+    assert result["rowCount"] == 0
+
+
+def test_a_source_search_is_capped_like_every_lookup(
+    client: TestClient, developer, targets, settings
+) -> None:
+    result, content = lookup(
+        client,
+        developer,
+        targets["development"]["id"],
+        "schema.object_source_search",
+        owner=fx.OWNER,
+        object_name=fx.PACKAGE,
+        source_filter="%",
+        row_limit=100000,
+    )
+    assert result["status"] == "succeeded", (result, content)
+    assert result["rowCount"] <= settings.kiwi_max_rows_per_tool
 
 
 def test_a_source_range_refuses_a_text_line_number(client: TestClient, developer, targets) -> None:

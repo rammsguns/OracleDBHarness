@@ -228,8 +228,10 @@ The console's multi-part mode ("Edit several parts together") works this way, wi
 instructions (`copilot/context.py`) name the catalog lookups to use for invalid objects
 and PLS- errors, pasted ORA- errors, failed scheduler jobs, blocking and slow
 statements; the model still chooses its lookups, and without lookups it says which it
-would have made. Drafts ground every column in the context or a lookup, and test
-blocks report through DBMS_OUTPUT and end with ROLLBACK. After a failed compile the
+would have made. In a long body, `schema.object_source_search` finds the lines that
+match a LIKE pattern (a subprogram, a rule, a phrase) and `schema.object_source_range`
+reads around them, rather than paging through the body range by range. Drafts ground
+every column in the context or a lookup, and test blocks report through DBMS_OUTPUT and end with ROLLBACK. After a failed compile the
 PL/SQL view offers "Ask Kiwi to fix", which opens Kiwi on `kiwi.diagnose` with the
 source and the compiler errors as `line:column text`.
 
