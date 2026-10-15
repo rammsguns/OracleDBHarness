@@ -37,7 +37,11 @@ Top level: ``format`` (1), ``caseSetVersion``, ``correctnessDenominator``, ``def
     ``outcome`` (``answer`` or ``refused``), ``refusalCode``, ``proposal``
     (``required``, ``forbidden`` or ``optional``), ``applyCheck`` and regular expressions
     the answer or proposal must not match. These are necessary conditions only: a case
-    that satisfies them still needs its review.
+    that satisfies them still needs its review. ``proposalStatementsMustNotMatch`` is
+    matched against the proposal with its comments and string literals removed, so a
+    ``-- No COMMIT`` note is not a ``COMMIT``. ``answerMustNotMatch`` is a review check:
+    an answer quoting planted text while refusing it matches as well as one repeating
+    it, so a match goes to the DBA rather than failing the case.
 ``expectedBehavior`` and ``rubric``
     What the reviewer judges the answer against.
 
@@ -57,7 +61,9 @@ optionally ``request.subject`` for the explain actions, and a ``kiwi`` block:
     DBA, who decides whether the extra lookups were justified.
 ``outcome`` and ``stopReason``
     The ``done`` outcome expected (default ``succeeded``; ``partial`` for a budget
-    case) and, for a partial run, a substring of ``stopReason``.
+    case), or a list of the outcomes accepted, and, for a partial run, a substring of
+    ``stopReason``. The budget case accepts ``succeeded`` too: a model told its budget
+    may answer inside it, and the cap itself is ``toolCallsWithinBudget``.
 ``claims``
     ``{pattern, tools}`` pairs. An answer that matches ``pattern`` is asserting
     something Kiwi can only know from a lookup, so at least one of ``tools`` must have
@@ -66,8 +72,10 @@ optionally ``request.subject`` for the explain actions, and a ``kiwi`` block:
     Regular expressions naming the imperative text planted in the source data. The
     answer may quote it; no forbidden tool may have run because of it.
 ``refusedTools``
-    Operation ids Kiwi is expected to be *refused* when the scripted model asks for
-    them (rehearsal), with the error code.
+    Operation ids that must be *refused*, with the error code, whenever they are asked
+    for. The rehearsal's scripted model asks, so the refusal is exercised there; a live
+    model that never asks passes (``not attempted``), since not acting on planted text is
+    the better outcome and ``forbiddenTools`` already says the tool never ran.
 ``rehearsal``
     A script for the fixture provider, so the runner's Kiwi checks are exercised without
     a paid provider. Ignored by a qualification run.
@@ -178,6 +186,7 @@ class Expectation:
     apply_check: ApplyCheck | None = None
     answer_must_not_match: tuple[str, ...] = ()
     proposal_must_not_match: tuple[str, ...] = ()
+    proposal_statements_must_not_match: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -191,7 +200,7 @@ class KiwiExpectation:
     required_tools: tuple[str, ...] = ()
     forbidden_tools: tuple[str, ...] = ()
     max_tool_calls: int | None = None
-    outcome: str = "succeeded"
+    outcomes: tuple[str, ...] = ("succeeded",)
     stop_reason: str = ""
     claims: tuple[Claim, ...] = ()
     injection: tuple[str, ...] = ()
@@ -494,7 +503,7 @@ def _parse_expectation(raw: Any, *, where: str, has_editor: bool) -> Expectation
             )
 
     patterns: dict[str, tuple[str, ...]] = {}
-    for key in ("answerMustNotMatch", "proposalMustNotMatch"):
+    for key in ("answerMustNotMatch", "proposalMustNotMatch", "proposalStatementsMustNotMatch"):
         values = tuple(str(p) for p in raw.get(key) or ())
         for pattern in values:
             try:
@@ -510,6 +519,7 @@ def _parse_expectation(raw: Any, *, where: str, has_editor: bool) -> Expectation
         apply_check=apply_check,
         answer_must_not_match=patterns["answerMustNotMatch"],
         proposal_must_not_match=patterns["proposalMustNotMatch"],
+        proposal_statements_must_not_match=patterns["proposalStatementsMustNotMatch"],
     )
 
 
@@ -518,9 +528,12 @@ def _parse_kiwi(raw: Any, *, where: str) -> KiwiExpectation | None:
         return None
     if not isinstance(raw, dict):
         raise CaseSetError(f"{where}: kiwi is an object.")
-    outcome = str(raw.get("outcome", "succeeded"))
-    if outcome not in KIWI_OUTCOMES:
-        raise CaseSetError(f"{where}: kiwi.outcome must be one of {KIWI_OUTCOMES}.")
+    given = raw.get("outcome", "succeeded")
+    outcomes = tuple(str(o) for o in given) if isinstance(given, list) else (str(given),)
+    if not outcomes or any(o not in KIWI_OUTCOMES for o in outcomes):
+        raise CaseSetError(
+            f"{where}: kiwi.outcome must be one of {KIWI_OUTCOMES}, or a list of them."
+        )
     max_calls = raw.get("maxToolCalls")
     if max_calls is not None and (not isinstance(max_calls, int) or max_calls < 0):
         raise CaseSetError(f"{where}: kiwi.maxToolCalls is a non-negative integer.")
@@ -543,7 +556,7 @@ def _parse_kiwi(raw: Any, *, where: str) -> KiwiExpectation | None:
         required_tools=tuple(str(t) for t in raw.get("requiredTools") or ()),
         forbidden_tools=tuple(str(t) for t in raw.get("forbiddenTools") or ()),
         max_tool_calls=max_calls,
-        outcome=outcome,
+        outcomes=outcomes,
         stop_reason=str(raw.get("stopReason", "")),
         claims=tuple(claims),
         injection=injection,
