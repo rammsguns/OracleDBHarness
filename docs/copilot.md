@@ -101,11 +101,13 @@ before and the model is offered no tool. So, when it is on:
   `BEGIN/END UNTRUSTED TOOL_RESULT` markers, capped per lookup in rows and bytes, with
   a note when they were cut and a note when nothing matched.
 - **Kiwi is told its budget.** Each lookup parameter says how it is matched (names
-  exactly, upper-cased; `name_filter` and `text_filter` as `LIKE` patterns). After each
-  batch of results the harness adds one line of its own, outside the markers:
-  `[harness] Lookups used: n of N.`; when that was the last one, the line tells Kiwi
-  to answer with what it has, and the next turn offers no tools (`tool_choice` none),
-  so it has to be the answer. A call the model makes anyway is dropped.
+  exactly, upper-cased; `name_filter`, `text_filter` and `source_filter` as `LIKE`
+  patterns). After each batch of results the harness adds one line of its own, outside
+  the markers: `[harness] Lookups used: n of N.`; when that was the last lookup, or the
+  next turn is the last one `HARNESS_KIWI_MAX_STEPS` allows, the line tells Kiwi to
+  answer with what it has, and that turn offers no tools (`tool_choice` none), so it
+  has to be the answer. A call the model makes anyway is dropped. The request is
+  still `partial`, with `stopReason` `tool_calls` or `steps`.
 - **Rows never reach the stream or the record.** The stream reports each lookup as
   `tool_call` (tool, parameters, why) and `tool_result` (status, row count, bytes,
   truncated, execution id); history lists each request's tool calls with their

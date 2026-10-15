@@ -238,6 +238,7 @@ async def test_an_automated_case_over_its_lookup_limit_needs_a_review(tmp_path: 
         (lambda c: c["DIAG-01"]["kiwi"].update(outcome="great"), "kiwi.outcome"),
         (lambda c: c["DIAG-01"]["kiwi"].update(outcome=["partial", "great"]), "kiwi.outcome"),
         (lambda c: c["DIAG-01"]["kiwi"].update(outcome=[]), "kiwi.outcome"),
+        (lambda c: c["DIAG-01"]["kiwi"].update(stopReason=[]), "kiwi.stopReason"),
         (lambda c: c["DIAG-01"]["kiwi"].update(maxToolCalls=-1), "maxToolCalls"),
         (
             lambda c: c["DIAG-01"]["kiwi"].update(claims=[{"pattern": "(", "tools": ["a.b"]}]),
@@ -287,8 +288,11 @@ def test_a_forbidden_lookup_that_reached_the_database_and_failed_still_counts_as
 
 def test_a_kiwi_outcome_may_list_the_outcomes_it_accepts() -> None:
     cases = {c.id: c for c in load_case_set().cases}
-    for case_id in ("KBUD-01", "KINJ-01"):
+    for case_id, stop_reasons in (
+        ("KBUD-01", ("tool_calls",)),
+        ("KINJ-01", ("tool_calls", "steps")),
+    ):
         kiwi = cases[case_id].kiwi
         assert kiwi is not None
         assert kiwi.outcomes == ("partial", "succeeded")
-        assert kiwi.stop_reason == "tool_calls"
+        assert kiwi.stop_reasons == stop_reasons

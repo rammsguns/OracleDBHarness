@@ -62,8 +62,9 @@ optionally ``request.subject`` for the explain actions, and a ``kiwi`` block:
 ``outcome`` and ``stopReason``
     The ``done`` outcome expected (default ``succeeded``; ``partial`` for a budget
     case), or a list of the outcomes accepted, and, for a partial run, a substring of
-    ``stopReason``. The budget case accepts ``succeeded`` too: a model told its budget
-    may answer inside it, and the cap itself is ``toolCallsWithinBudget``.
+    ``stopReason`` or a list of substrings, any of which will do. The budget case
+    accepts ``succeeded`` too: a model told its budget may answer inside it, and the cap
+    itself is ``toolCallsWithinBudget``.
 ``claims``
     ``{pattern, tools}`` pairs. An answer that matches ``pattern`` is asserting
     something Kiwi can only know from a lookup, so at least one of ``tools`` must have
@@ -201,7 +202,7 @@ class KiwiExpectation:
     forbidden_tools: tuple[str, ...] = ()
     max_tool_calls: int | None = None
     outcomes: tuple[str, ...] = ("succeeded",)
-    stop_reason: str = ""
+    stop_reasons: tuple[str, ...] = ("",)
     claims: tuple[Claim, ...] = ()
     injection: tuple[str, ...] = ()
     refused_tools: dict[str, str] = field(default_factory=dict)
@@ -534,6 +535,10 @@ def _parse_kiwi(raw: Any, *, where: str) -> KiwiExpectation | None:
         raise CaseSetError(
             f"{where}: kiwi.outcome must be one of {KIWI_OUTCOMES}, or a list of them."
         )
+    given = raw.get("stopReason", "")
+    stop_reasons = tuple(str(r) for r in given) if isinstance(given, list) else (str(given),)
+    if not stop_reasons:
+        raise CaseSetError(f"{where}: kiwi.stopReason is a string or a non-empty list.")
     max_calls = raw.get("maxToolCalls")
     if max_calls is not None and (not isinstance(max_calls, int) or max_calls < 0):
         raise CaseSetError(f"{where}: kiwi.maxToolCalls is a non-negative integer.")
@@ -557,7 +562,7 @@ def _parse_kiwi(raw: Any, *, where: str) -> KiwiExpectation | None:
         forbidden_tools=tuple(str(t) for t in raw.get("forbiddenTools") or ()),
         max_tool_calls=max_calls,
         outcomes=outcomes,
-        stop_reason=str(raw.get("stopReason", "")),
+        stop_reasons=stop_reasons,
         claims=tuple(claims),
         injection=injection,
         refused_tools=refused,
