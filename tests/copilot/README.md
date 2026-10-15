@@ -117,11 +117,24 @@ not evidence and `score` refuses it:
 uv run python -m tests.copilot.eval rehearse --report copilot-eval/rehearsal.json
 ```
 
-The qualification run spends money. Every prerequisite is a required flag; there are no
-defaults to fall back on:
+The qualification run uses a model served on this machine by default (`--provider
+local`), and `HARNESS_COPILOT_LOCAL_ONLY` (on unless set to `false`) refuses any other.
+The base URL has to be loopback, as for the API. A local model is not billed, so there is
+no ceiling or price to give:
 
 ```bash
-uv run python -m tests.copilot.eval run --model claude-opus-5 --budget-usd 15 --input-usd-per-mtok 5 --output-usd-per-mtok 25 --pricing-source "provider pricing page, checked YYYY-MM-DD" --approved-context selected_source,object_definition,schema_metadata,error_text,plan_text,user_message --approval-reference "TICKET-123 approved by NAME on YYYY-MM-DD" --operator "NAME" --report copilot-eval/run-YYYY-MM-DD.json
+LOCAL_MODEL_API_KEY="$(cat databases/secrets/<local model key file>)" uv run python -m tests.copilot.eval run --base-url http://127.0.0.1:8080/v1 --model <id from /v1/models> --approved-context selected_source,object_definition,schema_metadata,error_text,plan_text,user_message --approval-reference "local model on this host; nothing leaves it (NAME, YYYY-MM-DD)" --operator "NAME" --report copilot-eval/run-YYYY-MM-DD.json
+```
+
+The key is read from `LOCAL_MODEL_API_KEY` (or `--api-key-env`) and may be absent for a
+server that needs none. The report records the provider as `local`, the base URL, and
+that local-only was on; every case's cost basis is "not billed (local model)".
+
+A run against a billed provider spends money and needs `HARNESS_COPILOT_LOCAL_ONLY=false`.
+Every prerequisite is then a required flag; there are no defaults to fall back on:
+
+```bash
+HARNESS_COPILOT_LOCAL_ONLY=false uv run python -m tests.copilot.eval run --provider anthropic --model claude-opus-5 --budget-usd 15 --input-usd-per-mtok 5 --output-usd-per-mtok 25 --pricing-source "provider pricing page, checked YYYY-MM-DD" --approved-context selected_source,object_definition,schema_metadata,error_text,plan_text,user_message --approval-reference "TICKET-123 approved by NAME on YYYY-MM-DD" --operator "NAME" --report copilot-eval/run-YYYY-MM-DD.json
 ```
 
 The key is read from `ANTHROPIC_API_KEY` (or `--api-key-env`) and registered with the
@@ -131,8 +144,10 @@ current pricing before each run - they are recorded as assumptions, not looked u
 
 Before anything is sent, the runner refuses to start when:
 
-- the provider is `fake`, the model is not named, or the key is missing;
-- no ceiling or prices are given, or the ceiling cannot cover the worst case for every
+- the provider is `fake`, the model is not named, or a billed provider's key is missing;
+- the provider is a cloud one while local-only is on, or a local base URL is not
+  loopback;
+- a local run is given a ceiling or prices, or a billed run has none, or the ceiling cannot cover the worst case for every
   case. `--allow-partial-run` starts such a run anyway. That flag only permits the
   attempt: if the budget actually stops the run, it cannot qualify; if every case
   completes within the ceiling, it is scored like any other run;

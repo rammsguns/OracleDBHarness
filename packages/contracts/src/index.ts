@@ -409,6 +409,8 @@ export interface IntegrationCapabilities {
   provider: string;
   model: string;
   isFixtureProvider: boolean;
+  /** Prompts stay on the harness host (HARNESS_COPILOT_LOCAL_ONLY). Absent from older harnesses. */
+  localOnly?: boolean;
   limits: { maxContextBytes: number; userDailyRequests: number };
   contextCategories: string[];
   executesDatabaseOperations: false;

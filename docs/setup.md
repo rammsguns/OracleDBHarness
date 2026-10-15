@@ -141,15 +141,36 @@ The copilot is off until an administrator turns it on. Before you do, decide and
 record your data-sharing policy: `docs/copilot.md` describes exactly what leaves the
 harness and what never does.
 
+The copilot uses a model served on the harness's own host. `HARNESS_COPILOT_LOCAL_ONLY`
+(default `true`) refuses anything else; see "Where it goes" in `docs/copilot.md`.
+
 ```bash
 HARNESS_COPILOT_ENABLED=true
-HARNESS_COPILOT_PROVIDER=anthropic
-HARNESS_COPILOT_MODEL=claude-opus-5
-HARNESS_COPILOT_API_KEY_REF=provider-api-key
+HARNESS_COPILOT_PROVIDER=local
+HARNESS_COPILOT_BASE_URL=http://127.0.0.1:8080/v1
+HARNESS_COPILOT_MODEL=<the id the local server lists under /v1/models>
+HARNESS_COPILOT_API_KEY_REF=local-model-key
 ```
 
 `HARNESS_COPILOT_API_KEY_REF` names a registered `SecretReference`, not a key. Register
-it the same way as a database credential.
+it the same way as a database credential. Leave it empty for a local server that asks
+for no key. The base URL must be `http` to 127.0.0.0/8 or `::1`; anything else stops
+the API at startup. A local server is called once per request, with no retries.
+
+Under Compose (`deploy/compose.yaml`), 127.0.0.1 inside the API container is the
+container, not the host, so a model served on the host is out of reach from the
+default bridge network. Either run the model in a container that shares the API's
+network namespace (`network_mode: "service:api"`), or give the API the host's network
+(`network_mode: host`, which also means its published port no longer applies). Do not
+point the base URL at the bridge gateway: that is not loopback, and it is refused.
+
+The local server itself is outside the harness. If it listens on every interface
+(`0.0.0.0`), other hosts can reach it directly; bind it to `127.0.0.1` unless that is
+intended.
+
+A cloud provider (`HARNESS_COPILOT_PROVIDER=anthropic`, with the `copilot` extra) is
+still in the code but refused until `HARNESS_COPILOT_LOCAL_ONLY=false`. Turning that off
+sends prompts off the host and is a data-sharing decision; the API warns while it is off.
 
 Each provider call is bounded by `HARNESS_COPILOT_MAX_OUTPUT_TOKENS` (default 8000;
 thinking counts against it), `HARNESS_COPILOT_REQUEST_TIMEOUT_SECONDS` (600) and

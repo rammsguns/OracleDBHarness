@@ -9,10 +9,12 @@ provider only reports which tools the model asked for; it never runs one. Runnin
 tool, authorising it and bounding the loop belong to the caller (K-3), so no adapter
 can become a way around the execution service.
 
-Two adapters ship. ``anthropic`` calls the Claude Messages API. ``fake`` returns
-deterministic fixture answers so the whole copilot path -- authorisation, context
-policy, streaming, proposals, stale-diff rejection, budgets -- can be tested and
-demonstrated without calling a model or spending anything.
+Three adapters ship. ``local`` (local.py) calls a model served on this machine and
+refuses any endpoint that is not loopback. ``anthropic`` calls the Claude Messages API,
+and is refused while ``HARNESS_COPILOT_LOCAL_ONLY`` is on, which it is by default.
+``fake`` returns deterministic fixture answers so the whole copilot path --
+authorisation, context policy, streaming, proposals, stale-diff rejection, budgets --
+can be tested and demonstrated without calling a model or spending anything.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from harness_worker.errors import ConfigurationError, ProviderError
+from harness_worker.errors import ConfigurationError, PolicyError, ProviderError
 
 
 @dataclass
@@ -579,10 +581,36 @@ def create_provider(
     max_output_tokens: int = 8000,
     timeout_seconds: float = 600.0,
     max_retries: int = 2,
+    base_url: str = "",
+    local_only: bool = True,
 ) -> Provider:
+    """Build the configured adapter.
+
+    ``local_only`` is on unless a caller turns it off on purpose. It admits only the
+    fixture and a model served on this machine, so a provider that would send prompts
+    off the host is refused here, before any client exists.
+    """
+
     if kind == "fake":
         return FakeProvider(model="fixture")
+    if kind == "local":
+        from harness_api.copilot.local import LocalProvider
+
+        return LocalProvider(
+            base_url,
+            api_key=api_key,
+            model=model,
+            max_tokens=max_output_tokens,
+            timeout_seconds=timeout_seconds,
+        )
     if kind == "anthropic":
+        if local_only:
+            raise PolicyError(
+                "HARNESS_COPILOT_LOCAL_ONLY is on, so the copilot may not send prompts to "
+                "the Anthropic API. Use the 'local' provider, or turn the setting off "
+                "deliberately.",
+                detail={"configured": kind},
+            )
         return AnthropicProvider(
             api_key=api_key,
             model=model,
@@ -591,7 +619,7 @@ def create_provider(
             max_retries=max_retries,
         )
     raise ConfigurationError(
-        f"Unknown copilot provider {kind!r}. Use 'anthropic' or 'fake'.",
+        f"Unknown copilot provider {kind!r}. Use 'local', 'fake' or 'anthropic'.",
         detail={"configured": kind},
     )
 

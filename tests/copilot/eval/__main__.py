@@ -5,16 +5,20 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
 from tests.copilot.eval.budget import Pricing
 from tests.copilot.eval.cases import DEFAULT_CASE_FILE, CaseSetError, load_case_set
 from tests.copilot.eval.runner import (
+    DEFAULT_KEY_ENV,
     QUALIFICATION,
     REHEARSAL,
+    SUPPORTED_PROVIDERS,
     EvaluationRefused,
     RunConfig,
+    local_only_from,
     run_evaluation,
 )
 from tests.copilot.eval.scoring import ReportError, render_markdown, score
@@ -38,20 +42,36 @@ def build_parser() -> argparse.ArgumentParser:
     rehearse.add_argument("--report", type=Path, required=True)
 
     run = commands.add_parser(
-        "run", help="Qualification run against a real provider. Spends money."
+        "run",
+        help=(
+            "Qualification run against a real model: by default a local one on this "
+            "machine. A billed provider spends money and needs HARNESS_COPILOT_LOCAL_ONLY off."
+        ),
     )
     run.add_argument("--cases", type=Path, default=DEFAULT_CASE_FILE)
     run.add_argument("--report", type=Path, required=True)
-    run.add_argument("--provider", default="anthropic")
-    run.add_argument("--model", required=True, help="Exact model identifier, e.g. claude-opus-5.")
+    run.add_argument(
+        "--provider", default="local", help=f"One of {', '.join(SUPPORTED_PROVIDERS)}."
+    )
+    run.add_argument(
+        "--model", required=True, help="Exact model identifier, as the provider lists it."
+    )
+    run.add_argument(
+        "--base-url",
+        default="",
+        help="The local server's API root, e.g. http://127.0.0.1:8080/v1. Loopback only.",
+    )
     run.add_argument(
         "--api-key-env",
-        default="ANTHROPIC_API_KEY",
-        help="Environment variable holding the provider key. The key is never written.",
+        default=None,
+        help=(
+            "Environment variable holding the provider key (default LOCAL_MODEL_API_KEY, or "
+            "ANTHROPIC_API_KEY for anthropic). The key is never written."
+        ),
     )
-    run.add_argument("--budget-usd", type=float, required=True, help="Spend ceiling for the run.")
-    run.add_argument("--input-usd-per-mtok", type=float, required=True)
-    run.add_argument("--output-usd-per-mtok", type=float, required=True)
+    run.add_argument("--budget-usd", type=float, help="Spend ceiling for a billed provider's run.")
+    run.add_argument("--input-usd-per-mtok", type=float)
+    run.add_argument("--output-usd-per-mtok", type=float)
     run.add_argument(
         "--pricing-source",
         default="",
@@ -108,12 +128,18 @@ def main(argv: list[str] | None = None) -> int:
             provider=args.provider,
             model=args.model,
             case_file=args.cases,
-            api_key_env=args.api_key_env,
+            api_key_env=args.api_key_env or DEFAULT_KEY_ENV.get(args.provider, "MODEL_API_KEY"),
+            base_url=args.base_url,
+            local_only=local_only_from(dict(os.environ)),
             budget_usd=args.budget_usd,
-            pricing=Pricing(
-                input_usd_per_mtok=args.input_usd_per_mtok,
-                output_usd_per_mtok=args.output_usd_per_mtok,
-                source=args.pricing_source,
+            pricing=(
+                None
+                if args.input_usd_per_mtok is None and args.output_usd_per_mtok is None
+                else Pricing(
+                    input_usd_per_mtok=args.input_usd_per_mtok or 0.0,
+                    output_usd_per_mtok=args.output_usd_per_mtok or 0.0,
+                    source=args.pricing_source,
+                )
             ),
             approved_categories=frozenset(
                 item.strip() for item in args.approved_context.split(",") if item.strip()

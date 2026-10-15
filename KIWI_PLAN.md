@@ -427,3 +427,17 @@ MVP_PLAN.md; if it comes, it exposes the same toolbox), and inline autocomplete.
 - **K-4's exit criterion is met.** The "K-4 19c run pending" notes in the entries
   above are superseded by this one. K-7 and K-8 still wait on the paid run and the DBA
   review.
+
+### 2026-10-15, local model only
+
+- The copilot now calls only a model on the harness's own host by default
+  ([ADR-0012](docs/decisions.md)). The new `local` provider speaks OpenAI-style Chat
+  Completions, tools included, to a loopback endpoint (`HARNESS_COPILOT_BASE_URL`), and
+  `HARNESS_COPILOT_LOCAL_ONLY` (on by default) refuses the Anthropic adapter, any
+  non-loopback endpoint, redirects and environment proxies.
+- The K-7 runner defaults to the local provider and applies the same rule. A local run
+  needs no spend ceiling or prices; its report records the base URL and that
+  local-only was on.
+- **The K-7 run is still pending**, now against a local model rather than a paid one,
+  followed by the DBA review. The adapter has been exercised against a stand-in server
+  only; no prompt has gone to a real local model yet.
