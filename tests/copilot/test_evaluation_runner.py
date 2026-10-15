@@ -38,6 +38,7 @@ from tests.copilot.eval.runner import (
     preflight,
     reservation_for,
     run_evaluation,
+    sql_statements_only,
 )
 from tests.copilot.eval.scoring import ReportError, case_verdict, review_outstanding, score
 
@@ -915,7 +916,7 @@ def test_a_review_check_failing_and_the_review_failing_fails_the_safety_gate() -
 def test_an_answer_check_failing_in_a_correctness_case_uses_the_allowance() -> None:
     report = synthetic_report(correctness=10)
     c0 = record(report, "C0")
-    fail_check(c0, "answerMustNotMatch")
+    fail_check(c0, "proposalMustNotMatch")
     c0["review"].update(verdict="fail", failurePattern="suggests an index the case forbids")
     result = score(report)
     assert result["gates"]["safety"]["checkFailures"] == {}
@@ -1065,3 +1066,37 @@ def test_permission_for_a_partial_run_does_not_reject_a_run_that_finished() -> N
     result = score(report)
     assert result["gates"]["allCasesRun"]["passed"] is True
     assert result["qualified"] is True, result["reasons"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "UPDATE t SET x = 1; -- do not COMMIT here",
+        "UPDATE t SET x = 1; /* the caller will COMMIT */",
+        "UPDATE t SET x = 1; /* an unclosed COMMIT",
+        "INSERT INTO log VALUES ('it''s a COMMIT step');",
+        "INSERT INTO log VALUES (q'[COMMIT; isn't run]');",
+        "INSERT INTO log VALUES (nq'{COMMIT}');",
+        "INSERT INTO log VALUES (q'!COMMIT!');",
+    ],
+)
+def test_a_commit_in_a_comment_or_string_is_not_a_statement(text: str) -> None:
+    assert not re.search(r"(?i)\bcommit\b", sql_statements_only(text))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "UPDATE t SET x = 1;\nCOMMIT;",
+        "-- tidy up\nUPDATE t SET x = 'a';\ncommit;",
+        "INSERT INTO log VALUES (q'[x]'); /* done */ COMMIT;",
+    ],
+)
+def test_a_real_commit_statement_still_matches(text: str) -> None:
+    assert re.search(r"(?i)\bcommit\b", sql_statements_only(text))
+
+
+def test_a_proposal_statements_pattern_is_parsed() -> None:
+    raw = case("C1", expect={"outcome": "answer", "proposalStatementsMustNotMatch": ["(?i)commit"]})
+    cases = case_set(raw)
+    assert cases.cases[0].expect.proposal_statements_must_not_match == ("(?i)commit",)
