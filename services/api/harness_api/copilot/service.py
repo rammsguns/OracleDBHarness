@@ -624,8 +624,9 @@ class CopilotService:
         """Alternate model turns and lookups until an answer or a bound.
 
         Every bound is checked by the harness, not left to the model. When lookups run
-        out, the model is told so and gets one more turn, with no tools, to answer with
-        what it has; when turns, tokens or time run out, the loop stops where it is.
+        out, or the next turn is the last one allowed, the model is told so and gets that
+        turn with no tools to answer with what it has; when tokens or time run out, the
+        loop stops where it is.
         """
 
         toolbox = self.toolbox()
@@ -684,17 +685,24 @@ class CopilotService:
                     yield ("tool_result", outcome.event())
                     results.append(outcome.tool_result())
                 lookups_spent = state.out_of_lookups()
+                # The next turn is the last one allowed: keep it for the answer, or a
+                # model making one lookup per turn runs out of turns before answering.
+                last_turn = state.steps + 1 >= state.max_steps
                 if results and not results[-1].content.startswith(_BUDGET_REFUSAL):
                     # Outside the UNTRUSTED markers: this line is the harness's, not data.
                     last = results[-1]
+                    note = self._lookups_note(state, lookups_spent, last_turn)
                     results[-1] = ToolResult(
                         call_id=last.call_id,
-                        content=last.content + "\n" + self._lookups_note(state, lookups_spent),
+                        content=last.content + "\n" + note,
                         is_error=last.is_error,
                     )
                 conversation.add_tool_results(results)
                 if lookups_spent is not None:
                     state.exhaust(lookups_spent)
+                elif last_turn:
+                    state.exhaust("steps")
+                if lookups_spent is not None or last_turn:
                     # Told to answer, a model can still keep asking, so the last turn
                     # offers no tools and has to be the answer.
                     conversation.require_answer()
@@ -725,16 +733,21 @@ class CopilotService:
         )
 
     @staticmethod
-    def _lookups_note(state: _KiwiRun, spent: str | None) -> str:
+    def _lookups_note(state: _KiwiRun, spent: str | None, last_turn: bool = False) -> str:
         """The harness's count after a batch, so the model can plan what is left."""
 
         used = f"[harness] Lookups used: {state.tool_calls} of {state.max_tool_calls}."
-        if spent is None:
-            return used
-        return (
-            used + " That was the last lookup this request allows: answer now with what "
-            "you have, and say what you could not check."
-        )
+        if spent is not None:
+            return (
+                used + " That was the last lookup this request allows: answer now with "
+                "what you have, and say what you could not check."
+            )
+        if last_turn:
+            return (
+                used + " Your next turn is the last this request allows and cannot make "
+                "lookups: answer now with what you have, and say what you could not check."
+            )
+        return used
 
     @staticmethod
     def _tool_call_event(toolbox: KiwiToolbox, call: ToolCall) -> dict[str, Any]:

@@ -302,9 +302,10 @@ def _kiwi_checks(
         # stopReason says why a partial run stopped; an accepted answer has none.
         check(
             "kiwiOutcome",
-            outcome in kiwi.outcomes and (outcome != "partial" or kiwi.stop_reason in stop),
+            outcome in kiwi.outcomes
+            and (outcome != "partial" or any(r in stop for r in kiwi.stop_reasons)),
             f"outcome {outcome!r} stopReason {stop!r}, expected one of {list(kiwi.outcomes)} "
-            f"(partial containing {kiwi.stop_reason!r})",
+            f"(partial containing one of {list(kiwi.stop_reasons)})",
         )
     for tool in kiwi.required_tools:
         check("requiredToolsCalled", tool in ran, f"{tool} {'ran' if tool in ran else 'never ran'}")

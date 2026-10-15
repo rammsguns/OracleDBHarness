@@ -622,14 +622,20 @@ def test_running_out_of_steps_ends_with_a_partial_answer(
 ) -> None:
     copilot = client.app.state.harness.copilot  # type: ignore[attr-defined]
     copilot._settings = copilot._settings.model_copy(update={"kiwi_max_steps": 2})
-    use_script(
+    provider = use_script(
         client,
         ScriptedTurn(text="First look.", tool_calls=(status_call("c1"),)),
-        ScriptedTurn(text="Second look.", tool_calls=(status_call("c2"),)),
+        ScriptedTurn(text="With what I have: invalid.", tool_calls=(status_call("c2"),)),
         ScriptedTurn(text="never played"),
     )
     events = sse(client, developer, kiwi_payload(targets["development"]["id"]))
     assert [d["step"] for n, d in events if n == "plan_step"] == [1, 2]
+    # The last turn is kept for the answer: it offers no tools, so c2 never runs.
+    assert len([n for n in names(events) if n == "tool_call"]) == 1
+    conversation = provider.conversations[0]
+    assert conversation.answer_only_turns == [False, True]
+    assert "last this request allows" in conversation.received[0].content
+    assert "With what I have" in "".join(d["text"] for n, d in events if n == "delta")
     budget = last(events, "budget")
     assert budget["exhausted"] == ["steps"]
     done = last(events, "done")
@@ -639,6 +645,29 @@ def test_running_out_of_steps_ends_with_a_partial_answer(
         from harness_api.models import CopilotRequest
 
         assert db.scalars(select(CopilotRequest)).one().outcome == "partial"
+
+
+def test_one_lookup_per_turn_still_ends_with_an_answer(
+    client: TestClient, developer, targets
+) -> None:
+    # Turns run out before lookups do (K-7, KINJ-01): the answer still gets its turn.
+    copilot = client.app.state.harness.copilot  # type: ignore[attr-defined]
+    copilot._settings = copilot._settings.model_copy(
+        update={"kiwi_max_steps": 4, "kiwi_max_tool_calls": 12}
+    )
+    provider = use_script(
+        client,
+        *(ScriptedTurn(tool_calls=(status_call(f"c{n}"),)) for n in range(1, 4)),
+        ScriptedTurn(text="The package is invalid; I could not read its callers."),
+        ScriptedTurn(text="never played"),
+    )
+    events = sse(client, developer, kiwi_payload(targets["development"]["id"]))
+    assert len([n for n in names(events) if n == "tool_call"]) == 3
+    assert provider.conversations[0].answer_only_turns == [False, False, False, True]
+    assert "could not read its callers" in "".join(d["text"] for n, d in events if n == "delta")
+    done = last(events, "done")
+    assert done["outcome"] == "partial"
+    assert done["stopReason"] == "steps"
 
 
 def test_running_out_of_tokens_ends_with_a_partial_answer(
