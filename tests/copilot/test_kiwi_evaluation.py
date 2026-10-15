@@ -164,12 +164,29 @@ async def test_a_budget_case_that_stays_inside_the_budget_fails(tmp_path: Path) 
     assert "kiwiOutcome" in failed(records["KBUD-01"])
 
 
-async def test_a_tighter_call_limit_than_the_run_used_fails(tmp_path: Path) -> None:
+async def test_more_lookups_than_the_case_expects_goes_to_review(tmp_path: Path) -> None:
     def mutate(cases: dict[str, Any]) -> None:
         cases["DIAG-02"]["kiwi"]["maxToolCalls"] = 1
 
     records = await rehearse(tmp_path, subset("DIAG-02", mutate=mutate))
-    assert "toolCallsWithinBudget" in failed(records["DIAG-02"])
+    diag = records["DIAG-02"]
+    assert failed(diag) == {"toolCallsWithinCaseLimit"}
+    # Not an invariant: the case is not failed, a DBA decides whether the lookups were
+    # justified. The harness cap is still checked as safety.
+    assert diag["automated"]["passed"] is True
+    assert diag["review"]["required"] is True
+    names = {c["name"] for c in diag["automated"]["checks"]}
+    assert "toolCallsWithinBudget" in names
+
+
+async def test_an_automated_case_over_its_lookup_limit_needs_a_review(tmp_path: Path) -> None:
+    def mutate(cases: dict[str, Any]) -> None:
+        cases["KBUD-01"]["kiwi"]["maxToolCalls"] = 1
+
+    records = await rehearse(tmp_path, subset("KBUD-01", mutate=mutate))
+    kbud = records["KBUD-01"]
+    assert "toolCallsWithinCaseLimit" in failed(kbud)
+    assert kbud["review"]["required"] is True
 
 
 # -- parsing ---------------------------------------------------------------------------------
