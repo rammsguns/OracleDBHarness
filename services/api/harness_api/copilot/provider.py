@@ -144,10 +144,25 @@ class ToolConversation(abc.ABC):
         self._pending: tuple[ToolCall, ...] = ()
         self._finished = False
         self._failed = False
+        self._answer_only = False
 
     @property
     def finished(self) -> bool:
         return self._finished
+
+    @property
+    def answer_only(self) -> bool:
+        return self._answer_only
+
+    def require_answer(self) -> None:
+        """From the next turn on, the model may not call tools: it has to answer.
+
+        The tools stay described, because the transcript already holds calls to them,
+        but the request says none may be chosen. A call the model makes anyway is
+        dropped, so the turn ends the conversation like any answer.
+        """
+
+        self._answer_only = True
 
     @property
     def pending_calls(self) -> tuple[ToolCall, ...]:
@@ -171,7 +186,7 @@ class ToolConversation(abc.ABC):
                         raise ProviderError(
                             "The model declined to answer this request.", detail=event.detail
                         )
-                    if event.stop_reason != "tool_use":
+                    if event.stop_reason != "tool_use" or self._answer_only:
                         event = TurnEnd(event.stop_reason, (), event.usage, event.detail)
                     if event.tool_calls:
                         self._pending = event.tool_calls
@@ -343,11 +358,13 @@ class FakeConversation(ToolConversation):
         self._script = list(script)
         self._context = [system, user_message]
         self.received: list[ToolResult] = []
+        self.answer_only_turns: list[bool] = []
 
     async def _run_turn(self) -> AsyncIterator[TurnEvent]:
         if not self._script:
             raise RuntimeError("The fixture script has no turn left to play.")
         step = self._script.pop(0)
+        self.answer_only_turns.append(self.answer_only)
         for chunk in _chunks(step.text, 120):
             yield TextDelta(chunk)
         if step.fail is not None:
@@ -508,6 +525,8 @@ class AnthropicConversation(ToolConversation):
                 }
                 for tool in self.tools
             ]
+            if self.answer_only:
+                request["tool_choice"] = {"type": "none"}
         try:
             async with self._client.messages.stream(**request) as stream:
                 async for text in stream.text_stream:

@@ -37,6 +37,37 @@ _INTEGER_PARAMETERS = frozenset(
 # Row limits the model may ask for are clamped to the per-tool cap.
 _ROW_LIMIT_PARAMETER = "row_limit"
 _WHY = "why"
+# How the reviewed queries match each parameter, so the model does not spend lookups
+# guessing: names are compared exactly after upper-casing, and only the two filters are
+# LIKE patterns. Keep these in step with oracle/diagnostics.
+_NAME = "Exact name, matched upper-cased (no wildcards)."
+_PARAMETER_DESCRIPTIONS = {
+    "owner": "Schema that owns the object. " + _NAME,
+    "object_name": _NAME,
+    "table_name": _NAME,
+    "package_name": _NAME,
+    "job_name": _NAME,
+    "chain_name": _NAME,
+    "program_name": _NAME,
+    "object_type": (
+        "One object type, exactly, such as TABLE, VIEW, PACKAGE BODY or SYNONYM; "
+        "not a list. Leave it out for every type."
+    ),
+    "name_filter": (
+        "LIKE pattern on the object name, matched upper-cased: use % as the wildcard "
+        "(EMP% or %EMPLOYEE%). Without % it matches one exact name."
+    ),
+    "text_filter": "LIKE pattern on the SQL text, case-insensitive: use % as the wildcard.",
+    "sql_id": "The cursor's SQL_ID, exactly as reported (case-sensitive).",
+    "child_number": "The cursor's child number.",
+    "statement_id": "The plan's STATEMENT_ID, exactly.",
+    "row_offset": "Rows to skip, for the next page.",
+    "row_limit": "Most rows to return; capped by the harness.",
+    "start_line": "First source line to return.",
+    "end_line": "Last source line to return.",
+}
+# An empty result is an answer; say so where the model reads it.
+_NO_ROWS = "No rows: nothing matched these parameters as given."
 _MAX_TEXT_PARAMETER = 512
 _TOOL_NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -122,6 +153,8 @@ class KiwiToolbox:
                 properties[parameter] = {"type": "integer", "minimum": 0}
             else:
                 properties[parameter] = {"type": "string", "maxLength": _MAX_TEXT_PARAMETER}
+            if parameter in _PARAMETER_DESCRIPTIONS:
+                properties[parameter]["description"] = _PARAMETER_DESCRIPTIONS[parameter]
         properties[_WHY] = {
             "type": "string",
             "description": "One sentence: what you expect this lookup to tell you.",
@@ -236,6 +269,8 @@ class KiwiToolbox:
                 f"\n(truncated: {rows_sent} row(s) shown; the lookup is capped at "
                 f"{cap} rows and {self._settings.kiwi_max_result_bytes} bytes)"
             )
+        elif not rows:
+            note = f"\n({_NO_ROWS})"
         outcome.content = self._wrap(entry.operation_id, payload + note)
         outcome.result_bytes = len(outcome.content.encode("utf-8"))
         return outcome

@@ -336,6 +336,35 @@ async def test_a_tool_turn_merges_streamed_calls_and_carries_results_back() -> N
     assert (total.prompt_tokens, total.completion_tokens) == (250, 25)
 
 
+async def test_a_turn_that_must_answer_chooses_no_tool() -> None:
+    first = sse(
+        delta(
+            None,
+            tool_calls=[
+                {
+                    "index": 0,
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "object_status", "arguments": "{}"},
+                }
+            ],
+        ),
+        delta(None, finish="tool_calls"),
+    )
+    second = sse(delta("It is valid."), delta(None, finish="stop"))
+    server = StandInServer(httpx.Response(200, content=first), httpx.Response(200, content=second))
+    conversation = provider(server).start_conversation("sys", "why?", [STATUS])
+    [event async for event in conversation.turn()]
+    conversation.add_tool_results([ToolResult("c1", "VALID")])
+    conversation.require_answer()
+    [event async for event in conversation.turn()]
+    assert "tool_choice" not in server.bodies[0]
+    # The transcript holds tool calls, so the tools stay described.
+    assert server.bodies[1]["tools"] == server.bodies[0]["tools"]
+    assert server.bodies[1]["tool_choice"] == "none"
+    assert conversation.finished
+
+
 async def test_a_truncated_turn_drops_its_tool_calls() -> None:
     body = sse(
         delta(
