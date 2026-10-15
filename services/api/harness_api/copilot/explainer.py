@@ -302,6 +302,7 @@ class Explainer:
         self._page_lines = page_lines
         self._usage = ProviderUsage()
         self._last: ToolOutcome | None = None
+        self._slowest_call = 0.0
         self.lineage = Lineage()
         self.notes: list[str] = []
 
@@ -499,9 +500,14 @@ class Explainer:
             batches = _batches(model)
             for number, batch in enumerate(batches, start=1):
                 spent = self._state.out_of_turns()
-                # One model call is kept back to combine the summaries.
+                # One model call is kept back to combine the summaries, and the time it
+                # needs: another batch must leave room for a call as slow as the slowest.
                 if spent is None and self._state.steps + 1 >= self._state.max_steps:
                     spent = "steps"
+                if spent is None and (
+                    self._state.elapsed + 2 * self._slowest_call > self._state.max_wall_seconds
+                ):
+                    spent = "wall_time"
                 if spent is not None:
                     self._state.exhaust(spent)
                     for unit in [u for rest in batches[number - 1 :] for u in rest]:
@@ -884,6 +890,7 @@ class Explainer:
         state = self._state
         state.steps += 1
         yield ("plan_step", {"step": state.steps, "maxSteps": state.max_steps})
+        began = state.elapsed
         conversation = self._provider.start_conversation(self._system, message, [])
         pieces: list[str] = []
         try:
@@ -906,6 +913,7 @@ class Explainer:
                 stop_reason=usage.stop_reason or self._usage.stop_reason,
             )
             state.tokens = (self._usage.prompt_tokens or 0) + (self._usage.completion_tokens or 0)
+            self._slowest_call = max(self._slowest_call, state.elapsed - began)
         self._last_text = "".join(pieces)
         yield ("budget", state.event())
 

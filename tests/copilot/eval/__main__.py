@@ -85,7 +85,9 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--approval-reference", required=True)
     run.add_argument("--operator", default="", help="Who ran this, for the report.")
     run.add_argument("--max-output-tokens", type=int, default=8000)
-    run.add_argument("--request-timeout-seconds", type=float, default=300.0)
+    run.add_argument(
+        "--request-timeout-seconds", type=float, default=RunConfig.request_timeout_seconds
+    )
     run.add_argument(
         "--allow-partial-run",
         action="store_true",

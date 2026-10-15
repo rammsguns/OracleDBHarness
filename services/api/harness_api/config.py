@@ -103,6 +103,8 @@ class Settings(BaseSettings):
     kiwi_explain_max_model_calls: int = 16
     kiwi_explain_max_source_lines: int = 6000
     kiwi_explain_max_tokens: int = 400_000
+    # Several summarising calls and a combining call: more than one Kiwi turn's time.
+    kiwi_explain_max_wall_seconds: float = 420.0
     kiwi_explain_page_lines: int = 150
     # Optional JSON file of team PL/SQL standards (K-5), given to Kiwi in its system
     # prompt. See harness_api/copilot/standards.py for the accepted keys.

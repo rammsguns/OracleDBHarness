@@ -173,7 +173,9 @@ class RunConfig:
     approval_reference: str = ""
     operator: str = ""
     max_output_tokens: int = 8000
-    request_timeout_seconds: float = 300.0
+    # Covers a whole request's stream, so it outlasts the explainer's wall time
+    # (kiwi_explain_max_wall_seconds) on a slow local model.
+    request_timeout_seconds: float = 600.0
     allow_partial_run: bool = False
 
 

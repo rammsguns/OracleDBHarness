@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from harness_api.config import Settings
 from harness_api.copilot.provider import FakeProvider, Provider, ProviderUsage
 from harness_worker.errors import ProviderError
 from tests.copilot.eval import runner as runner_module
@@ -1100,3 +1101,8 @@ def test_a_proposal_statements_pattern_is_parsed() -> None:
     raw = case("C1", expect={"outcome": "answer", "proposalStatementsMustNotMatch": ["(?i)commit"]})
     cases = case_set(raw)
     assert cases.cases[0].expect.proposal_statements_must_not_match == ("(?i)commit",)
+
+
+def test_a_case_waits_longer_than_an_explanation_may_run() -> None:
+    explain = Settings.model_fields["kiwi_explain_max_wall_seconds"].default
+    assert RunConfig.request_timeout_seconds > explain
