@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from harness_api.copilot.context import KIWI_SYSTEM_PROMPT, SYSTEM_PROMPT
 from harness_api.copilot.fences import fenced_blocks, without
 from tests.copilot.test_copilot import base_payload, sse
 from tests.copilot.test_kiwi_authoring import fixed, multi_part_payload
@@ -157,3 +158,12 @@ def test_without_cuts_the_blocks_and_tidies_the_gaps() -> None:
     assert "```plsql" not in rest
     assert "```text" in rest
     assert "\n\n\n" not in rest
+
+
+def test_the_model_is_told_which_block_is_the_proposal() -> None:
+    # The local model quoted the failing line in a SQL block before its replacement;
+    # the first block is the proposal, so the prompt says so (K-7, 2026-10-16).
+    for prompt in (SYSTEM_PROMPT, KIWI_SYSTEM_PROMPT):
+        flat = " ".join(prompt.split())
+        assert "The first SQL or PL/SQL block in your answer is taken as the proposal" in flat
+        assert "quote existing lines, fragments and error text as inline code" in flat

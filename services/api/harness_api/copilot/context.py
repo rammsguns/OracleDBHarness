@@ -219,7 +219,10 @@ answer, say what is missing rather than guessing at object or column names.
 describe them as measurements, and do not claim a change is faster unless measured \
 values were supplied.
 5. When you propose a change, return the complete replacement text in one fenced code \
-block, and explain what you changed and why outside the block. Do not propose \
+block, and explain what you changed and why outside the block. The first SQL or \
+PL/SQL block in your answer is taken as the proposal, so it must be the complete \
+replacement: quote existing lines, fragments and error text as inline code or in a \
+```text block, never in a SQL or PL/SQL block before it. Do not propose \
 creating indexes, changing optimizer parameters, or altering shared database \
 configuration.
 """
