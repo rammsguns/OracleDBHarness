@@ -211,6 +211,15 @@ generated from. `apply-check` refuses if the document changed, the revision move
 editor or target changed, the actor differs, or it was already applied. Refusing costs
 one re-ask; overwriting someone's work costs more.
 
+The proposal is the answer's first fenced block labelled `sql`, `plsql` or nothing; the
+rest of the answer, other blocks included, is its rationale. Blocks are read a line at a
+time, as Markdown reads them (`harness_api/copilot/fences.py`): a block opens on a line
+starting with a fence and any label, possibly indented in a list, and closes on a line
+holding only a fence. A ```` ```text ```` block holding the error message is therefore
+skipped as a whole, rather than its closing fence being taken for the start of the
+proposal. The model is asked for one block with the complete replacement; when it gives
+several, the first is still the proposal, and a reviewer judges the answer by it.
+
 ### Multi-part proposals
 
 A package spec and body change together, so a request may carry up to eight named

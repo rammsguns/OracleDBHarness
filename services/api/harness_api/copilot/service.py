@@ -48,6 +48,7 @@ from harness_api.copilot.context import (
     CopilotContext,
 )
 from harness_api.copilot.explainer import Explainer
+from harness_api.copilot.fences import CODE_LANGUAGES, fenced_blocks, without
 from harness_api.copilot.provider import (
     Provider,
     ProviderUsage,
@@ -93,12 +94,6 @@ SUPPORTED_PROTOCOL_MAJOR = 1
 # The parameters echoed in a tool_call event are the model's own words; keep them short.
 _MAX_EVENT_PARAMETER_BYTES = 2048
 _BUDGET_REFUSAL = "Not run: this request has used its lookup budget."
-
-_FENCED_BLOCK = re.compile(r"```(?:sql|plsql)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
-# A block labelled for one part of a multi-part proposal: ```plsql part=spec
-_PART_BLOCK = re.compile(
-    r"```(?:sql|plsql)?[ \t]+part=([A-Za-z0-9_-]+)[ \t]*\n(.*?)```", re.DOTALL | re.IGNORECASE
-)
 
 
 @dataclass
@@ -887,13 +882,20 @@ class CopilotService:
             return self._capture_multi_part(request_id, ask, answer)
         if not ask.editor.editor_id:
             return None
-        match = _FENCED_BLOCK.search(answer)
-        if match is None:
+        # The first SQL or PL/SQL block is the proposal, as the prompt asks for one. Other
+        # blocks (the error text, a quoted line) stay in the rationale they explain.
+        block = next(
+            (
+                b
+                for b in fenced_blocks(answer)
+                if b.language in CODE_LANGUAGES and b.part is None and b.text.strip()
+            ),
+            None,
+        )
+        if block is None:
             return None
-        proposed = match.group(1).rstrip()
-        if not proposed.strip():
-            return None
-        rationale = _FENCED_BLOCK.sub("", answer).strip()
+        proposed = block.text
+        rationale = without(answer, [block])
         with self._sessions() as db:
             edit = ProposedEdit(
                 copilot_request_id=request_id,
@@ -929,14 +931,16 @@ class CopilotService:
         """One labelled block per part. Labels that name no part are dropped."""
 
         by_name = {part.part: part for part in ask.parts}
+        labelled = [
+            b for b in fenced_blocks(answer) if b.part is not None and b.language in CODE_LANGUAGES
+        ]
         blocks: dict[str, str] = {}
-        for match in _PART_BLOCK.finditer(answer):
-            name, text = match.group(1), match.group(2).rstrip()
-            if name in by_name and name not in blocks and text.strip():
-                blocks[name] = text
+        for block in labelled:
+            if block.part in by_name and block.part not in blocks and block.text.strip():
+                blocks[block.part] = block.text
         if not blocks:
             return None
-        rationale = _PART_BLOCK.sub("", answer).strip()
+        rationale = without(answer, labelled)
         # Parts the model left alone are still pinned, unchanged, so that applying the
         # proposal checks every buffer the request was made from.
         ordered = [(part, blocks.get(part.part, part.text)) for part in ask.parts]
