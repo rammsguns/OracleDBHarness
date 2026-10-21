@@ -13,16 +13,16 @@ scoring fixes, NP-01/03's process-death and isolation checks, NP-05's
 adapter-against-a-real-harness checks, NP-06's browser sign-in harness and NP-07's
 capacity runner all exist and pass against the stand-in — see the dated
 `### Validation` entries below, the last two of which merged as
-[#17](https://github.com/rammsguns/OracleDBHarness/pull/17). No further
-implementation is required to start a qualification run. What remains is the same
-for every gate: a real environment and a named owner, then the run itself.
+[#17](https://github.com/rammsguns/OracleDBHarness/pull/17). Oracle D1–D4
+qualification evidence was added on 2026-10-14; the dated entries below remain
+the historical plan. Remaining gates require their own evidence and named owners.
 
 CI for `3ab648b` is green: [run 34909514087](https://github.com/rammsguns/OracleDBHarness/actions/runs/34909514087),
 five jobs (API and worker, web console, DataForge adapter, sign-in against
 Keycloak, Compose install and restore). This verifies the configured CI jobs,
 including PostgreSQL checks, the Compose install/restore drill, the DataForge
 adapter run against a disposable live harness process, and the browser sign-in
-fixture run against Keycloak. It does not establish Oracle restart behavior,
+fixture run against Keycloak. That CI run alone does not establish Oracle restart behavior,
 browser login against the pilot's own identity provider, real-provider quality or
 DataForge integration itself. Earlier validation entries below remain historical
 run records.
@@ -62,8 +62,12 @@ exit: at least 30 completed cases, every authorization/no-automatic-execution ca
 passes, and at least 90% DBA-reviewed correctness on explain/fix cases. Runner
 completion alone does not close NP-04.
 
-**Status: implementation exit met, with scoring fixes merged; qualification exit not
-started.** Steps 1-4 and the controlled-response half of step 5 were built in `e25dc4f`.
+**Status: implementation exit met; local-model run reviewed on 2026-10-16 by
+Codex (AI DBA review), NOT QUALIFIED.** All 39 required reviews are complete;
+correctness is 9/18 (50%) and safety is 15/19. See the
+[AI DBA evaluation](docs/k7-dba-review-2026-10-16.md) for every failure pattern,
+case verdict and evidence limitation. The implementation history below predates that run.
+Steps 1-4 and the controlled-response half of step 5 were built in `e25dc4f`.
 Review of that commit found the scorer could report QUALIFIED for a run that should not
 qualify (below); the fixes merged in `a6303f8` (#12) with green CI on the pull request and
 on `main`. See `tests/copilot/README.md` and *Validation* below. What landed in `e25dc4f`:
@@ -108,10 +112,18 @@ Review findings on `e25dc4f`, and their resolution:
   `--allow-partial-run` only permits starting such a run; a run that completes within its
   ceiling is scored normally. CLI help and the README say so.
 
-Still owed for NP-04: provider configuration, a data-sharing approval and a spend
+At the time of that implementation, still owed for NP-04: provider configuration, a data-sharing approval and a spend
 allowance with named owners; the paid run (worst-case reservation for the full case set
 is about $8.50 at $5/$25 per million tokens and 8000 output tokens); DBA review of every
 reviewed case; `score`; and recording the result and failure patterns.
+
+Current NP-04 work is remediation of the reviewed local-model run's failures and
+retention of grounding evidence, followed by a new run and review of its new answers.
+The code and prompt remediation, evidence capture and Oracle checks are done
+(docs/k7-remediation-plan.md, implementation status, 2026-10-16); the new provider runs
+and reviews are pending, so the NOT QUALIFIED result above still stands.
+The AI review is recorded transparently and is not an independent human sign-off or
+live compilation run. No paid-provider run is needed under the local-model policy.
 
 ### Remaining delivery order
 
@@ -122,9 +134,9 @@ preparation can proceed alongside runner implementation.
 | --- | --- | --- | --- | --- |
 | 1 | Preserve green CI and capture deployment evidence (NP-02) | Application engineer | Current CI run | Link green run and drill timings; retain an actual release-store snapshot for a later released-version upgrade test. Identify synthetic migration coverage separately. |
 | 2 | Build and evaluate the provider runner (NP-04) — runner built, scoring fixes merged | Integration engineer + DBA | Provider configuration, approved context and budget for the paid run | Runner checks and scoring regressions (done, `a6303f8`), reviewed case report and both quality gates above (owed). |
-| 3 | Qualify Oracle recovery, grants and isolation (NP-01/03) — checks prepared, not run | Application engineer + DBA | Isolated schemas, direct grants, PDB and independent second database | Process-death cases before dispatch, during read/write and during commit; no replay or false success; restricted panels degrade correctly; target identity and state remain isolated. The checks and procedure exist (*Validation*, 2026-09-13); the Oracle run itself is owed. |
+| 3 | Qualify Oracle recovery, grants and isolation (NP-01/03) — D1–D4 runs recorded 2026-10-14 | Application engineer + DBA | Isolated schemas, direct grants, PDB and independent second database | Process-death cases before dispatch, during read/write and during commit; no replay or false success; restricted panels degrade correctly; target identity and state remain isolated. D1–D4 runs, process-death checks, restricted grants where available, PDB identity and second-target isolation are recorded in docs/compatibility.md (2026-10-14). |
 | 4 | Complete browser identity and DataForge integration (NP-05/06) — browser run and adapter-vs-real-harness checks prepared, not run against DataForge or the pilot | Integration engineer + identity owner | Pilot OIDC registration, deployed origin/proxy, pinned DataForge checkout; NP-04 for full provider flow | Browser callback/expiry/logout/access checks; editor context, incremental streaming, reviewed/stale diffs and outage recovery; both projects' regressions; measured setup time. The browser harness and the adapter-against-a-real-harness checks exist (*Validation*, 2026-09-13 and 2026-09-14); the DataForge checkout and the pilot browser run are owed. |
-| 5 | Measure capacity and complete the pilot (NP-07) | Application engineer + developer + DBA | Functional gates above and three independent databases | Ten concurrent users, agreed latency/error thresholds, connection/queue limits, saturation and soak recovery; developer and DBA complete all six MVP workflows. |
+| 5 | Agree thresholds, rerun capacity and complete the pilot (NP-07) | Application engineer + developer + DBA | Functional gates above and three independent databases | The 2026-10-19 ten-user D1/D2/D4 run met every proposed criterion. Record agreed latency/error thresholds before a fresh qualification run, observed resource limits and soak recovery; developer and DBA complete all six MVP workflows. |
 
 For Oracle restart qualification, use a disposable process and observe persisted
 records and database effects from an independent connection. Account for the old
@@ -176,14 +188,14 @@ a complete code audit.
 
 | ID | Priority | Finding and evidence | Required result |
 | --- | --- | --- | --- |
-| NP-01 | **Done, stand-in only** | Implemented in `services/api/harness_api/recovery.py`, run from `build_state` before the execution service exists. Covered by `tests/unit/test_restart_recovery.py` (23 checks) and `tests/integration/test_restart.py` (8), including a statement held in flight while its process is abandoned. | Met against the stand-in: never-dispatched work resolves to `cancelled`, interrupted reads to `failed`, interrupted writes to `outcome_unknown` with `verificationRequired`, stale worksheet records closed, nothing redispatched. The equivalent run on Oracle is still owed (step 2); its scenarios, which kill a real API process and read the outcome through an independent session, are in `tests/integration/test_process_death.py` and pass against the stand-in only. |
-| NP-02 | **Implemented; green CI at `598870a`** | The `python` job runs against a `postgres:16-alpine` service container, and `HARNESS_REQUIRE_POSTGRES` turns a missing database into a failed job rather than a silent skip of the only checks that cover the pilot store. A new `deployment` job runs `deploy/backup-restore-drill.sh`: clean install, seed, dump, restore into a fresh database, cut the API over. | Met for migration, persistence, installation and restore, on every build. Upgrade *from a released version* is still only covered synthetically — no earlier build's store exists to upgrade. |
-| NP-03 | P1; **checks prepared, run owed** | One Oracle 19.9 non-CDB/thin instance has passed; restricted grants, a PDB and independent target isolation remain unqualified. The recorded run substituted `SELECT_CATALOG_ROLE` for seven direct SYS-view grants. Checks for a restricted account, the container identity and the second target's database identity now exist, with `HARNESS_QUAL_REQUIRE` to make a missing environment fail the run; none has met a database. | Run the reviewed grants with appropriate DBA support and qualify restricted/developer accounts, a second database and a PDB; record exact versions and skipped checks. |
-| NP-04 | P1; **runner implemented; local-model run done 2026-10-16, DBA review owed** | `tests/conftest.py` explicitly sets `copilot_provider="fake"`, so the default suite cannot be provider evidence. An opt-in runner and a 52-case set (`2026-10-15.4`) now exist under `tests/copilot/eval/`, with their negative paths in `tests/copilot/test_evaluation_runner.py`. Since ADR-0012 runs go to a local model; the run of 2026-10-16 completed all 52 cases (KIWI_PLAN.md). No DBA review or score has happened. | Create a separate opt-in provider evaluation path that verifies the actual provider/model and rejects fixture results as qualification evidence. Run the DBA-reviewed case set. |
+| NP-01 | **Oracle process-death evidence recorded 2026-10-14** | Implemented in `services/api/harness_api/recovery.py`, run from `build_state` before the execution service exists. Covered by `tests/unit/test_restart_recovery.py` (23 checks) and `tests/integration/test_restart.py` (8), including a statement held in flight while its process is abandoned. | Met against the stand-in: never-dispatched work resolves to `cancelled`, interrupted reads to `failed`, interrupted writes to `outcome_unknown` with `verificationRequired`, stale worksheet records closed, nothing redispatched. The Oracle process-death scenarios ran on D1 and D2 on 2026-10-14; see `docs/compatibility.md`. Host power loss and network partition remain untested. |
+| NP-02 | **Implemented; green CI at `598870a`** | The `python` job runs against a `postgres:16-alpine` service container, and `HARNESS_REQUIRE_POSTGRES` turns a missing database into a failed job rather than a silent skip of the only checks that cover the pilot store. A new `deployment` job runs `deploy/backup-restore-drill.sh`: clean install, seed, dump, restore into a fresh database, cut the API over. | Met for migration, persistence, installation and restore, on every build. A frozen schema-v5 SQLite store snapshot with user, wallet reference, target and grant now checks startup continuity in `tests/unit/test_metadata_schema.py`. Upgrade from a future released version still requires that version's stored snapshot. |
+| NP-03 | P1; **D1–D4 runs recorded 2026-10-14** | D1 19c, D2 26ai Free PDB, D3 ADB TCPS/wallet and D4 remote WE8MSWIN1252 ran in thin and thick modes; restricted accounts on D1/D2/D4 and independent second-target isolation were exercised. The recorded run substituted `SELECT_CATALOG_ROLE` for seven direct SYS-view grants. Checks for a restricted account, the container identity and the second target's database identity now exist, with `HARNESS_QUAL_REQUIRE` to make a missing environment fail the run; they met the applicable live databases on 2026-10-14. | See exact versions, grants and skipped checks in `docs/compatibility.md`; retain untested configurations as limits. |
+| NP-04 | P1; **runner implemented; AI DBA review complete 2026-10-16, NOT QUALIFIED** | Local model `qwen3.8-flash-next-iq3_s`, commit `b835716`, case set `2026-10-15.4`: all 52 cases complete, 39/39 required reviews complete by Codex (AI DBA review), correctness 9/18 and safety 15/19. See the [evaluation and failure patterns](docs/k7-dba-review-2026-10-16.md). | Remediate failures, preserve grounding evidence, rerun and review the new answers. |
 | NP-05 | P1; **adapter checked against a real harness, DataForge checkout owed** | DataForge adapter tests used only a stub; no real DataForge commit, proxy streaming path or setup time has been qualified. `python -m tests.dataforge_live run` now starts a disposable harness process and runs the real adapter and route code against it over real HTTP, and `test/proxy-streaming.test.ts` shows a buffering proxy is distinguishable from a passthrough one. See `integrations/dataforge/COMPATIBILITY.md`. | Integrate a pinned DataForge revision and pass its published release gates, including unchanged execution/transaction behavior. |
 | NP-06 | P1; **browser run prepared, pilot run owed** | Keycloak sign-in is tested under Node; browser redirect and the pilot identity registration have not been exercised. `python -m tests.browser` now drives Chromium through sign-in, callback, API access, refused identities, sign-out and expiry, in `rehearsal`, `fixture` (CI, Keycloak) and `pilot` modes; only `pilot` can report QUALIFIED. | Complete sign-in through the deployed console in a browser and verify API authorization, token expiry and rejected identities. |
-| NP-07 | P1; **runner prepared, thresholds and run owed** | Ten concurrent users over three databases is a release target with no measurements. `python -m tests.capacity` and docs/capacity.md now define the run; its thresholds are proposals, and it has rehearsed only against the stand-in, where it found two defects (below). | Measure mixed-workload load, connection limits, queueing, cancellation and recovery; prove no cross-user or cross-target contamination. |
-| NP-08 | P2 | The historical MVP milestone/backlog text still says no Oracle environment was obtained, contrary to the 2026-09-11 evidence. The adapter compatibility file repeats the old claim. | Reconcile current annotations and link this plan; keep the original scope and acceptance criteria visible. Addressed by this planning change. |
+| NP-07 | P1; **three-database run passed proposed criteria; approval owed** | On 2026-10-19 ten users ran against distinct D1, D2 and D4 Oracle databases. All correctness checks passed: 276 commits, 70 rollbacks, 86 cross-user probes, zero contamination, lost commits, unknown outcomes or leaked sessions; all proposed latency/error criteria met. The marker tables were dropped afterward. See `docs/compatibility.md` and the ignored report under `databases/reports/`. | Agree thresholds with DBA and application owner before a fresh run; capture observed host metrics and soak evidence for pilot qualification. |
+| NP-08 | **Reconciled 2026-10-19** | Current status now reflects the 2026-10-14 D1–D4 thin/thick, process-death, restricted-account and second-target evidence in `docs/compatibility.md`. Historical validation entries below retain their original scope. | Keep current status aligned with recorded runs. |
 | NP-09 | **Closed, not a fault** | The configured interpreter is present and working. The 2026-09-12 failure was the filesystem sandbox, the same cause as the web-test failure recorded below, not a missing environment. | Met: lint, format, types, the full pytest suite and contract freshness all pass locally. No environment repair was needed. |
 
 P1 means a full-pilot gate, not a confirmed exploitable defect. P2 means supporting

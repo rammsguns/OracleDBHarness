@@ -6,6 +6,7 @@
 -- @kiwi: allowed
 -- @min_version: 12
 -- @parameters: owner, package_name, row_limit
+-- @required: owner, package_name
 -- @privileges: SELECT on ALL_PROCEDURES, SELECT on ALL_ARGUMENTS
 -- DATA_LEVEL 0 keeps the declared arguments and drops the attributes of record and
 -- collection types, which would otherwise repeat under every argument that uses one.

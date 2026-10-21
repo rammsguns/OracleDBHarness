@@ -6,6 +6,7 @@
 -- @kiwi: allowed
 -- @min_version: 12
 -- @parameters: owner, program_name
+-- @required: owner, program_name
 -- @privileges: SELECT on ALL_SCHEDULER_PROGRAMS
 SELECT p.owner,
        p.program_name,

@@ -1,0 +1,170 @@
+{
+  "version": 1,
+  "authMode": "dev",
+  "users": [
+    {
+      "subject": "dev@example.internal",
+      "displayName": "Developer",
+      "roles": [
+        "developer"
+      ]
+    },
+    {
+      "subject": "dba@example.internal",
+      "displayName": "DBA",
+      "roles": [
+        "dba"
+      ]
+    },
+    {
+      "subject": "viewer@example.internal",
+      "displayName": "Viewer",
+      "roles": [
+        "viewer"
+      ]
+    },
+    {
+      "subject": "admin@example.internal",
+      "displayName": "Administrator",
+      "roles": [
+        "administrator"
+      ]
+    }
+  ],
+  "targets": [
+    {
+      "name": "d1-19c-dev",
+      "host": "localhost",
+      "port": 1522,
+      "serviceName": "ORCL",
+      "username": "HARNESS_APP",
+      "defaultSchema": "HARNESS_APP",
+      "environment": "development",
+      "secretReference": "d1_harness_app",
+      "passwordFile": "d1_harness_app.pw",
+      "worksheetsEnabled": true,
+      "mutatingRunbooksEnabled": true
+    },
+    {
+      "name": "d2-26ai-dev",
+      "host": "localhost",
+      "port": 1521,
+      "serviceName": "FREEPDB1",
+      "username": "HARNESS_APP",
+      "defaultSchema": "HARNESS_APP",
+      "environment": "development",
+      "secretReference": "d2_harness_app",
+      "passwordFile": "d2_harness_app.pw",
+      "worksheetsEnabled": true,
+      "mutatingRunbooksEnabled": true
+    },
+    {
+      "name": "d4-19c-remote",
+      "host": "172.99.188.64",
+      "port": 3603,
+      "serviceName": "ORCL",
+      "username": "HARNESS_APP",
+      "defaultSchema": "HARNESS_APP",
+      "environment": "test",
+      "secretReference": "d4_harness_app",
+      "passwordFile": "d4_harness_app.pw",
+      "worksheetsEnabled": true,
+      "mutatingRunbooksEnabled": true
+    },
+    {
+      "name": "d3-26ai-adb",
+      "host": "adb.mx-queretaro-1.oraclecloud.com",
+      "port": 1522,
+      "serviceName": "g455001ab0656db_oracle26ialwaysfree_medium.adb.oraclecloud.com",
+      "username": "HARNESS_APP",
+      "defaultSchema": "HARNESS_APP",
+      "environment": "production",
+      "secretReference": "d3_harness_app",
+      "passwordFile": "d3_harness_app.pw",
+      "worksheetsEnabled": false,
+      "mutatingRunbooksEnabled": false,
+      "protocol": "tcps",
+      "walletDir": "/home/kiwi/oracle26i-always-free/wallet",
+      "walletSecretReference": "d3_wallet",
+      "walletPasswordFile": "d3_wallet.pw"
+    },
+    {
+      "name": "d1-lab-sh",
+      "host": "localhost",
+      "port": 1522,
+      "serviceName": "ORCL",
+      "username": "HARNESS_LAB",
+      "defaultSchema": "SH",
+      "environment": "production",
+      "secretReference": "d1_lab",
+      "passwordFile": "d1_lab.pw",
+      "worksheetsEnabled": false,
+      "mutatingRunbooksEnabled": false
+    },
+    {
+      "name": "d1-lab-hr",
+      "host": "localhost",
+      "port": 1522,
+      "serviceName": "ORCL",
+      "username": "HARNESS_LAB",
+      "defaultSchema": "HR",
+      "environment": "production",
+      "secretReference": "d1_lab",
+      "passwordFile": "d1_lab.pw",
+      "worksheetsEnabled": false,
+      "mutatingRunbooksEnabled": false
+    },
+    {
+      "name": "d1-lab-oe",
+      "host": "localhost",
+      "port": 1522,
+      "serviceName": "ORCL",
+      "username": "HARNESS_LAB",
+      "defaultSchema": "OE",
+      "environment": "production",
+      "secretReference": "d1_lab",
+      "passwordFile": "d1_lab.pw",
+      "worksheetsEnabled": false,
+      "mutatingRunbooksEnabled": false
+    },
+    {
+      "name": "d2-lab-sales",
+      "host": "localhost",
+      "port": 1521,
+      "serviceName": "FREEPDB1",
+      "username": "HARNESS_LAB",
+      "defaultSchema": "SALES_LAB",
+      "environment": "production",
+      "secretReference": "d2_lab",
+      "passwordFile": "d2_lab.pw",
+      "worksheetsEnabled": false,
+      "mutatingRunbooksEnabled": false
+    },
+    {
+      "name": "d2-lab-hr",
+      "host": "localhost",
+      "port": 1521,
+      "serviceName": "FREEPDB1",
+      "username": "HARNESS_LAB",
+      "defaultSchema": "HR",
+      "environment": "production",
+      "secretReference": "d2_lab",
+      "passwordFile": "d2_lab.pw",
+      "worksheetsEnabled": false,
+      "mutatingRunbooksEnabled": false
+    },
+    {
+      "name": "d2-lab-co",
+      "host": "localhost",
+      "port": 1521,
+      "serviceName": "FREEPDB1",
+      "username": "HARNESS_LAB",
+      "defaultSchema": "CO",
+      "environment": "production",
+      "secretReference": "d2_lab",
+      "passwordFile": "d2_lab.pw",
+      "worksheetsEnabled": false,
+      "mutatingRunbooksEnabled": false
+    }
+  ]
+}

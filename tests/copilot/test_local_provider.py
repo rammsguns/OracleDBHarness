@@ -356,12 +356,18 @@ async def test_a_turn_that_must_answer_chooses_no_tool() -> None:
     conversation = provider(server).start_conversation("sys", "why?", [STATUS])
     [event async for event in conversation.turn()]
     conversation.add_tool_results([ToolResult("c1", "VALID")])
-    conversation.require_answer()
+    conversation.require_answer("[harness] Answer now.")
     [event async for event in conversation.turn()]
     assert "tool_choice" not in server.bodies[0]
-    # The transcript holds tool calls, so the tools stay described.
-    assert server.bodies[1]["tools"] == server.bodies[0]["tools"]
-    assert server.bodies[1]["tool_choice"] == "none"
+    assert server.bodies[0]["tools"]
+    # The answer turn offers no tool to call (trial 21, DIAG-02); the transcript's call
+    # and its result stay, and the instruction is a message of its own after them.
+    assert "tools" not in server.bodies[1]
+    assert "tool_choice" not in server.bodies[1]
+    messages = server.bodies[1]["messages"]
+    assert [m["role"] for m in messages] == ["system", "user", "assistant", "tool", "user"]
+    assert messages[-1]["content"] == "[harness] Answer now."
+    assert messages[3]["content"] == "VALID"
     assert conversation.finished
 
 

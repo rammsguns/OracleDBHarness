@@ -24,6 +24,7 @@ import sqlite3
 import tempfile
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -242,6 +243,132 @@ CREATE TABLE IF NOT EXISTS harness_fake_state (key TEXT PRIMARY KEY, value TEXT)
 """
 
 
+@dataclass(frozen=True)
+class _SchedulerJob:
+    """One scheduler job, seeded into both DBA_SCHEDULER_JOBS and ALL_SCHEDULER_JOBS.
+
+    Oracle's two views describe the same job, so they share its counters and dates. They
+    were once seeded separately and disagreed on EXPORT_ORDERS's failure count (3 and 2,
+    round-17 review C20); one record now feeds both. Every job here is owned by the
+    stand-in's own schema, so the requesting user sees it in ALL_ as well. The counters
+    are the scheduler's own and are not derived from the run history: a log keeps only
+    the runs it retains, so a count larger than the rows it shows is normal.
+    """
+
+    owner: str
+    job_name: str
+    job_type: str | None
+    job_action: str | None
+    schedule_type: str
+    repeat_interval: str | None
+    enabled: str
+    state: str
+    run_count: int
+    failure_count: int
+    next_run_date: str
+    program_owner: str | None = None
+    program_name: str | None = None
+    job_class: str = "DEFAULT_JOB_CLASS"
+    max_failures: int | None = None
+    last_start_date: str | None = None
+    last_run_duration: str | None = None
+    comments: str | None = None
+
+
+_NIGHTLY_STATS = _SchedulerJob(
+    owner="HARNESS_APP",
+    job_name="NIGHTLY_STATS",
+    job_type="PLSQL_BLOCK",
+    job_action="BEGIN DBMS_STATS.GATHER_SCHEMA_STATS('HARNESS_APP'); END;",
+    schedule_type="CALENDAR",
+    repeat_interval="FREQ=DAILY;BYHOUR=2",
+    enabled="TRUE",
+    state="SCHEDULED",
+    run_count=30,
+    failure_count=0,
+    last_start_date="2025-01-01 02:00:00",
+    last_run_duration="+000 00:04:12",
+    next_run_date="2025-01-02 02:00:00",
+)
+_EXPORT_ORDERS = _SchedulerJob(
+    owner="HARNESS_APP",
+    job_name="EXPORT_ORDERS",
+    job_type="STORED_PROCEDURE",
+    job_action="ORDER_FEED.EXPORT_DAY",
+    schedule_type="CALENDAR",
+    repeat_interval="FREQ=DAILY;BYHOUR=3",
+    enabled="TRUE",
+    state="SCHEDULED",
+    run_count=12,
+    failure_count=3,
+    last_start_date="2025-01-01 03:00:00",
+    last_run_duration="+000 00:00:07",
+    next_run_date="2025-01-02 03:00:00",
+)
+_HARNESS_NOOP_JOB = _SchedulerJob(
+    owner="HARNESS_APP",
+    job_name="HARNESS_NOOP_JOB",
+    job_type=None,
+    job_action=None,
+    program_owner="HARNESS_APP",
+    program_name="HARNESS_NOOP_PROG",
+    schedule_type="ONCE",
+    repeat_interval=None,
+    enabled="TRUE",
+    state="SCHEDULED",
+    run_count=1,
+    failure_count=0,
+    last_start_date="2025-01-01 04:00:00",
+    last_run_duration="+000 00:00:00",
+    next_run_date="2035-01-01 04:00:00",
+    comments="Kiwi qualification fixture",
+)
+
+
+def _seed_scheduler_jobs(cur: sqlite3.Cursor, jobs: list[_SchedulerJob]) -> None:
+    for job in jobs:
+        cur.execute(
+            "INSERT INTO dba_scheduler_jobs (owner, job_name, enabled, state,"
+            " last_start_date, next_run_date, failure_count) VALUES (?,?,?,?,?,?,?)",
+            (
+                job.owner,
+                job.job_name,
+                job.enabled,
+                job.state,
+                job.last_start_date,
+                job.next_run_date,
+                job.failure_count,
+            ),
+        )
+        cur.execute(
+            "INSERT INTO all_scheduler_jobs (owner, job_name, job_type, job_action,"
+            " program_owner, program_name, schedule_type, repeat_interval, job_class,"
+            " enabled, state, run_count, failure_count, max_failures, last_start_date,"
+            " last_run_duration, next_run_date, comments)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                job.owner,
+                job.job_name,
+                job.job_type,
+                job.job_action,
+                job.program_owner,
+                job.program_name,
+                job.schedule_type,
+                job.repeat_interval,
+                job.job_class,
+                job.enabled,
+                job.state,
+                job.run_count,
+                job.failure_count,
+                job.max_failures,
+                job.last_start_date,
+                job.last_run_duration,
+                job.next_run_date,
+                job.comments,
+            ),
+        )
+
+
 def _seed_rows(cur: sqlite3.Cursor) -> None:
     """Load the fixture data the MVP acceptance criteria refer to."""
 
@@ -359,12 +486,18 @@ def _seed_rows(cur: sqlite3.Cursor) -> None:
         "INSERT INTO all_sequences (sequence_owner, sequence_name, min_value, max_value,"
         " increment_by, last_number) VALUES ('HARNESS_APP','EMPLOYEE_SEQ',1,999999,1,106)"
     )
+    # What 19c records for the fixture below (checked 2026-10-17 by compiling it in a
+    # disposable schema that has EMPLOYEES and no EMPLOYEE): the invalid body depends on
+    # its specification and PUBLIC.DBMS_OUTPUT, and has no row for EMPLOYEES or for the
+    # unresolved EMPLOYEE. SYS.STANDARD, which every unit references, is left out here as
+    # it is for every other stand-in unit.
     cur.executemany(
         "INSERT INTO all_dependencies (owner, name, type, referenced_owner,"
-        " referenced_name, referenced_type) VALUES ('HARNESS_APP',?,?,'HARNESS_APP',?,?)",
+        " referenced_name, referenced_type) VALUES ('HARNESS_APP',?,?,?,?,?)",
         [
-            ("EMPLOYEE_REPORT", "PACKAGE BODY", "EMPLOYEES", "TABLE"),
-            ("V_ACTIVE_EMPLOYEES", "VIEW", "EMPLOYEES", "TABLE"),
+            ("EMPLOYEE_REPORT", "PACKAGE BODY", "HARNESS_APP", "EMPLOYEE_REPORT", "PACKAGE"),
+            ("EMPLOYEE_REPORT", "PACKAGE BODY", "PUBLIC", "DBMS_OUTPUT", "SYNONYM"),
+            ("V_ACTIVE_EMPLOYEES", "VIEW", "HARNESS_APP", "EMPLOYEES", "TABLE"),
         ],
     )
 
@@ -408,13 +541,15 @@ def _seed_rows(cur: sqlite3.Cursor) -> None:
         list(enumerate(body, start=1)),
     )
     # The seeded body references EMPLOYEE instead of EMPLOYEES, so it is invalid on
-    # purpose: the PL/SQL workspace acceptance test repairs it and recompiles.
+    # purpose: the PL/SQL workspace acceptance test repairs it and recompiles. Lines,
+    # positions and message numbers are what 19c records for this source (C18, checked
+    # 2026-10-18): the SQL error comes wrapped as a PL/SQL message, number 0.
     cur.executemany(
         "INSERT INTO all_errors (owner, name, type, sequence, line, position, text,"
         " attribute, message_number) VALUES ('HARNESS_APP','EMPLOYEE_REPORT',"
         "'PACKAGE BODY',?,?,?,?,'ERROR',?)",
         [
-            (1, 5, 42, "PL/SQL: ORA-00942: table or view does not exist", 942),
+            (1, 5, 39, "PL/SQL: ORA-00942: table or view does not exist", 0),
             (2, 5, 5, "PL/SQL: SQL Statement ignored", 0),
         ],
     )
@@ -443,30 +578,7 @@ def _seed_rows(cur: sqlite3.Cursor) -> None:
             ("TEMP", block_size, "ONLINE", "TEMPORARY", "LOCAL"),
         ],
     )
-    cur.executemany(
-        "INSERT INTO dba_scheduler_jobs (owner, job_name, enabled, state,"
-        " last_start_date, next_run_date, failure_count) VALUES (?,?,?,?,?,?,?)",
-        [
-            (
-                "HARNESS_APP",
-                "NIGHTLY_STATS",
-                "TRUE",
-                "SCHEDULED",
-                "2025-01-01 02:00:00",
-                "2025-01-02 02:00:00",
-                0,
-            ),
-            (
-                "HARNESS_APP",
-                "EXPORT_ORDERS",
-                "TRUE",
-                "SCHEDULED",
-                "2025-01-01 03:00:00",
-                "2025-01-02 03:00:00",
-                3,
-            ),
-        ],
-    )
+    _seed_scheduler_jobs(cur, [_NIGHTLY_STATS, _EXPORT_ORDERS])
     cur.executemany(
         "INSERT INTO dba_scheduler_job_run_details (owner, job_name, status,"
         " error_number, actual_start_date, run_duration, additional_info)"
@@ -763,49 +875,7 @@ def _seed_kiwi_dictionary(cur: sqlite3.Cursor) -> None:
         " program_action, enabled) VALUES ('HARNESS_APP','HARNESS_NOOP_PROG',"
         "'PLSQL_BLOCK','BEGIN NULL; END;','TRUE')"
     )
-    cur.executemany(
-        "INSERT INTO all_scheduler_jobs (owner, job_name, job_type, job_action,"
-        " program_owner, program_name, schedule_type, repeat_interval, job_class, enabled,"
-        " state, run_count, failure_count, max_failures, last_start_date,"
-        " last_run_duration, next_run_date, comments)"
-        " VALUES ('HARNESS_APP',?,?,?,?,?,?,?,'DEFAULT_JOB_CLASS',?,?,?,?,NULL,?,?,?,?)",
-        [
-            (
-                "HARNESS_NOOP_JOB",
-                None,
-                None,
-                "HARNESS_APP",
-                "HARNESS_NOOP_PROG",
-                "ONCE",
-                None,
-                "TRUE",
-                "SCHEDULED",
-                1,
-                0,
-                "2025-01-01 04:00:00",
-                "+000 00:00:00",
-                "2035-01-01 04:00:00",
-                "Kiwi qualification fixture",
-            ),
-            (
-                "EXPORT_ORDERS",
-                "STORED_PROCEDURE",
-                "ORDER_FEED.EXPORT_DAY",
-                None,
-                None,
-                "CALENDAR",
-                "FREQ=DAILY;BYHOUR=3",
-                "TRUE",
-                "SCHEDULED",
-                12,
-                2,
-                "2025-01-01 03:00:00",
-                "+000 00:00:07",
-                "2025-01-02 03:00:00",
-                None,
-            ),
-        ],
-    )
+    _seed_scheduler_jobs(cur, [_HARNESS_NOOP_JOB])
     cur.executemany(
         "INSERT INTO all_scheduler_chain_steps (owner, chain_name, step_name, step_type,"
         " program_owner, program_name, skip, pause) VALUES"
@@ -872,6 +942,28 @@ def _seed_kiwi_explainer(cur: sqlite3.Cursor) -> None:
             (fx.OWNER, fx.TRIGGER, "TRIGGER"),
         ],
     )
+    cur.executemany(
+        "INSERT INTO all_tab_columns (owner, table_name, column_name, data_type,"
+        " data_length, data_precision, data_scale, nullable, column_id)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
+        [(fx.OWNER, *row) for row in fx.columns()],
+    )
+    # Oracle names an unnamed key SYS_Cnnnnnn; the stand-in's number is arbitrary.
+    keys = [
+        (f"SYS_C{9000 + n:07d}", table, column)
+        for n, (table, column) in enumerate(fx.primary_keys(), 1)
+    ]
+    cur.executemany(
+        "INSERT INTO all_constraints (owner, constraint_name, constraint_type,"
+        " table_name, r_owner, r_constraint_name, status)"
+        " VALUES (?,?,'P',?,NULL,NULL,'ENABLED')",
+        [(fx.OWNER, name, table) for name, table, _ in keys],
+    )
+    cur.executemany(
+        "INSERT INTO all_cons_columns (owner, constraint_name, table_name, column_name,"
+        " position) VALUES (?,?,?,?,1)",
+        [(fx.OWNER, name, table, column) for name, table, column in keys],
+    )
     source = [
         (fx.PACKAGE, "PACKAGE", fx.spec_lines()),
         (fx.PACKAGE, "PACKAGE BODY", fx.body_lines()),
@@ -937,14 +1029,24 @@ def _seed_kiwi_explainer(cur: sqlite3.Cursor) -> None:
         " action, comments) VALUES (?,?,?,?,?,NULL)",
         [(fx.OWNER, fx.CHAIN, *rule) for rule in fx.RULES],
     )
-    cur.execute(
-        "INSERT INTO all_scheduler_jobs (owner, job_name, job_type, job_action,"
-        " program_owner, program_name, schedule_type, repeat_interval, job_class, enabled,"
-        " state, run_count, failure_count, max_failures, last_start_date,"
-        " last_run_duration, next_run_date, comments) VALUES (?,?,'CHAIN',?,NULL,NULL,"
-        "'CALENDAR',?,'DEFAULT_JOB_CLASS','FALSE','DISABLED',0,0,NULL,NULL,NULL,"
-        "'2035-01-01 01:00:00','Nightly order ETL. Never enabled here.')",
-        (fx.OWNER, fx.JOB, fx.CHAIN, fx.REPEAT_INTERVAL),
+    _seed_scheduler_jobs(
+        cur,
+        [
+            _SchedulerJob(
+                owner=fx.OWNER,
+                job_name=fx.JOB,
+                job_type="CHAIN",
+                job_action=fx.CHAIN,
+                schedule_type="CALENDAR",
+                repeat_interval=fx.REPEAT_INTERVAL,
+                enabled="FALSE",
+                state="DISABLED",
+                run_count=0,
+                failure_count=0,
+                next_run_date="2035-01-01 01:00:00",
+                comments="Nightly order ETL. Never enabled here.",
+            )
+        ],
     )
 
 

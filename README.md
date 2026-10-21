@@ -11,11 +11,13 @@ console and IDE adapters use the same one.
 ## Status
 
 The foundation and the first vertical slice of [MVP_PLAN.md](MVP_PLAN.md) are
-implemented and tested end to end. The full suite has run against one Oracle 19c
-instance (19.9.1, non-CDB, thin mode) and passes; that run found and fixed a set of
-defects the stand-in could not show. Development uses a local stand-in backend that runs real SQL, binds and transactions
-over SQLite; it is not Oracle, it says so everywhere it appears, and release
-qualification needs more than one 19c configuration. See [docs/compatibility.md](docs/compatibility.md).
+implemented and tested end to end. The qualification suites ran on D1 19c
+(AL32UTF8), D2 26ai Free PDB, D3 26ai ADB over TCPS and wallet, and D4 remote
+19c (WE8MSWIN1252) on 2026-10-14. Thin and thick driver runs, restricted-account
+checks where available, process death, and two-target isolation are recorded in
+[docs/compatibility.md](docs/compatibility.md). Development uses a local stand-in
+backend that runs real SQL, binds and transactions over SQLite. Pilot qualification
+still needs agreed capacity thresholds and the remaining gates.
 
 | Area | State |
 | --- | --- |
@@ -29,11 +31,11 @@ qualification needs more than one 19c configuration. See [docs/compatibility.md]
 | Runbooks: health report, recompile, gather statistics, with verification | Implemented, tested |
 | Execution records and append-only audit | Implemented, tested |
 | Copilot: context policy, streaming, proposals, budgets, one provider adapter | Implemented, tested against a fixture provider |
-| Kiwi agent: read-only catalog lookups ([KIWI_PLAN.md](KIWI_PLAN.md)) | **Implemented behind `HARNESS_KIWI_ENABLED`, off by default** (K-1 to K-7 as code; a K-7 run against the local model on 2026-10-16 awaits DBA review). 31 reviewed read catalog lookups (K-4 qualified on Oracle 19.9 and 23.26, 2026-10-14), issue playbooks, all-or-nothing multi-part proposals for packages, a team standards file, and a package and ETL process explainer with evidence-labelled lineage and Mermaid export, run as the user, bounded and recorded; run against a local model in K-7 but not yet DBA-reviewed (ADR-0010). The copilot calls only a model on the harness's own host unless `HARNESS_COPILOT_LOCAL_ONLY` is turned off (ADR-0012). Compile on development targets is only a proposed ADR-0011 (K-8), not built |
+| Kiwi agent: read-only catalog lookups ([KIWI_PLAN.md](KIWI_PLAN.md)) | **Implemented behind `HARNESS_KIWI_ENABLED`, off by default** (K-1 to K-7 as code; the K-7 run of 2026-10-16 failed AI DBA review). 31 reviewed read catalog lookups (K-4 qualified on Oracle 19.9 and 23.26, 2026-10-14), issue playbooks, all-or-nothing multi-part proposals for packages, a team standards file, and a package and ETL process explainer with evidence-labelled lineage and Mermaid export, run as the user, bounded and recorded; run against a local model in K-7, with the failed AI review and evidence limitations recorded in the [evaluation](docs/k7-dba-review-2026-10-16.md) (ADR-0010). The copilot calls only a model on the harness's own host unless `HARNESS_COPILOT_LOCAL_ONLY` is turned off (ADR-0012). Compile on development targets is only a proposed ADR-0011 (K-8), not built Remediation code, prompt rules, evidence capture and Oracle 19c/26ai checks were added on 2026-10-16 ([plan](docs/k7-remediation-plan.md)); no new provider run or score yet. |
 | DataForge adapter: contract, bridge, routes, fixtures | Implemented, tested against a stubbed harness and a disposable live harness process; **not integrated with DataForge** |
-| Oracle 19c qualification | **Run on one instance, passing.** 19c EE 19.9.1, non-CDB, python-oracledb 4.0.2 thin, 2026-09-11. Not yet: a PDB, thick mode, a second target, a restricted account. Findings and the run record are in [docs/compatibility.md](docs/compatibility.md) |
-| Copilot answer-quality evaluation | **Case set `2026-10-15.4` (52 cases, incl. 13 for Kiwi) and opt-in runner built; run against the local model on 2026-10-16 (52 of 52 completed, automated safety checks passed); DBA review and scoring not done** |
-| Load testing | **Not started** |
+| Oracle qualification | **D1–D4 qualified on 2026-10-14** in thin and thick modes: 19c non-CDB, 26ai Free PDB, ADB TCPS/wallet, and remote WE8MSWIN1252. Process-death, restricted-account and independent-target cases ran where applicable. See [docs/compatibility.md](docs/compatibility.md). |
+| Copilot answer-quality evaluation | **Case set `2026-10-15.4` (52 cases, incl. 13 for Kiwi) and opt-in runner built; run against the local model on 2026-10-16 (52 of 52 completed, automated safety checks passed); AI DBA review complete (39/39): NOT QUALIFIED, correctness 9/18 (50%), safety 15/19.** See the [evaluation](docs/k7-dba-review-2026-10-16.md) for verdicts, failure patterns and evidence limitations |
+| Load testing | **Three-database ten-user run completed 2026-10-19** on D1, D2 and D4 with zero contamination and all proposed criteria met. It is not a pilot qualification until thresholds are agreed and a fresh run is recorded (NP-07). |
 
 `GET /api/v1/system/info` lists whatever caveats a running deployment currently has.
 

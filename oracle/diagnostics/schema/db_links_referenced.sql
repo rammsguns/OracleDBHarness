@@ -6,6 +6,7 @@
 -- @kiwi: allowed
 -- @min_version: 12
 -- @parameters: owner, object_name, row_limit
+-- @required: owner
 -- @privileges: SELECT on ALL_DEPENDENCIES, SELECT on ALL_DB_LINKS
 -- USERNAME and HOST are left out on purpose: a host can be a full connect
 -- descriptor, and neither helps explain what the code depends on. The LIKE matches a

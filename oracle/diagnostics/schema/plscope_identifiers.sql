@@ -6,6 +6,7 @@
 -- @kiwi: allowed
 -- @min_version: 12
 -- @parameters: owner, object_name, object_type, row_offset, row_limit
+-- @required: owner, object_name
 -- @privileges: SELECT on ALL_IDENTIFIERS, SELECT on ALL_PLSQL_OBJECT_SETTINGS, SELECT on ALL_OBJECTS
 -- The outer join from ALL_OBJECTS is what makes absence visible: a unit compiled
 -- without PL/Scope has no identifier rows, and an inner join would return nothing,

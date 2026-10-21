@@ -96,6 +96,15 @@ class Settings(BaseSettings):
     kiwi_max_rows_per_tool: int = 200
     kiwi_max_result_bytes: int = 16 * 1024
     kiwi_max_tool_bytes: int = 96 * 1024
+    # Answers the harness may send back once for revision when its claim checks find a
+    # statement the lookups or Oracle's semantics contradict (claim_checks.py). The
+    # revision is one more model turn of the same request, with no tools: it takes a step
+    # and counts its tokens, and only runs if one of each is left. It waits at most the
+    # request's remaining wall time and at most kiwi_revision_max_wall_seconds, which can
+    # narrow that, never extend it (round 18, C21). 0 turns revision off; the findings
+    # are still reported.
+    kiwi_max_revisions: int = 1
+    kiwi_revision_max_wall_seconds: float = 120.0
     # Package and process explanations (K-6) page through source and summarise it in
     # several model calls, so they get their own, larger per-request budget.
     kiwi_explain_max_tool_calls: int = 40
@@ -109,6 +118,11 @@ class Settings(BaseSettings):
     # Optional JSON file of team PL/SQL standards (K-5), given to Kiwi in its system
     # prompt. See harness_api/copilot/standards.py for the accepted keys.
     kiwi_standards_file: str = ""
+    # Evaluation only (K-7 remediation, step 1): also stream what each lookup returned to
+    # the model, bounded and without rows from application queries, so a reviewer can
+    # check the answer against it. Off by default; production events stay as they were.
+    kiwi_capture_evidence: bool = False
+    kiwi_evidence_max_bytes: int = 24 * 1024
 
     cors_origins: str = "http://localhost:5173"
 

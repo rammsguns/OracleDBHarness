@@ -37,7 +37,7 @@ claim. Where something has not been tested, it says so.
 | Sign-in in a real browser | The console's sign-in code has run against Keycloak under Node, and the token endpoint's CORS answer has been checked. `tests/browser` now drives Chromium through the console's sign-in, callback, API access, sign-out and expiry: its fixture mode runs in the CI `identity` job against the Keycloak realm (first passed on pull request #16, CI run 34788083498: 24 checks passed, 2 observed), and a rehearsal against a local stand-in provider has passed. **No browser run against the pilot's registration, deployed origin or proxy has happened**, and a fixture run cannot stand in for one. See tests/identity/README.md, "Browser qualification". |
 | A real model provider | The default is now a model on the harness's own host (`local`, OpenAI-style Chat Completions over loopback, ADR-0012). Its adapter has been run over real sockets against a stand-in server on 127.0.0.1, including a tool turn, and refuses non-loopback endpoints, redirects and environment proxies; **no prompt has been sent to a real local model yet**. The Anthropic adapter is kept but refused while `HARNESS_COPILOT_LOCAL_ONLY` is on; no call has been made with it. |
 | OracleDataForge | Not integrated. See `integrations/dataforge/COMPATIBILITY.md`. |
-| Load | The pilot target is ten concurrent users across three databases. **Rehearsed, not qualified.** On 2026-10-14 `python -m tests.capacity` ran ten users against two local Oracle targets (D1 19.9 and D2 23.26 FREEPDB1), with the API, the load client and both databases on one workstation: every correctness check passed, with no errors under saturation. See "Capacity rehearsal, 2026-10-14 (T-5)" below. Three databases, a separate API host and agreed thresholds are still missing; the thresholds in the example workload are proposals nobody has agreed. |
+| Load | **Three-database run completed, not yet a pilot qualification.** On 2026-10-19 ten users exercised D1 19c, D2 26ai Free PDB, and D4 remote 19c with the real Oracle backend. All correctness and proposed performance criteria passed; the thresholds have not been agreed. Marker tables were dropped on all three afterward. See "Three-database capacity run, 2026-10-19" below. |
 
 ## Why the stand-in is not evidence
 
@@ -517,7 +517,78 @@ host, and the thresholds are proposed.
 | HTTP 500s and "database is locked" under saturation on the stand-in | Local limit | SQLite allows one writer, so the metadata store and the stand-in's data both lock under saturation (3 to 9% errors). The Oracle run, which still uses a SQLite metadata store, had none. | None. Production uses PostgreSQL. Answering a lock with a typed, retryable error instead of a 500 is a possible improvement |
 | The Oracle backend did not report database time (run `cap-ad908054428a`) | Harness defect | `database_elapsed_ms` was never set, so the overhead criterion read "not measured" on Oracle. | `backend/oracle.py` times the execute and the bounded fetch. `tests/unit/test_oracle_adapter.py::test_execution_reports_the_time_spent_in_the_database` pins it. The rerun measured 53 ms |
 
+### Three-database capacity run, 2026-10-19 (NP-07)
+
+The schema-v5 disposable SQLite metadata store and thin Oracle backend served ten
+developer accounts against D1 (19.9), D2 (23.26 Free PDB), and D4 (remote 19.9,
+`WE8MSWIN1252`). `tests.capacity validate`, `baseline`, and `run` completed with
+20 seconds steady, 15 seconds saturation (two streams per user), and 20 seconds
+recovery. All three database identities differed. The full [report](../databases/reports/2026-10-19-capacity-d1-d2-d4.md)
+and JSON sidecar are retained in the ignored report directory.
+
+| Measure | Result |
+| --- | --- |
+| Steady metadata p50 / p95 | 487 / 2465 ms |
+| Steady bounded read p50 / p95 | 131 / 371 ms |
+| Steady transaction p50 / p95 | 113 / 390 ms |
+| Steady application overhead p95 | 327 ms |
+| Saturation errors / recovery time | 0 / 0 s |
+| Verification | 276 commits, 70 rollbacks, 86 cross-user probes; 0 contamination, lost commits, unknown outcomes or leaked sessions |
+
+Every measured criterion met the **proposed** workload thresholds. The report verdict
+is **NOT A PILOT QUALIFICATION** because no DBA and application owner had agreed
+those thresholds before the run. API CPU and memory limits were declared rather than
+observed, and the load client and API shared this host. The marker table was dropped
+from `HARNESS_APP` on D1, D2, and D4 after the run; no lab schema was modified.
+
 ## Recording a run
+
+### Live non-copilot API workflows, 2026-10-19 (Wave 1C)
+
+Bootstrapped a fresh disposable schema-v5 SQLite metadata store with
+`scripts/bootstrap_targets.py`, using the thin Oracle backend and local development
+identity. Exercised the real FastAPI routes through `TestClient`, with real Oracle
+connections and no copilot/provider requests. All **49 checks passed**, including
+six cleanup checks. The sanitized result is retained in the ignored
+`databases/reports/2026-10-19-agy1c-workflows.json`.
+
+| Scope | Live API result |
+| --- | --- |
+| D1/D2/D3/D4 plus `d1-lab-sh`, `d2-lab-sales` | Connection-test route connected successfully on all six requested profiles; bootstrap also probed all ten manifest profiles |
+| SH and SALES_LAB explorer | Two disjoint pages of two objects at offsets 0 and 2, both reporting `hasMore`; table detail returned available columns, constraints, indexes, statistics, dependencies and status panels |
+| D3, SH and SALES_LAB observation profiles | Worksheet opening, PL/SQL compilation and confirmed mutating recompile runbooks each returned HTTP 403 with `policy_refused` (nine refusals) |
+| D1/D2/D4 `HARNESS_APP` worksheet | Created an owned temporary verification table; rollback left zero rows, and commit persisted one row as seen by an independent Oracle connection |
+| D1/D2/D4 PL/SQL and runbook | Compiled and executed an owned verification procedure; the confirmed recompile runbook completed with successful dictionary verification |
+| D1/D2 tuning | Estimated plan returned rows and stayed labelled `estimated`; V$SQL search returned seven matching cursor rows on each target and stayed labelled `measured` |
+| D1/D2 DBA and health runbook | Sessions, blocking, tablespaces, invalid objects, scheduler jobs and scheduler failures panels were available; read-only health runbook succeeded |
+
+Only `HARNESS_APP.AGY1C_VERIFY_T` and `HARNESS_APP.AGY1C_VERIFY_P` on D1, D2 and
+D4 were created, after checking the names were unused. All six objects were dropped
+in cleanup; an independent `USER_OBJECTS` read then confirmed zero verification
+objects remained on all three databases. No lab fixture setup/teardown ran, and no D3 object was created. This is
+API workflow evidence, not browser, OIDC or provider qualification.
+
+### Live C28 source-type domain, 2026-10-19
+
+Read `SYS.ALL_VIEWS.TEXT` for `SYS.ALL_SOURCE` and its underlying
+`SYS.INT$DBA_SOURCE` on D1 (19.9.1.0.0) and D2 (23.26.3.0.0). D2's PDB returned
+NULL view text, so its shared dictionary definition was read through the `FREE`
+root service. Also read `SELECT DISTINCT type FROM SYS.ALL_SOURCE` in each target.
+These were dictionary reads only.
+
+| Target | Domain permitted by the underlying view predicate | Types currently observed |
+| --- | --- | --- |
+| D1 19.9 | `PROCEDURE`, `FUNCTION`, `PACKAGE`, `PACKAGE BODY`, `TRIGGER`, `TYPE`, `TYPE BODY`, `LIBRARY`, `JAVA SOURCE` | All nine |
+| D2 23.26 | The D1 domain plus `MLE MODULE` | All D1 types except `JAVA SOURCE`; no `MLE MODULE` rows currently populated |
+
+The first SELECT maps object type numbers with `DECODE`, then restricts them with
+`o.type# IN (7,8,9,11,12,14,22)` on D1 and that set plus `180` on D2, with a separate
+branch for type `13`. A UNION adds `JAVA SOURCE` for type `28`. Although both decode
+expressions contain `87, 'ASSEMBLY'`, their predicates exclude `87`; `UNDEFINED` is
+also unreachable through these predicates. Thus `LIBRARY` is supported on both,
+`MLE MODULE` is supported on D2, and `ASSEMBLY` is excluded on both tested builds.
+The current eight-type Kiwi source allowlist omits `LIBRARY` and `MLE MODULE` and
+needs a Track A correction; its earlier documented-domain assumption was incomplete.
 
 Append; do not replace. Each entry should carry the date, the harness build, the exact
 database version and configuration, which suites were run, and what failed.

@@ -401,3 +401,46 @@ def test_an_explain_action_is_refused_without_kiwi_or_a_target(
         f"{fx.OWNER}.{fx.PACKAGE}",
     )
     assert [n for n, _ in events] == ["error"]
+
+
+def test_evidence_keeps_each_lookup_and_each_summary_only_when_switched_on(
+    client: TestClient, developer, targets
+) -> None:
+    assert "evidence" not in [n for n, _ in package_events(client, developer, targets)]
+
+    service = client.app.state.harness.copilot  # type: ignore[attr-defined]
+    service._settings = service._settings.model_copy(
+        update={"kiwi_capture_evidence": True, "kiwi_evidence_max_bytes": 4096}
+    )
+    events = package_events(client, developer, targets)
+    evidence = [d for n, d in events if n == "evidence"]
+    lookups = [d for d in evidence if d.get("kind") != "summary"]
+    summaries = [d for d in evidence if d.get("kind") == "summary"]
+    results = [d for n, d in events if n == "tool_result"]
+    # One piece of evidence per lookup, in step with the tool_result it belongs to, each
+    # bounded and numbered; the source ranges say which lines they hold.
+    assert [d["callId"] for d in lookups] == [r["callId"] for r in results]
+    assert [d["lookup"] for d in lookups] == list(range(1, len(lookups) + 1))
+    assert all(len(d["content"].encode()) <= 4096 for d in evidence)
+    assert any(d["sourceLines"] for d in lookups if d["operationId"].endswith("source_range"))
+    # A summary stays beside the source it summarised: it names its units and the hash of
+    # the message it answered, and never stands in for a lookup.
+    assert summaries
+    assert all(s["units"] and len(s["inputSha256"]) == 64 for s in summaries)
+    # The input is kept as well as hashed, so a reviewer can read what each summary saw
+    # and check the text against the hash. The report's evidence gate does the same.
+    import hashlib
+
+    for s in summaries:
+        assert s["input"] and s["inputTruncated"] is False
+        assert hashlib.sha256(s["input"].encode()).hexdigest() == s["inputSha256"]
+    from tests.copilot.eval.runner import _Stream, tool_trace
+    from tests.copilot.eval.scoring import evidence_gaps
+
+    trace = tool_trace(_Stream(events=[(n, d, 0) for n, d in events]))
+    case = {"toolCalls": trace, "evidence": evidence}
+    assert evidence_gaps(case) == []
+    case["evidence"] = [e for e in evidence if e.get("kind") != "summary"] + [
+        {**summaries[0], "input": ""}
+    ]
+    assert any("no retained input" in g for g in evidence_gaps(case))

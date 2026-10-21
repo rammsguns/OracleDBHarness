@@ -6,6 +6,7 @@
 -- @kiwi: allowed
 -- @min_version: 12
 -- @parameters: owner, object_type, name_filter, row_offset, row_limit
+-- @required: owner
 -- @privileges: SELECT on ALL_OBJECTS
 --
 -- Partitions share their table's name, so SUBOBJECT_NAME tells them apart, and OBJECT_ID

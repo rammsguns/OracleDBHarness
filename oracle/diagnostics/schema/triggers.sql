@@ -6,6 +6,7 @@
 -- @kiwi: allowed
 -- @min_version: 12
 -- @parameters: owner, table_name, row_limit
+-- @required: owner
 -- @privileges: SELECT on ALL_TRIGGERS, SELECT on ALL_OBJECTS
 -- TRIGGER_BODY is a LONG and is left out; the same text is in ALL_SOURCE.
 SELECT t.trigger_name,

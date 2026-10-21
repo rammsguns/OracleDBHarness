@@ -23,6 +23,7 @@ from pathlib import Path
 
 from harness_api.app import create_app
 from harness_api.config import Settings
+from harness_api.copilot.claim_checks import FINDING_KINDS
 from harness_api.copilot.context import ACTIONS, FORBIDDEN_CATEGORIES, ContextCategory
 from harness_api.copilot.service import PROTOCOL_VERSION, SUPPORTED_PROTOCOL_MAJOR
 
@@ -90,6 +91,159 @@ STREAM_EVENTS = {
         ),
         "required": ["nodes", "edges", "mermaid"],
     },
+    "claim_check": {
+        "description": (
+            "Kiwi answers other than the explain actions (protocol 1.4), plain diagnoses, "
+            "plain explanations of supplied source and of a supplied plan, and edits "
+            "(edit_description and proposal_directive, in a revision only): the "
+            "harness's check of the "
+            "answer's verifiable claims against the request's lookups: "
+            "session role, a session's own cursor taken for the statement that took its "
+            "lock (lock_origin), a session's reported SQL_ID called what it last ran, or a "
+            "cursor's cumulative counters said of one execution (session_cursor), Oracle "
+            "MOD arithmetic, where a change belongs, a larger limit "
+            "for a complete result (next_check_cap), history from current state "
+            "(history_claim), a role grant said not to reach stored code beside invoker's "
+            "rights, AUTHID CURRENT_USER said to move compile-time privilege checks to "
+            "the invoker, or a system or object privilege called a role (rights_model), "
+            "citations that cannot support their statement "
+            "(evidence_reference: a lookup not made, a failed one, or one not about the "
+            "object named, by owner and name together, or a line given as a named "
+            "member's first line, or as one of its lines, that the returned source rows "
+            "place elsewhere) and next steps with no stated "
+            "Unknown (next_check_unknown), a table or object called the only one in its "
+            "schema with something when no lookup listed and read every table there, or "
+            "the only matching object after listings filtered by type or beside other "
+            "matching objects returned (schema_scope), a table change said to be needed to "
+            "record a label a text column read can hold, or edits at every call site past "
+            "the source read (required_change), a job with failed runs said to need no "
+            "intervention, whatever source was read (job_intervention), a later run's "
+            "outcome predicted from the scheduler's state or history (future_outcome), "
+            "code no lookup located, named by what it does, said to be invisible or not "
+            "to exist when searches returned no rows (absence_inference); "
+            "a member said to be read that the source "
+            "lookups did not return (read_coverage), a comparison with a member read in "
+            "part, named or as its neighbours, or a statement about every member of a unit "
+            "read in part, past the lines returned (read_scope), a band check said to "
+            "fire on values an earlier rule's band, inside it, already rejects "
+            "(band_reachability), a kiwi-next-checks block "
+            "that could "
+            "not be read (next_checks_block); for a plain explanation, a remedy its "
+            "task asks for and the answer does not give (missing_remedy), or what the "
+            "transaction holds when a later change fails before a handler that swallows "
+            "the error, not stated, or a rollback after a re-raise denied without telling an "
+            "unhandled top-level call from a catching caller (transaction_state), or two "
+            "statements of one block with no handler of their own said to fail in one "
+            "call, or the later to run after the earlier fails (control_flow); for a plain "
+            "plan explanation, "
+            "INTERNAL_FUNCTION round a column attributed to a bind conversion or an "
+            "unshown bind datatype (plan_expression); and, for an edit, prose saying the "
+            "proposal kept comments it removes, or changed only one thing "
+            "(edit_description), or a proposal carrying text written as an instruction "
+            "to the assistant from untrusted source (proposal_directive). Every kind is "
+            "in definitions.claimFindingKind. All findings share one revision. stage is "
+            "answer or revised; action is none, revise, "
+            "skipped:<bound>, skipped:bounded_fallback (findings in the harness's own "
+            "answer, which is never revised), revision_failed:<reason>, "
+            "settled:corrected or settled:bounded_fallback (revised-stage findings that "
+            "stood after the one revision, or answer-stage findings in a Kiwi diagnosis "
+            "written as a bound ended the request: the harness corrected or withheld the "
+            "flagged statements, or wrote the bounded diagnosis in the answer's place; no "
+            "model call), or check_failed:<error>. "
+            "unchecked (1.5) lists claims a check recognised but could not compute, "
+            "which are neither confirmed nor corrected. A finding is a check of wording "
+            "and scope, not a verdict. A revision is a step of the same request, within "
+            "its remaining wall time."
+        ),
+        "required": ["stage", "findings", "action"],
+    },
+    "revision": {
+        "description": (
+            "Answers with a claim_check, to clients announcing "
+            "protocol 1.4 or later: the text that follows replaces draft, the last text "
+            "streamed, which the client removes from the answer. A Kiwi claim revision's "
+            "draft is all the text streamed, the notes between lookups included, so the "
+            "revised answer replaces them too. With restored, a "
+            "revision did not finish and the draft is streamed again. With rendered "
+            "(next_checks), no model call was made: the harness replaced the answer's "
+            "next-steps section with its rendering of the answer's checked "
+            "kiwi-next-checks steps, and draft keeps the model's text for review. With "
+            "rendered (bounded_fallback), a bound ended the request with no diagnosis "
+            "from the model, and the text that follows is the harness's, written from "
+            "the request's lookups: returned errors, the cause unknown, no remedy. Its "
+            "draft is the model's notes streamed before the bound, removed and kept for "
+            "review: they are not a diagnosis. With rendered (bounded_fallback) and "
+            "withheld, the model's diagnosis had claim findings and no revision completed: "
+            "draft is that diagnosis, findings what it was withheld for, and the text "
+            "that follows is the harness's bounded diagnosis in its place; text a lookup "
+            "returned that reads as an instruction to the assistant is located there, "
+            "classed and said not to have been followed, never repeated. With rendered "
+            "(edit_description), an edit's prose said its proposal kept source comments "
+            "it removes, or changed only one thing: no model call was made, findings name "
+            "those sentences, and the text that follows is the answer with them corrected "
+            "and a harness note naming the removed comment lines; the proposal is "
+            "unchanged. With rendered (proposal_directive), the accepted proposal "
+            "carried text written as an instruction to the assistant: no model call was "
+            "made, findings locate it without repeating it, and the text that follows is "
+            "the answer with those comments removed from the proposal block and a harness "
+            "note; the captured proposal is the block without them. Instruction text "
+            "outside a comment cannot be removed: the block is withheld and the request "
+            "ends like an edit with no proposal (edit_output_missing). With rendered "
+            "(claim_settlement), an answer's findings stood after its one revision, or "
+            "a Kiwi diagnosis written as a bound ended the request had findings and no "
+            "revision was possible: no model call was made, draft is that answer, "
+            "findings those that stood, and the text that follows is that answer with "
+            "each flagged member start line corrected to the returned rows' and each "
+            "other flagged statement withheld, and a harness note saying what changed. "
+            "A plain answer is settled only when every finding locates a statement."
+        ),
+        "required": ["draft", "findings"],
+    },
+    "edit_contract": {
+        "description": (
+            "Protocol 1.5, requests with an editor whose action edits code (diagnose, "
+            "propose, test_block): how the answer kept contract edit/1. delivered is "
+            "proposal, no_change or missing; repair is none, repaired, skipped:<bound> "
+            "or failed:<reason>. Missing ends the request with outcome failed and "
+            "errorCode edit_output_missing; it is not a refusal. A repaired proposal is "
+            "made from the accepted block, not from the answer's Markdown, and rendered "
+            "by the harness after the answer; repairReply keeps the model's raw reply "
+            "for review. minimalRepair lists how a delivered proposal for one routine or "
+            "block went past resizing a local variable (deleting it, or rewriting the "
+            "SELECT ... INTO or RETURN that uses it); the repair then asks once for the "
+            "smallest change, and only a reply that is one replaces the proposal "
+            "(otherwise repair is failed:minimal and the first proposal stands). "
+            "anchorRepair lists %TYPE/%ROWTYPE anchors the supplied schema_metadata shows "
+            "cannot resolve (an owner and a column without the table); the repair then "
+            "asks once for corrected anchors, and only a reply whose anchors resolve "
+            "replaces the proposal (otherwise repair is failed:anchor)."
+        ),
+        "required": ["contract", "delivered", "repair"],
+    },
+    "lookup_record": {
+        "description": (
+            "Protocol 1.5, Kiwi answers other than the explain actions: the harness's "
+            "record of the request's lookups, written from the lookups rather than the "
+            "model's text, sent once before the final budget event. Each entry gives "
+            "lookup number, callId, operationId, the parameters it ran with, coverage "
+            "(complete, empty, at_limit, truncated or failed), rows, rowLimit, summary, "
+            "facts (object status, compiler error locations, waiter and blocker, and "
+            "source lines read, stated from the rows), subjects (the objects it is about, "
+            "from its parameters and typed owner/name columns) and sourceRead (per unit, "
+            "the lines returned and each member shown: declared, or implemented and read "
+            "whole, in part, or with coverage unknown and why). notRun lists calls the "
+            "lookup budget stopped. Other row values are not repeated."
+        ),
+        "required": ["lookups", "notRun"],
+    },
+    "code_check": {
+        "description": (
+            "An answer with code but no proposal (no editor, or no block that could "
+            "replace it): the fragments a structural check found incomplete, so a "
+            "pasted repair carries the same warning. Never a compilation."
+        ),
+        "required": ["fragments"],
+    },
     "usage": {
         "description": "Provider, model and token usage for the completed request.",
         "required": ["provider", "model"],
@@ -98,7 +252,9 @@ STREAM_EVENTS = {
         "description": (
             "Terminal event. Always the last event of a successful stream. A Kiwi "
             "request that ran out of budget ends with outcome 'partial', partial: true "
-            "and the stopReason that ended it."
+            "and the stopReason that ended it. An edit request that delivered neither a "
+            "proposal nor a no-change line ends with outcome 'failed' and errorCode "
+            "'edit_output_missing' (1.5); its answer was still streamed."
         ),
         "required": ["requestId", "outcome", "latencyMs"],
     },
@@ -127,6 +283,10 @@ def copilot_protocol_schema() -> dict:
         "definitions": {
             "action": {"enum": list(ACTIONS)},
             "contextCategory": {"enum": [c.value for c in ContextCategory]},
+            "claimFindingKind": {
+                "enum": list(FINDING_KINDS),
+                "description": "The kind of a claim_check finding.",
+            },
             "forbiddenContextCategory": {
                 "enum": list(FORBIDDEN_CATEGORIES),
                 "description": (

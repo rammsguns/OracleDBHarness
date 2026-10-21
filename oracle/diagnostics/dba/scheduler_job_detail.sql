@@ -6,6 +6,7 @@
 -- @kiwi: allowed
 -- @min_version: 12
 -- @parameters: owner, job_name
+-- @required: owner, job_name
 -- @privileges: SELECT on ALL_SCHEDULER_JOBS, SELECT on ALL_SCHEDULER_PROGRAMS
 -- Dates are converted for the reason given in scheduler_jobs.sql. Credential and
 -- destination names are left out; they are not needed to explain what a job does.

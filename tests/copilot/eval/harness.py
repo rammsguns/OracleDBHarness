@@ -137,6 +137,9 @@ def evaluation_settings(
     if kiwi:
         # Only an evaluation of Kiwi turns it on; the default stays off everywhere else.
         values["kiwi_enabled"] = True
+        # The evaluation, and only it, keeps what each lookup returned so reviewers can
+        # check claims against it.
+        values["kiwi_capture_evidence"] = True
     # No .env: a developer's local file must not quietly change what is being evaluated.
     return Settings(_env_file=None, **values)  # type: ignore[call-arg]
 

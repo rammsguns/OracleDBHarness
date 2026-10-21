@@ -6,6 +6,7 @@
 -- @kiwi: allowed
 -- @min_version: 12
 -- @parameters: owner, object_name, object_type, row_offset, row_limit
+-- @required: owner, object_name
 -- @privileges: SELECT on ALL_STATEMENTS, SELECT on ALL_PLSQL_OBJECT_SETTINGS, SELECT on ALL_OBJECTS
 -- ALL_STATEMENTS arrived in 12.2. The version gate compares major versions only, so
 -- 12.1 passes it and fails in the database; the description says so. FULL_TEXT is a

@@ -6,6 +6,7 @@
 -- @kiwi: allowed
 -- @min_version: 12
 -- @parameters: owner, job_name, row_limit
+-- @required: owner, job_name
 -- @privileges: SELECT on ALL_SCHEDULER_JOB_RUN_DETAILS
 -- The column is ERROR#, as in scheduler_failures.sql, and dates are converted for the
 -- reason given in scheduler_jobs.sql.

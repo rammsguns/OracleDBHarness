@@ -137,6 +137,153 @@ Protocol 1.3 (K-6) adds `kiwi.explain_package` and `kiwi.explain_process`, the
 `subject` field on a request (`OWNER.NAME` or `NAME`) and the `lineage` event. It is
 additive; the DataForge adapter stays on 1.1.
 
+Additive fields and events since 1.3, with no version change (K-7 remediation): a
+`validation` object on the `proposal` event and on each of its parts (`kind`, `complete`,
+`problems`, `compiled: false`; a structural check of statement boundaries, never a
+compilation), a `code_check` event listing fragments when an answer has code but no
+proposal, and, only when `HARNESS_KIWI_CAPTURE_EVIDENCE` is on, `evidence` events (what a
+lookup returned to the model, bounded, and the explainer's intermediate summaries). The
+DataForge adapter drops the event names it does not know.
+
+Protocol 1.4 (K-7, round 17) adds the `claim_check` and `revision` events and
+`revisions` on `budget`, described under [Claim checks](#claim-checks). A client that
+announces 1.4 or later may receive a `revision`; one that announces an earlier minor
+version, or none (taken as 1.0), never does, because it might drop the event and show the
+draft and its replacement one after the other. The DataForge adapter stays on 1.1, so its
+requests are checked and the findings sent, but they are never revised.
+
+Protocol 1.5 (K-7 qualification plan, 2026-10-18) adds three things, all safe for a
+client that drops what it does not know:
+
+- `claim_check.unchecked`: claims a check recognised but could not compute (such as
+  `MOD` of a non-finite or very long operand), neither confirmed nor corrected. A check
+  that raises is reported as action `check_failed:<type>` and the answer stands.
+- `edit_contract`: for a request with an editor whose action edits code (`diagnose`,
+  `propose`, `test_block`), whether the answer delivered contract `edit/1` (a fenced
+  `sql`/`plsql` proposal, or for `diagnose` a line starting `No code change:`).
+  `delivered` is `proposal`, `no_change` or `missing`; `repair` is `none`, `repaired`,
+  `skipped:<bound>` or `failed:<reason>`. A missing answer gets one repair call within
+  the request's remaining time. A repaired proposal is made from the accepted block as
+  data, not by parsing the answer again, so a fence the first answer left open cannot
+  change it; the harness closes that fence on screen and renders the accepted block after
+  it. Code in prose is never lifted into a proposal. If the edit is still missing (the
+  repair also missed, timed out or failed), `done` has outcome `failed` and `errorCode`
+  `edit_output_missing`, and the stored request records the same; the answer and usage
+  are kept and no `error` event is sent. A `No code change:` diagnosis succeeds.
+- `lookup_record`: once per Kiwi answer (not the explain actions), after the answer is
+  settled and before the last `budget`, the harness's record of the lookups: number,
+  `callId`, `operationId`, the parameters it ran with, `coverage` (`complete`, `empty`,
+  `at_limit`, `truncated`, `failed`), `rows`, `rowLimit`, `facts`, `subjects`,
+  `sourceRead`, and `notRun` for calls
+  the lookup budget refused. `facts` states supported fields from the rows (object status,
+  compiler error line and position, waiter and blocker, the source lines read), at most
+  ten per lookup; other row values are not repeated. Not part of the answer text.
+
+### Claim checks
+
+A Kiwi answer (every Kiwi action but the explain actions) is checked before it is
+delivered (`harness_api/copilot/claim_checks.py`)
+for kinds of statement that the K-7 trials got wrong although the prompt already
+stated each rule:
+
+- **Session role.** `V$SESSION.ROW_WAIT_OBJ#`, `ROW_WAIT_FILE#`, `ROW_WAIT_BLOCK#` and
+  `ROW_WAIT_ROW#` name the row a session is waiting for. Attributing them to a session the
+  blocking or session lookups show is not waiting (a blocker, or a session with no
+  `BLOCKING_SESSION`) is flagged.
+- **Oracle `MOD`.** `MOD(m, n)` has the sign of `m`. A literal `MOD(a, b) = c` that is
+  false, or an example listed for `MOD(x, n) = r` that does not satisfy it, is flagged.
+- **Where a change belongs.** "The fix belongs in X" is flagged when no source lookup in
+  the request returned X's code. The owner counts: reading `APP.PKG` does not support
+  `OTHER.PKG`, and a name that only appears in the lines read (a dependency) was not read.
+  A member (`APP.PKG.RUN`, `` `PKG`'s run ``, or a single name that is a member) needs its
+  implementation read whole, from its first line through its `END`, in a body or a
+  standalone unit: a declaration in the specification, a header line or part of the
+  member is not enough. A line number given must be among the lines read. Definitions
+  and `END`s are found in code only, and only where it is known that the lines are code:
+  in unbroken lines read from line 1 of the unit, or from a definition PL/Scope recorded
+  (`schema.plscope_identifiers`, usage DEFINITION or DECLARATION) at that line. Lines read
+  without the lines before them could lie inside a comment or literal opened earlier, so
+  a member there has coverage unknown, and nothing carries across lines not read (a
+  search's gaps). Where the start is known, a lexical scan blanks comments, `--` lines
+  and literals (including `q'[...]'`) first; when the lines then end inside a comment or
+  literal, or cut a member's header before its `IS`/`AS`, its coverage is unknown too,
+  and the finding says why. An unnamed `END;` cannot be matched to a member. Lines of
+  one unit from several lookups are read together, so adjoining ranges can cover a
+  member.
+- **More rows of a complete result** (`next_check_cap`). A step asking a lookup the
+  request made for a larger `row_limit`, more rows or another page is flagged when every
+  run of it for the same target was complete: fewer rows than its `row_limit` and not
+  truncated. A step that names another target, or a parameter the runs did not use, is
+  a different question and is not flagged; neither is a negated step ("Do not increase"). Each result
+  the model receives ends with a harness line, outside the data markers, saying whether
+  it was complete or may have more.
+- **History from current state** (`history_claim`). Every catalog lookup reads the
+  database as it is now, so a check offered to show that an object was dropped or never
+  existed, or an unhedged "was dropped", is flagged. Stating that limit is not flagged,
+  nor is a manual check of a historical source (an audit trail, flashback, the recycle
+  bin, a change record); the harness has not read such a source.
+- **Citations** (`evidence_reference`). Flagged: "lookup N" that the request did not
+  make (also when it made none); a failed or denied lookup cited as showing something;
+  a dotted name, in the text a citation is attached to, that no cited lookup is about
+  (owner and name together) and is not a member or column of one; and in the diagnosis
+  form, an Evidence bullet that cites neither a lookup nor source lines read, unless it
+  is labelled a hypothesis or unknown. A value a lookup returned is evidence about its
+  field, not about an object it names: `` JOB_ACTION `OTHER.RUN` `` (or "the job's
+  action is") is supported, "OTHER.RUN is VALID" is not; a name in a source line is
+  supported when that line is cited. A name cited alone ("`X` (lookup 2)") may come
+  from any cell. A citation that labels what follows ("Lookup 1:"), or opens its
+  sentence or clause after text naming nothing ("Lookup 2 shows", "As lookup 1 shows,",
+  "According to lookup 1,"), covers the text after it; a parenthetical one, or one
+  with nothing after it, the text before it; any other placement is unresolved, so
+  both sides are checked. Hypotheses, conditions and absences ("not visible", "no such
+  object", "returned no rows") are not read as "the lookup shows"; code quoted in
+  backticks is not read as a hedge.
+- **Source lines** (`evidence_reference`). A line reference ("lines 10-13") is of a
+  unit: the one named next to it ("lines 10-13 of APP.PKG", "APP.PKG lines 10-13"),
+  else one the text names that was read, else the only unit the cited lookups read;
+  "spec" or "body" sets the type. Every line it gives must have been returned for that
+  unit by the lookups cited for it; several lookups of one unit can cover a range
+  together, another unit cannot. A range is a claim about the lines in it: a member's
+  first line and its `END` do not cover the lines between, and a range whose ends came
+  back without its middle is flagged with a note to cite the ends singly ("starts at
+  line 10, `END calc;` at line 20"). With several units read and none named, the
+  reference is unresolved and flagged unless every unit covers it. A citation of
+  lookups that read no source (an error's line number) is not checked as source lines.
+- **Bounded work on model-written numbers.** Line and lookup numbers in an answer are
+  read up to nine digits; a longer one stands for a line past every unit's end. Ranges
+  stay intervals and are tested against the lines returned with binary searches, never
+  expanded, so `lines 1-100000000` costs the same as `lines 1-2`. A quoted claim is cut
+  to 300 characters.
+- **Next steps with no Unknown** (`next_check_unknown`). In the diagnosis form (Finding
+  and Evidence given), Next steps with no Unknown stated are flagged: a step settles a
+  stated Unknown. Which Unknown it settles is not checked.
+
+These checks work from an evidence map built from the lookups, never from the model's
+text (`harness_api/copilot/support.py`): per lookup, the objects it is about, from its
+parameters and from typed owner/name columns (not from other cells), its filters and
+page, the string cells returned with their columns, and per source unit the lines
+returned and each member shown, declared or implemented, read whole, in part, or with
+coverage unknown. The lookup record shows the same map as `subjects`
+and `sourceRead`. An empty finding list is not a grounding verdict.
+
+The checks use Oracle's documented semantics and the columns this request's lookups
+returned, never a case, an expected answer or a fixture value. They match wording, so
+they can miss a wrong claim phrased another way and can flag a right one; argument flow
+(which value reaches a call) is not checked, because that would need a parse of the
+PL/SQL the model read.
+
+A finding is not a verdict and is never hidden. Every such answer gets a
+`claim_check` event (`stage: "answer"`). With findings, and within the token bound,
+the harness sends the model one note listing them and asks for the answer again, with no
+tools. The revision is a step inside the request's bounds: it waits at most the smaller
+of the request's remaining wall time and `HARNESS_KIWI_REVISION_MAX_WALL_SECONDS`, and
+never extends the request. A `revision` event carries the draft being replaced, the revised text
+follows as deltas, and a second `claim_check` (`stage: "revised"`) reports what remains.
+A claim the model keeps is delivered as written, with its finding. If the revision fails,
+the draft is streamed again and stands. `HARNESS_KIWI_MAX_REVISIONS` (default 1) bounds
+this; `0` reports findings without revising. The text written between lookups is not
+replaced, so the note asks the model to correct a flagged claim there explicitly.
+
 ### Package and process explainer (K-6)
 
 The explain actions are harness-driven: the harness chooses and bounds every catalog
@@ -239,6 +386,17 @@ in any one of them, a changed target or a second apply refuses the whole proposa
 `canApply: false`, `reasons` with each part's reasons prefixed `<part>: `,
 `partReasons` per part, and no `parts` in the response. Nothing is marked applied, so
 after fixing the stale buffer (or re-asking) the proposal can still be applied once.
+**Incomplete edits.** Every proposal, and every part, carries `validation`
+(`kind`, `complete`, `problems`, `compiled: false`, `note`): a structural boundary check
+(balanced parentheses and BEGIN/CASE/IF/LOOP/END, a body, a closing `;`, nothing after the
+unit), never an Oracle compilation. Policy: the server does not refuse an incomplete edit,
+because staleness and all-or-none are its gates and completeness is advice; apply-check
+returns the `validation` of the stored text (per part). The console shows the problems in
+a warning and requires a second, explicit click ("Apply anyway" / "Apply all parts
+anyway") before it calls apply-check at all, so nothing is marked applied by accident.
+With no editor, a `code_check` event lists the answer's code blocks that failed the check;
+the console shows them and the evaluation report saves them as `codeCheck`.
+
 The console's multi-part mode ("Edit several parts together") works this way, with one
 "Apply all parts" button.
 

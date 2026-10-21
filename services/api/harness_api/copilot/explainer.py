@@ -19,6 +19,7 @@ no path to a tool call. It reaches the model only inside the untrusted markers.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import re
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
@@ -291,7 +292,11 @@ class Explainer:
         default_owner: str,
         max_source_lines: int,
         page_lines: int,
+        capture_evidence_bytes: int = 0,
+        target: str = "",
     ) -> None:
+        self._capture = capture_evidence_bytes
+        self._target = target
         self._toolbox = toolbox
         self._run_tool = run_tool
         self._provider = provider
@@ -523,6 +528,29 @@ class Explainer:
                     yield event
                 text = self._last_text
                 model.summaries.update(_parse_summaries(text, batch))
+                if self._capture:
+                    # Kept beside the lookups it came from, never in place of them. The
+                    # text the model was shown is kept too (bounded), so a reviewer can
+                    # check each summary against its input and the hash against the text.
+                    raw = message.encode("utf-8")
+                    input_cap = max(self._capture, 64 * 1024)
+                    yield (
+                        "evidence",
+                        {
+                            "kind": "summary",
+                            "package": model.name,
+                            "batch": number,
+                            "batches": len(batches),
+                            "units": [unit.name for unit in batch],
+                            "inputSha256": hashlib.sha256(raw).hexdigest(),
+                            "input": raw[:input_cap].decode("utf-8", errors="ignore"),
+                            "inputTruncated": len(raw) > input_cap,
+                            "content": text.encode("utf-8")[: self._capture].decode(
+                                "utf-8", errors="ignore"
+                            ),
+                            "contentTruncated": len(text.encode("utf-8")) > self._capture,
+                        },
+                    )
 
     async def _combine(
         self, subject: str, models: list[PackageModel], extra: list[str]
@@ -564,7 +592,9 @@ class Explainer:
             "Say what it does, in what order, what it reads and writes, and where it can "
             "fail. State each relationship with its evidence label (source, inferred, "
             "catalog or scheduler); say which relationships are inferred or catalog-only, "
-            "and what was not covered.",
+            "and what was not covered. Add nothing that is in neither the lineage nor the "
+            "summaries, and do not say a table or call is absent from code the summaries "
+            "may not have covered.",
             "",
             "Lineage read by the harness, every edge with its evidence:",
             self.lineage.outline() or "(none)",
@@ -866,8 +896,11 @@ class Explainer:
         )
         yield ("tool_call", self._call_event(call))
         outcome = await self._run_tool(state.tool_calls, call)
+        outcome.sequence = state.tool_calls
         state.tool_bytes += outcome.result_bytes
         yield ("tool_result", outcome.event())
+        if self._capture:
+            yield ("evidence", outcome.evidence(self._capture, target=self._target))
         self._last = outcome
         yield ("budget", state.event())
 

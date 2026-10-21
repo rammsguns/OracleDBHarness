@@ -6,6 +6,7 @@
 -- @kiwi: allowed
 -- @min_version: 11
 -- @parameters: owner, table_name
+-- @required: owner, table_name
 -- @privileges: SELECT on ALL_TABLES
 SELECT owner,
        table_name,

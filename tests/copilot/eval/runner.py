@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import hashlib
 import json
 import logging
 import os
@@ -52,6 +53,7 @@ from harness_api.copilot.provider import (
     ToolSpec,
     create_provider,
 )
+from harness_api.copilot.service import PROTOCOL_VERSION
 from harness_api.copilot.toolbox import tool_name_for
 from harness_worker.errors import HarnessError
 from tests.copilot.eval.budget import Budget, Pricing
@@ -116,8 +118,12 @@ ANSWER_CHECKS = frozenset(
         "noProposal",
         "proposalMustNotMatch",
         "requestRecordTerminal",
+        # An edit request that delivered neither a proposal nor a no-change line (C25).
+        "editContractKept",
     }
 )
+# The terminal error code of that failure: an answer failure, scored, not lost evidence.
+EDIT_OUTPUT_MISSING = "edit_output_missing"
 # A review check records something a DBA has to judge, not an invariant. It does not fail
 # the case on its own; a case where it failed needs a DBA's review, whatever the case's
 # review setting. The case's lookup limit is one: the harness enforces its own cap
@@ -177,6 +183,9 @@ class RunConfig:
     # (kiwi_explain_max_wall_seconds) on a slow local model.
     request_timeout_seconds: float = 600.0
     allow_partial_run: bool = False
+    # A focused trial of some cases (the K-7 remediation plan, step 6): feedback while
+    # fixing, never qualification. The report says so and `score` refuses it.
+    diagnostic: bool = False
 
 
 def local_only_from(environ: dict[str, str]) -> bool:
@@ -401,7 +410,13 @@ def reservation_for(case: EvalCase, config: RunConfig, pricing: Pricing | None) 
     # case is every allowed turn (and the one wrap-up turn) reading the base prompt plus
     # every tool result the budget permits, and writing the most the limit allows.
     limits = {name: field.default for name, field in Settings.model_fields.items()}
-    turns = max(limits["kiwi_max_steps"], limits["kiwi_explain_max_model_calls"]) + 1
+    turns = (
+        max(
+            limits["kiwi_max_steps"] + limits["kiwi_max_revisions"],
+            limits["kiwi_explain_max_model_calls"],
+        )
+        + 1
+    )
     tool_bytes = max(limits["kiwi_max_tool_bytes"], limits["kiwi_explain_max_tool_bytes"])
     return pricing.reservation(
         (prompt_bytes + tool_bytes) * turns, config.max_output_tokens * turns
@@ -560,8 +575,11 @@ async def run_evaluation(
         "reportFormat": REPORT_FORMAT,
         "runId": f"eval-{uuid.uuid4().hex[:12]}",
         "mode": config.mode,
+        "diagnostic": config.diagnostic,
         "evidence": (
-            "Qualification run: evidence once reviewed and scored."
+            "Focused diagnostic trial of selected cases. NOT qualification evidence."
+            if config.diagnostic
+            else "Qualification run: evidence once reviewed and scored."
             if qualification
             else "Rehearsal with the fixture provider. NOT evidence of model quality."
         ),
@@ -677,6 +695,9 @@ async def _run_case(
     before_records = harness.copilot_record_count()
 
     payload = case.request_payload()
+    # The runner reads every event the harness sends, a revision included, so it
+    # announces the harness's own protocol; a request with none is taken as 1.0.
+    payload["protocolVersion"] = PROTOCOL_VERSION
     if case.kiwi is not None:
         payload["profileId"] = _profile_id(case, harness)
         if rehearsal is not None:
@@ -699,10 +720,23 @@ async def _run_case(
             "proposedText": proposal.get("proposedText", ""),
             "rationale": proposal.get("rationale", ""),
             "appliesToEditorOnly": proposal.get("appliesToEditorOnly"),
+            "validation": proposal.get("validation"),
+            "parts": [
+                {
+                    "part": part.get("part"),
+                    "proposedText": part.get("proposedText", ""),
+                    "validation": part.get("validation"),
+                }
+                for part in proposal.get("parts") or []
+            ],
         }
         if proposal
         else None
     )
+    record["codeCheck"] = stream.all("code_check")
+    # How an edit request's answer kept the edit contract, with any repair reply.
+    record["editContract"] = stream.all("edit_contract")
+    record["lookupRecord"] = stream.all("lookup_record")
     if start:
         record["contextPreview"] = start.get("contextPreview")
 
@@ -769,7 +803,11 @@ async def _run_case(
             incomplete.append(f"error during the request: {errors[0].get('code', 'unknown')}")
         if done is None:
             incomplete.append("the stream ended without a done event (partial)")
-        elif done.get("outcome") not in expected_outcomes and not gated_outcome:
+        elif (
+            done.get("outcome") not in expected_outcomes
+            and not gated_outcome
+            and done.get("errorCode") != EDIT_OUTPUT_MISSING
+        ):
             incomplete.append(f"request outcome {done.get('outcome')!r}")
         if start is not None and not answer and "failed" not in expected_outcomes:
             incomplete.append("no answer text")
@@ -807,6 +845,16 @@ async def _run_case(
     if case.dispatches:
         if not incomplete:
             _answer_checks(case, check, start, answer, proposal)
+            contracts = stream.all("edit_contract")
+            if contracts:
+                kept = contracts[-1]
+                check(
+                    "editContractKept",
+                    kept.get("delivered") != "missing"
+                    and (done or {}).get("errorCode") != EDIT_OUTPUT_MISSING,
+                    f"{kept.get('delivered')}, repair {kept.get('repair')}, "
+                    f"outcome {(done or {}).get('outcome')!r}",
+                )
             request_id = str((start or {}).get("requestId", ""))
             outcome = harness.copilot_outcome(request_id)
             stored = {"succeeded": "succeeded", "partial": "partial", "failed": "failed"}
@@ -815,6 +863,12 @@ async def _run_case(
                 outcome in {stored[expected] for expected in expected_outcomes},
                 f"stored outcome {outcome!r}",
             )
+            # The harness's claim checks and any draft a revision replaced: kept for
+            # review, since the replaced text is not in the answer. A plain diagnosis has
+            # them too (C32).
+            if stream.all("claim_check"):
+                record["claimChecks"] = stream.all("claim_check")
+                record["revisions"] = stream.all("revision")
             if case.kiwi is not None:
                 _kiwi_checks(
                     case,
@@ -827,6 +881,9 @@ async def _run_case(
                     harness.activity(),
                 )
                 record["toolCalls"] = trace
+                record["evidence"] = stream.all("evidence")
+                record.setdefault("claimChecks", [])
+                record.setdefault("revisions", [])
                 rows = harness.tool_call_rows(request_id)
                 check(
                     "toolCallsRecorded",
@@ -834,7 +891,9 @@ async def _run_case(
                     f"{len(rows)} stored tool-call rows, {len(trace)} reported",
                 )
             if case.expect.apply_check is not None and proposal is not None:
-                await _apply_check(case, harness, http, proposal, check, stream)
+                record["applyValidation"] = await _apply_check(
+                    case, harness, http, proposal, check, stream
+                )
     elif not incomplete:
         errors = stream.all("error")
         code = errors[0].get("code") if errors else None
@@ -958,7 +1017,9 @@ async def _apply_check(
     proposal: dict[str, Any],
     check: Callable[..., None],
     stream: _Stream,
-) -> None:
+) -> Any:
+    """Run the apply-check; returns the validation the server reported for the stored text."""
+
     spec = case.expect.apply_check
     assert spec is not None and case.editor is not None
     text = case.editor["text"]
@@ -988,7 +1049,7 @@ async def _apply_check(
     detail = f"status {response.status_code}"
     if spec.status != 200:
         check("applyCheck", response.status_code == spec.status, detail)
-        return
+        return None
     payload = response.json() if response.status_code == 200 else {}
     check(
         "applyCheck",
@@ -999,6 +1060,11 @@ async def _apply_check(
         "applyExecutesNothing",
         payload.get("executesDatabaseOperations") is False,
         "apply-check must report that it runs nothing",
+    )
+    return (
+        payload.get("validation")
+        or [part.get("validation") for part in payload.get("parts") or []]
+        or None
     )
 
 
@@ -1027,7 +1093,17 @@ class _Stream:
         return found[-1] if found else None
 
     def answer(self) -> str:
-        return "".join(str(data.get("text", "")) for data in self.all("delta"))
+        """The text a client shows: deltas, less each draft a ``revision`` replaced."""
+
+        text = ""
+        for event, data, _ in self.events:
+            if event == "delta":
+                text += str(data.get("text", ""))
+            elif event == "revision":
+                draft = str(data.get("draft", ""))
+                if draft and text.endswith(draft):
+                    text = text[: len(text) - len(draft)]
+        return text
 
     def summary(self) -> dict[str, Any]:
         deltas = [ms for event, _, ms in self.events if event == "delta"]
@@ -1167,13 +1243,72 @@ def _git(*args: str) -> str:
         )
     except (OSError, subprocess.SubprocessError):
         return ""
-    return result.stdout.strip() if result.returncode == 0 else ""
+    return result.stdout.rstrip() if result.returncode == 0 else ""
 
 
 def _harness_build() -> dict[str, Any]:
     commit = _git("rev-parse", "HEAD")
-    dirty = bool(_git("status", "--porcelain", "--untracked-files=no"))
-    return {"commit": commit or "unknown", "uncommittedChanges": dirty}
+    return {
+        "commit": commit or "unknown",
+        **dirty_state(_git("status", "--porcelain", "-uall")),
+        "standIn": stand_in_fingerprint(),
+    }
+
+
+# The stand-in's dictionary is part of each Kiwi case's input: a corrected fixture (C15,
+# C16) changes what the lookups return although the case set does not change. Its file
+# hashes let a report say which stand-in it ran against, including on a dirty tree.
+REPO_ROOT = Path(__file__).resolve().parents[3]
+STAND_IN_FILES = (
+    "services/worker/harness_worker/backend/fake.py",
+    "services/worker/harness_worker/backend/etl_fixture.py",
+)
+
+
+def stand_in_fingerprint(root: Path = REPO_ROOT) -> dict[str, Any]:
+    files = {}
+    for name in STAND_IN_FILES:
+        path = root / name
+        files[name] = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+    combined = hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
+    return {"files": files, "sha256": combined}
+
+
+# Untracked material that cannot change what a run executes: earlier evaluation output
+# and prose. Any other untracked file (source, SQL, scripts, tests) makes a run dirty.
+# Only report artifacts in the report directory are exempt: a script or module placed
+# there could still be imported or run, so it counts like any other untracked file.
+_REPORT_DIR = "copilot-eval/"
+_REPORT_SUFFIXES = (".json", ".log", ".md", ".html")
+_HARMLESS_SUFFIXES = (".md",)
+
+
+def dirty_state(porcelain: str) -> dict[str, Any]:
+    """Whether the checkout differs from HEAD in a way that could change the run.
+
+    ``git status --porcelain -uall`` output goes in. Tracked changes always count.
+    Untracked files count unless they are earlier reports or Markdown, and they are
+    listed so a report never claims a clean commit while untracked source ran.
+    """
+
+    tracked: list[str] = []
+    untracked: list[str] = []
+    for line in porcelain.splitlines():
+        if len(line) < 4:
+            continue
+        status, path = line[:2], line[3:].strip().strip('"')
+        if status == "??":
+            report = path.startswith(_REPORT_DIR) and path.endswith(_REPORT_SUFFIXES)
+            if report or path.endswith(_HARMLESS_SUFFIXES):
+                continue
+            untracked.append(path)
+        else:
+            tracked.append(path)
+    return {
+        "uncommittedChanges": bool(tracked or untracked),
+        "modifiedFiles": tracked[:50],
+        "untrackedFiles": untracked[:50],
+    }
 
 
 def _environment() -> dict[str, str]:

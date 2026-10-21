@@ -6,6 +6,7 @@
 -- @kiwi: allowed
 -- @min_version: 11
 -- @parameters: owner, object_name, object_type
+-- @required: owner, object_name
 -- @privileges: SELECT on ALL_OBJECTS
 SELECT owner,
        object_name,

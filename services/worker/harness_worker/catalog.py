@@ -33,7 +33,14 @@ class CatalogEntry:
     min_version: int = 11
     parameters: tuple[str, ...] = ()
     identifier_parameters: tuple[str, ...] = ()
+    # Parameters the query compares without an IS NULL guard (``-- @required:``). Left
+    # out, they bind NULL and match nothing, so a caller must refuse the call instead.
+    required_parameters: tuple[str, ...] = ()
     privileges: tuple[str, ...] = ()
+    # The only object_type values the query's view can hold (``-- @object_types:``).
+    # Empty means any type; otherwise a call naming another type is refused, because
+    # the view cannot hold it and an empty result would read as "no such object".
+    object_types: tuple[str, ...] = ()
     source_path: Path | None = field(default=None, compare=False)
     returns: str = "rows"
     # Offered to Kiwi as a tool (``-- @kiwi: allowed``). Only read entries may be.
@@ -49,7 +56,9 @@ class CatalogEntry:
             "minVersion": self.min_version,
             "parameters": list(self.parameters),
             "identifierParameters": list(self.identifier_parameters),
+            "requiredParameters": list(self.required_parameters),
             "privileges": list(self.privileges),
+            "objectTypes": list(self.object_types),
             "returns": self.returns,
             "kiwi": self.kiwi,
         }
@@ -106,6 +115,23 @@ def parse_entry(path: Path) -> CatalogEntry:
             detail={"path": str(path)},
         )
 
+    parameters = _split_list(headers.get("parameters", ""))
+    required = _split_list(headers.get("required", ""))
+    unknown = sorted(set(required) - set(parameters))
+    if unknown:
+        raise ConfigurationError(
+            f"Catalog entry {path.name} requires parameter(s) it does not take: "
+            f"{', '.join(unknown)}",
+            detail={"path": str(path)},
+        )
+
+    object_types = tuple(t.upper() for t in _split_list(headers.get("object_types", "")))
+    if object_types and "object_type" not in parameters:
+        raise ConfigurationError(
+            f"Catalog entry {path.name} lists object types but takes no object_type.",
+            detail={"path": str(path)},
+        )
+
     return CatalogEntry(
         operation_id=headers["id"],
         title=headers["title"],
@@ -114,9 +140,11 @@ def parse_entry(path: Path) -> CatalogEntry:
         capabilities=capabilities,
         risk=risk,
         min_version=int(headers.get("min_version", "11")),
-        parameters=_split_list(headers.get("parameters", "")),
+        parameters=parameters,
         identifier_parameters=_split_list(headers.get("identifier_parameters", "")),
+        required_parameters=required,
         privileges=_split_list(headers.get("privileges", "")),
+        object_types=object_types,
         source_path=path,
         returns=headers.get("returns", "rows"),
         kiwi=bool(kiwi_header),

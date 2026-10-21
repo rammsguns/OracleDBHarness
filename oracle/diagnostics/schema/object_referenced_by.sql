@@ -6,6 +6,7 @@
 -- @kiwi: allowed
 -- @min_version: 12
 -- @parameters: owner, object_name, row_limit
+-- @required: owner, object_name
 -- @privileges: SELECT on ALL_DEPENDENCIES
 SELECT owner,
        name,

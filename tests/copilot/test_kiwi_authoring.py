@@ -248,7 +248,9 @@ def test_labels_that_name_no_part_are_ignored(client: TestClient, developer, fix
     fixed("```plsql part=trigger\n-- not asked for\n```\n")
     events = sse(client, developer, multi_part_payload())
     assert not any(name == "proposal" for name, _ in events)
-    assert events[-1][1]["outcome"] == "succeeded"
+    # The repair gets the same unasked-for label, so no edit was delivered (C25).
+    assert events[-1][1]["outcome"] == "failed"
+    assert events[-1][1]["errorCode"] == "edit_output_missing"
 
 
 def test_the_request_names_every_part_for_the_model(client: TestClient, developer, fixed) -> None:

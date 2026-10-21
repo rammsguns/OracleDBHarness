@@ -7,6 +7,7 @@ moves, so the console and the IDE adapters cannot drift silently.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 from pathlib import Path
@@ -66,10 +67,69 @@ def test_the_copilot_protocol_schema_matches_the_implementation(client: TestClie
         "budget",
         "proposal",
         "lineage",
+        "claim_check",
+        "revision",
+        "edit_contract",
+        "lookup_record",
+        "code_check",
         "usage",
         "done",
         "error",
     }
+
+
+def _generator():
+    spec = importlib.util.spec_from_file_location("contracts_generate", CONTRACTS / "generate.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_published_protocol_schema_is_what_the_generator_writes() -> None:
+    """Regeneration must not drop an event or a required field (C26)."""
+
+    published = json.loads((CONTRACTS / "copilot-protocol.schema.json").read_text(encoding="utf-8"))
+    generated = json.loads(json.dumps(_generator().copilot_protocol_schema()))
+    assert generated == published, "copilot-protocol.schema.json is out of date; regenerate it."
+    required = {
+        entry["title"]: entry.get("required", [])
+        for entry in published["definitions"]["streamEvent"]["oneOf"]
+    }
+    assert required["claim_check"] == ["stage", "findings", "action"]
+    assert required["revision"] == ["draft", "findings"]
+    assert required["edit_contract"] == ["contract", "delivered", "repair"]
+    assert required["lookup_record"] == ["lookups", "notRun"]
+
+
+def test_the_typescript_client_declares_every_published_event() -> None:
+    source = (CONTRACTS / "src" / "index.ts").read_text(encoding="utf-8")
+    schema = json.loads((CONTRACTS / "copilot-protocol.schema.json").read_text(encoding="utf-8"))
+    declared = set(re.findall(r'event:\s*"([a-z_]+)"', source))
+    events = {entry["title"] for entry in schema["definitions"]["streamEvent"]["oneOf"]}
+    assert events <= declared, sorted(events - declared)
+
+
+def test_the_finding_kinds_are_published_and_declared() -> None:
+    """Every kind the checks report is in the schema and the client's union (C26)."""
+
+    from harness_api.copilot.claim_checks import FINDING_KINDS
+
+    schema = json.loads((CONTRACTS / "copilot-protocol.schema.json").read_text(encoding="utf-8"))
+    assert schema["definitions"]["claimFindingKind"]["enum"] == list(FINDING_KINDS)
+    source = (CONTRACTS / "src" / "index.ts").read_text(encoding="utf-8")
+    union = source.split("export type KiwiClaimFindingKind =", 1)[1].split(";", 1)[0]
+    assert re.findall(r'"([a-z_]+)"', union) == list(FINDING_KINDS)
+    assert 'rendered?: "next_checks" | "bounded_fallback"' in source
+
+
+def test_every_reported_finding_kind_is_listed() -> None:
+    from harness_api.copilot.claim_checks import FINDING_KINDS
+
+    package = CONTRACTS.parents[1] / "services" / "api" / "harness_api" / "copilot"
+    used = set()
+    for path in package.glob("*.py"):
+        used |= set(re.findall(r'ClaimFinding\(\s*"([a-z_]+)"', path.read_text(encoding="utf-8")))
+    assert used and used <= set(FINDING_KINDS), sorted(used - set(FINDING_KINDS))
 
 
 def test_the_typescript_client_declares_the_same_protocol_version() -> None:
