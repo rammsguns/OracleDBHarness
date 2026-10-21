@@ -52,7 +52,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -231,7 +231,8 @@ def parse(answer: str) -> Contract:
     try:
         data = json.loads(text)
     except ValueError as exc:
-        return Contract(error=f"the block is not JSON: {exc.msg}", present=True)
+        detail = exc.msg if isinstance(exc, json.JSONDecodeError) else str(exc)
+        return Contract(error=f"the block is not JSON: {detail}", present=True)
     if not isinstance(data, list):
         return Contract(error="the block must be a JSON list of steps", present=True)
     if len(data) > MAX_STEPS:
@@ -330,7 +331,11 @@ def _check(
     step, named = _named_operation(step, catalog)
     if named:
         notes.append(named)
-    entry = catalog.get(step.operation) if step.operation in catalog else None
+    entry = (
+        catalog.get(step.operation)
+        if step.operation is not None and step.operation in catalog
+        else None
+    )
     if entry is None:
         # Not an operation id at all, or one the catalog does not hold: say that, not that
         # a lookup Kiwi may make is forbidden (trial 21, DIAG-03 and KINJ-01).
@@ -755,7 +760,7 @@ class _Blank(dict):  # type: ignore[type-arg]
 
 
 def _fact(step: Step, actor: str) -> str:
-    values: Mapping[str, Any] = _Blank(
+    values: dict[str, Any] = _Blank(
         {
             k: str(v).upper() if k in ("owner", "object_name", "table_name") else v
             for k, v in step.selectors.items()

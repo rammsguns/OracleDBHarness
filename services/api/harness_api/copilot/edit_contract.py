@@ -839,7 +839,7 @@ def carried_directives(proposal: str) -> CarriedDirectives | None:
         previous = (start, end)
     if not marked:
         return CarriedDirectives(proposal, (), (), outside) if outside else None
-    text, lines = proposal, []
+    text, lines = proposal, list[int]()
     for start, end in sorted(marked, reverse=True):
         line_start = text.rfind("\n", 0, start) + 1
         line_end = text.find("\n", end)
@@ -897,8 +897,12 @@ def _prose_segments(answer: str) -> list[tuple[int, int]]:
     for line in answer.splitlines(keepends=True):
         opened = _OPEN_FENCE.match(line)
         if fence:
-            closes = opened and not opened[2] and opened[1][0] == fence[0]
-            if closes and len(opened[1]) >= len(fence):
+            if (
+                opened
+                and not opened[2]
+                and opened[1][0] == fence[0]
+                and len(opened[1]) >= len(fence)
+            ):
                 fence, start = "", offset + len(line)
         elif opened:
             segments.append((start, offset))

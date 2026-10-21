@@ -2826,7 +2826,7 @@ def _required_changes(answer: str, facts: Sequence[LookupFacts]) -> list[ClaimFi
                     w.upper() for w in re.findall(r"`?([A-Za-z][\w$#]*)`?", clause)
                 }
                 held = [c for c in columns if c[1] in named] or columns
-                table, _, column, kind, length = held[0][0], *held[0][1:]
+                table, _, column, kind, length = held[0]
                 findings.append(
                     ClaimFinding(
                         "required_change",

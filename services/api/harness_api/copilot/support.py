@@ -78,12 +78,18 @@ _SPECIFICATIONS = frozenset({"PACKAGE", "TYPE"})
 
 
 class Lookup(Protocol):
-    operation_id: str
-    succeeded: bool
-    columns: Sequence[str]
-    rows: Sequence[Sequence[Any]]
-    parameters: dict[str, Any]
-    sequence: int
+    @property
+    def operation_id(self) -> str: ...
+    @property
+    def succeeded(self) -> bool: ...
+    @property
+    def columns(self) -> Sequence[str]: ...
+    @property
+    def rows(self) -> Sequence[Sequence[Any]]: ...
+    @property
+    def parameters(self) -> dict[str, Any]: ...
+    @property
+    def sequence(self) -> int: ...
 
 
 # -- identities ----------------------------------------------------------------------------

@@ -37,6 +37,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from fractions import Fraction
+from typing import Any
 
 from harness_api.copilot.claim_checks import ClaimFinding
 from harness_api.copilot.fences import fenced_blocks
@@ -186,18 +187,18 @@ class UnitCoverage:
 def unit_coverage(evidence: dict[int, Evidence]) -> list[UnitCoverage]:
     """Each unit a source lookup returned lines of, with what those lines read."""
 
-    units: dict[Subject, dict[str, object]] = {}
+    units: dict[Subject, dict[str, Any]] = {}
     for number_, entry in sorted(evidence.items()):
         for read in entry.source:
             slot = units.setdefault(read.unit, {"rows": {}, "members": {}, "lookups": []})
-            slot["rows"].update(read.numbered)  # type: ignore[union-attr]
+            slot["rows"].update(read.numbered)
             for member in read.members:
-                slot["members"].setdefault((member.name, member.first_line), member)  # type: ignore[union-attr]
-            slot["lookups"].append(number_)  # type: ignore[union-attr]
+                slot["members"].setdefault((member.name, member.first_line), member)
+            slot["lookups"].append(number_)
     coverage = []
     for unit, slot in units.items():
-        rows: dict[int, str] = slot["rows"]  # type: ignore[assignment]
-        members: dict[tuple[str, int], Member] = slot["members"]  # type: ignore[assignment]
+        rows: dict[int, str] = slot["rows"]
+        members: dict[tuple[str, int], Member] = slot["members"]
         ordered = tuple(sorted(members.values(), key=lambda m: m.first_line))
         coverage.append(
             UnitCoverage(
@@ -205,7 +206,7 @@ def unit_coverage(evidence: dict[int, Evidence]) -> list[UnitCoverage]:
                 tuple(sorted(rows)),
                 ordered,
                 _tails(unit, sorted(rows.items()), ordered),
-                tuple(dict.fromkeys(slot["lookups"])),  # type: ignore[arg-type]
+                tuple(dict.fromkeys(slot["lookups"])),
                 tuple(sorted(rows.items())),
             )
         )

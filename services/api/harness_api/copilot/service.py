@@ -1332,12 +1332,12 @@ class CopilotService:
         failure = ""
         try:
             async with contextlib.aclosing(_timed_turn(conversation, window)) as turn:
-                async for event in turn:
-                    if isinstance(event, TextDelta):
-                        text.append(event.text)
-                        yield ("delta", {"text": event.text})
+                async for turn_event in turn:
+                    if isinstance(turn_event, TextDelta):
+                        text.append(turn_event.text)
+                        yield ("delta", {"text": turn_event.text})
                     else:
-                        revised_end = event
+                        revised_end = turn_event
         except TimeoutError:
             # The revision's window ran out, inside the request's bound: the diagnosis
             # was complete, so the request is not partial; the draft is withheld.
@@ -2383,13 +2383,13 @@ def _added(total: ProviderUsage, more: ProviderUsage | None) -> ProviderUsage:
     )
 
 
-def _timed_turn(conversation: ToolConversation, seconds: float) -> AsyncIterator[TurnEvent]:
+def _timed_turn(conversation: ToolConversation, seconds: float) -> AsyncGenerator[TurnEvent, None]:
     """One model turn's events, or ``TimeoutError`` once ``seconds`` have passed."""
 
     return _timed(conversation.turn(), seconds)
 
 
-async def _timed(source: AsyncIterator[Any], seconds: float) -> AsyncIterator[Any]:
+async def _timed(source: AsyncIterator[Any], seconds: float) -> AsyncGenerator[Any, None]:
     """``source``'s items, or ``TimeoutError`` once ``seconds`` have passed.
 
     The deadline holds while the provider is silent, not only between the items it

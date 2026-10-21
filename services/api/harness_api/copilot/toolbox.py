@@ -402,7 +402,7 @@ class KiwiToolbox:
                     f"{name} must be a string of at most {_MAX_TEXT_PARAMETER} characters.",
                     detail={"parameter": name},
                 )
-            if name == "object_type" and entry.object_types:
+            if name == "object_type" and entry.object_types and isinstance(value, str):
                 # The check above compared the trimmed value; bind what it accepted.
                 value = value.strip()
             parameters[name] = value

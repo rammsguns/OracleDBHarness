@@ -22,3 +22,6 @@ apps/web/.vite/
 
 # Local database inventory with credentials (copied from ~/database-inventory). Never commit.
 /databases/
+
+# Local Orca server install and its runtime data (keys, session databases). Never commit.
+/OrcaServer/
