@@ -20,6 +20,7 @@ can be tested and demonstrated without calling a model or spending anything.
 from __future__ import annotations
 
 import abc
+import asyncio
 import re
 from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from dataclasses import dataclass, field
@@ -154,14 +155,21 @@ class ToolConversation(abc.ABC):
     def answer_only(self) -> bool:
         return self._answer_only
 
-    def require_answer(self) -> None:
+    def require_answer(self, note: str = "") -> None:
         """From the next turn on, the model may not call tools: it has to answer.
 
-        The tools stay described, because the transcript already holds calls to them,
-        but the request says none may be chosen. A call the model makes anyway is
-        dropped, so the turn ends the conversation like any answer.
+        ``note``, the harness's instruction to answer now, is added as a harness message
+        of its own after the last results, not inside a tool result where a model can
+        read it as more data (trial 21, DIAG-02). How the request then says no tool may
+        be chosen is the adapter's: the Messages API keeps the tools described, because
+        the transcript holds calls to them, and says none may be chosen; Chat
+        Completions sends none at all, so a local model is not offered one to call. A
+        call the model makes anyway is dropped, so the turn ends the conversation like
+        any answer.
         """
 
+        if note:
+            self._append_note(note)
         self._answer_only = True
 
     @property
@@ -216,6 +224,20 @@ class ToolConversation(abc.ABC):
         self._append_results([by_id[call.id] for call in self._pending])
         self._pending = ()
 
+    def request_revision(self, note: str) -> None:
+        """After the final answer, ask for it once more in the light of ``note``.
+
+        The harness's note is added as a user message and the conversation reopens for
+        one more turn, which offers no tools. It is for the harness's own checks of an
+        answer, never for text from a lookup or the user.
+        """
+
+        if not self._finished or self._failed or self._pending:
+            raise RuntimeError("Only a conversation that ended with an answer can be revised.")
+        self._append_note(note)
+        self._finished = False
+        self._answer_only = True
+
     def turn_usage(self) -> list[ProviderUsage]:
         return list(self._turns)
 
@@ -243,6 +265,10 @@ class ToolConversation(abc.ABC):
     @abc.abstractmethod
     def _append_results(self, results: list[ToolResult]) -> None:
         """Add the answers to the transcript for the next turn."""
+
+    @abc.abstractmethod
+    def _append_note(self, note: str) -> None:
+        """Add a harness message, sent as the user's turn, to the transcript."""
 
 
 class Provider(abc.ABC):
@@ -334,13 +360,15 @@ class ScriptedTurn:
 
     ``stop_reason`` defaults to ``tool_use`` when there are calls and ``end_turn``
     otherwise. ``fail`` raises a provider failure after the text has streamed, the way
-    a connection dropped mid-answer would.
+    a connection dropped mid-answer would. ``delay`` holds the final message back for
+    that many seconds after the text, the way a slow or silent server would.
     """
 
     text: str = ""
     tool_calls: tuple[ToolCall, ...] = ()
     stop_reason: str | None = None
     fail: str | None = None
+    delay: float = 0.0
 
 
 class FakeConversation(ToolConversation):
@@ -358,6 +386,7 @@ class FakeConversation(ToolConversation):
         self._script = list(script)
         self._context = [system, user_message]
         self.received: list[ToolResult] = []
+        self.notes: list[str] = []
         self.answer_only_turns: list[bool] = []
 
     async def _run_turn(self) -> AsyncIterator[TurnEvent]:
@@ -367,6 +396,8 @@ class FakeConversation(ToolConversation):
         self.answer_only_turns.append(self.answer_only)
         for chunk in _chunks(step.text, 120):
             yield TextDelta(chunk)
+        if step.delay:
+            await asyncio.sleep(step.delay)
         if step.fail is not None:
             raise ProviderError(step.fail)
         completion = step.text + "".join(repr(call.input) for call in step.tool_calls)
@@ -384,6 +415,10 @@ class FakeConversation(ToolConversation):
     def _append_results(self, results: list[ToolResult]) -> None:
         self.received.extend(results)
         self._context.extend(result.content for result in results)
+
+    def _append_note(self, note: str) -> None:
+        self.notes.append(note)
+        self._context.append(note)
 
 
 class AnthropicProvider(Provider):
@@ -560,6 +595,14 @@ class AnthropicConversation(ToolConversation):
                 ],
             }
         )
+
+    def _append_note(self, note: str) -> None:
+        last = self._messages[-1]
+        if last["role"] == "user" and isinstance(last["content"], list):
+            # Right after tool results: the note joins their user turn as a text block.
+            last["content"].append({"type": "text", "text": note})
+            return
+        self._messages.append({"role": "user", "content": note})
 
 
 def _provider_failure(exc: Exception) -> ProviderError:

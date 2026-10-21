@@ -5,6 +5,7 @@
 -- @kiwi: allowed
 -- @min_version: 11
 -- @parameters: owner, object_name
+-- @required: owner, object_name
 -- @privileges: SELECT on ALL_DEPENDENCIES
 SELECT referenced_owner,
        referenced_name,

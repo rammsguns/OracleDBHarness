@@ -34,7 +34,7 @@ case ran - a run the budget stopped does not qualify, however many cases complet
 ### The case set
 
 [`eval/cases.json`](eval/cases.json), format described in
-[`eval/cases.py`](eval/cases.py). Version `2026-10-15.4`: 52 cases (the 39 of `2026-09-12.1` plus 13 for Kiwi, K-7; 2026-10-15.1 changes how three kinds of check are judged, see below; 2026-10-15.2 and .3 let KINJ-01 end partial; .4 lets DIAG-02 and KINJ-02 end partial and sets the case lookup limits from live runs).
+[`eval/cases.py`](eval/cases.py). Version `2026-10-18.1`: 52 cases (the 39 of `2026-09-12.1` plus 13 for Kiwi, K-7; 2026-10-15.1 changes how three kinds of check are judged, see below; 2026-10-15.2 and .3 let KINJ-01 end partial; .4 lets DIAG-02 and KINJ-02 end partial and sets the case lookup limits from live runs; 2026-10-17.1 gives INJECTION-01 the schema metadata its expected diagnosis rests on; 2026-10-18.1 sets DIAG-01's ORA-00942 position to 5:39 and FIX-01's to 4:37, as 19c reports them for those exact sources). Reports of `2026-10-17.1` and earlier keep their own version and are historical.
 
 | Category | Cases | Gate | Judged by |
 | --- | --- | --- | --- |
@@ -231,7 +231,39 @@ in `test_evaluation_runner.py`.
 
 ## Recording results
 
-No qualification run has been performed yet. When one is, record here and in
+The local-model run of 2026-10-16 was evaluated at the user's request by
+**Codex (AI DBA review)**: **NOT QUALIFIED**, all 39 required reviews complete
+(21 pass, 18 fail). Its 46 completed provider cases and all-cases-run bars pass;
+correctness is **9/18 (50%)**, safety is **15/19**, and review completion is **39/39**.
+No automated safety-check failure or prohibited database activity was recorded.
+Commit: `b83571681ff2271e4d42e53e2379168aa66c8e9a`; provider: `local`; requested and
+reported model: `qwen3.8-flash-next-iq3_s`; case set: `2026-10-15.4`. Host-local report:
+`copilot-eval/run-2026-10-16-one-block.json`; summary: the same path ending in `.md`.
+The [evaluation record](../../docs/k7-dba-review-2026-10-16.md) lists all 12 failure
+patterns (18 cases), every verdict, source references and report hashes. The six
+fragment proposals are the most frequent pattern. Other patterns cover omitted
+rubric requirements, invalid bulk/test/AUTHID syntax, changed date/query semantics
+and unsupported database conclusions. Safety-group failures are INJECTION-01,
+INJECTION-03, KINJ-01 and KINJ-02; these reject injection but fail other review criteria.
+This is an AI review, not independent human sign-off or a live compilation run.
+K-7's no-unsupported-claims confirmation is not given; saved tool results are also
+insufficient for exhaustive grounding review. The original report was retained at
+`copilot-eval/run-2026-10-16-one-block.pre-ai-review.json` before editing review fields.
+
+After that review the remediation in
+[docs/k7-remediation-plan.md](../../docs/k7-remediation-plan.md) was implemented
+(2026-10-16): evidence capture (the runner stores each Kiwi case's `evidence`),
+a structural complete-unit check, prompt rules, regression tests in
+`test_k7_remediation.py`, and Oracle checks. **No full run has been made with these
+changes, so the result above is the latest score.** `run --only ID,ID` makes a focused
+diagnostic trial; its report is marked `diagnostic` and cannot be scored as a
+qualification. `score` on such a report adds a `diagnosticSummary` (and a "Diagnostic
+summary" section in the Markdown) that counts the selected cases only, for example 9
+selected correctness cases against the case set's 18. It is never a rate over the case
+set, and `qualified` and `strictTarget.met` stay false. A report that is not diagnostic
+must still hold every correctness case of the denominator, or `score` refuses it.
+
+For subsequent reviewed runs, record here and in
 [NEXT_PHASE_PLAN.md](../../NEXT_PHASE_PLAN.md): the date, harness commit, provider and
 exact reported model, case-set version, the report location, the result of each bar, the
 reviewer, and every failure pattern `score` lists. A summary that says "passed" without

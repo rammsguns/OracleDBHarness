@@ -301,7 +301,10 @@ class LocalConversation(ToolConversation):
             "stream": True,
             "stream_options": {"include_usage": True},
         }
-        if self.tools:
+        # A turn that has to be the answer offers no tools at all: with tools described
+        # and tool_choice "none", a local model can still write a call and no answer
+        # (trial 21, DIAG-02). The transcript's earlier calls and results stay.
+        if self.tools and not self.answer_only:
             request["tools"] = [
                 {
                     "type": "function",
@@ -313,8 +316,6 @@ class LocalConversation(ToolConversation):
                 }
                 for tool in self.tools
             ]
-            if self.answer_only:
-                request["tool_choice"] = "none"
         text: list[str] = []
         calls: dict[int, dict[str, str]] = {}
         finish = ""
@@ -385,6 +386,9 @@ class LocalConversation(ToolConversation):
             self._messages.append(
                 {"role": "tool", "tool_call_id": result.call_id, "content": content}
             )
+
+    def _append_note(self, note: str) -> None:
+        self._messages.append({"role": "user", "content": note})
 
 
 def _chunk(data: str) -> dict[str, Any]:

@@ -162,6 +162,9 @@ class ScriptedProvider(Provider):
         if "[hang]" in user_message:
             await asyncio.sleep(3)
         answer = "The name is wrong.\n\n```sql\nSELECT 1 FROM dual;\n```\n\nNot compiled."
+        if "[prose]" in user_message:
+            # Code as prose, in the first answer and in the repair: no edit delivered.
+            answer = "The name is wrong. Use SELECT 1 FROM dual instead. Not compiled."
         if "[leak]" in user_message:
             answer += f" Configured key: {self._leak}"
         if "[claim]" in user_message:
@@ -551,11 +554,38 @@ async def test_provider_failures_and_bad_streams_are_incomplete_never_passes(
     assert [c["id"] for c in written["cases"]] == [c.id for c in cases.cases]
 
 
+async def test_a_missing_edit_is_a_scored_answer_failure_not_lost_evidence(
+    tmp_path: Path,
+) -> None:
+    """C25: the request ends failed/edit_output_missing; the case completes and fails."""
+
+    prose = case("PROSE", "fix", message="Fix it. [prose]")
+    prose["request"]["editor"] = {"editorId": "buffer", "revision": "3", "textFrom": "src"}
+    prose["expect"] = {"outcome": "answer", "proposal": "required"}
+    fenced = case("FENCED", "fix", message="Fix it.")
+    fenced["request"]["editor"] = {"editorId": "buffer", "revision": "3", "textFrom": "src"}
+    fenced["expect"] = {"outcome": "answer", "proposal": "required"}
+    records = by_id(await run_scripted(tmp_path, case_set(prose, fenced)))
+
+    record = records["PROSE"]
+    assert record["execution"] == "completed", record["incompleteReasons"]
+    assert record["editContract"][-1]["repair"] == "failed:missing"
+    assert {"editContractKept", "proposalPresent", "requestRecordTerminal"} <= failed_checks(record)
+    record["review"].update(verdict="pass", reviewer="dba@example.internal")
+    assert case_verdict(record) == "fail"
+
+    ok = records["FENCED"]
+    assert "editContractKept" not in failed_checks(ok)
+    assert ok["editContract"][-1]["delivered"] == "proposal"
+
+
 async def test_the_budget_stops_the_run_and_skipped_cases_do_not_pass(tmp_path: Path) -> None:
     cases = case_set(case("A"), case("B"), case("C"))
     config = qualification_config(tmp_path)
     one = reservation_for(cases.cases[0], config, config.pricing)
-    report = await run_scripted(tmp_path, cases, budget_usd=one * 1.2, allow_partial_run=True)
+    # Room for one reservation plus half of A's actual cost, whatever the prompt's size.
+    spent = config.pricing.cost(input_tokens=1200, output_tokens=300)
+    report = await run_scripted(tmp_path, cases, budget_usd=one + spent / 2, allow_partial_run=True)
     records = by_id(report)
     assert records["A"]["execution"] == "completed"
     # A cost the actual usage, which leaves less than a reservation for B.
@@ -1106,3 +1136,12 @@ def test_a_proposal_statements_pattern_is_parsed() -> None:
 def test_a_case_waits_longer_than_an_explanation_may_run() -> None:
     explain = Settings.model_fields["kiwi_explain_max_wall_seconds"].default
     assert RunConfig.request_timeout_seconds > explain
+
+
+def test_a_focused_diagnostic_trial_can_never_qualify() -> None:
+    report = synthetic_report()
+    assert score(report)["qualified"] is True
+    report["diagnostic"] = True
+    result = score(report)
+    assert result["qualified"] is False
+    assert any("focused diagnostic trial" in reason for reason in result["reasons"])

@@ -333,6 +333,42 @@ def trigger_lines() -> list[str]:
     ]
 
 
+def columns() -> list[tuple[str, str, str, int, int | None, int | None, str, int]]:
+    """(table, column, type, length, precision, scale, nullable, column id), as
+    ALL_TAB_COLUMNS describes the columns ``TABLES`` declares."""
+
+    rows = []
+    for table, definitions in TABLES:
+        for column_id, definition in enumerate(definitions, 1):
+            name, declared, *rest = definition.split()
+            kind, _, size = declared.rstrip(")").partition("(")
+            sizes = [int(part) for part in size.split(",")] if size else []
+            nullable = "N" if rest == ["PRIMARY", "KEY"] else "Y"
+            if kind == "NUMBER":
+                precision, scale = (sizes + [0])[:2] if sizes else (None, None)
+                row = ("NUMBER", 22, precision, scale)
+            elif kind == "VARCHAR2":
+                row = ("VARCHAR2", sizes[0], None, None)
+            elif kind == "TIMESTAMP":
+                row = ("TIMESTAMP(6)", 11, None, 6)
+            else:
+                raise ValueError(f"{table}.{name}: no ALL_TAB_COLUMNS form for {declared}")
+            rows.append((table, name.upper(), *row, nullable, column_id))
+    return rows
+
+
+def primary_keys() -> list[tuple[str, str]]:
+    """(table, column) for each column ``TABLES`` declares PRIMARY KEY; nothing else is
+    declared, so no other constraint exists."""
+
+    return [
+        (table, definition.split()[0].upper())
+        for table, definitions in TABLES
+        for definition in definitions
+        if definition.endswith(" PRIMARY KEY")
+    ]
+
+
 def dependencies() -> list[tuple[str, str, str, str]]:
     """(name, type, referenced name, referenced type), as ALL_DEPENDENCIES has them."""
 

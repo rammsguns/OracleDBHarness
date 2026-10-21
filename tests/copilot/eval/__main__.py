@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import dataclasses
 import json
 import os
 import sys
@@ -89,6 +90,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--request-timeout-seconds", type=float, default=RunConfig.request_timeout_seconds
     )
     run.add_argument(
+        "--only",
+        default="",
+        help=(
+            "Comma-separated case ids for a focused diagnostic trial. The report is marked "
+            "as not evidence and cannot be scored as a qualification."
+        ),
+    )
+    run.add_argument(
         "--allow-partial-run",
         action="store_true",
         help=(
@@ -151,7 +160,18 @@ def main(argv: list[str] | None = None) -> int:
             max_output_tokens=args.max_output_tokens,
             request_timeout_seconds=args.request_timeout_seconds,
             allow_partial_run=args.allow_partial_run,
+            diagnostic=bool(args.only.strip()),
         )
+        if config.diagnostic:
+            wanted = [item.strip() for item in args.only.split(",") if item.strip()]
+            known = {case.id for case in case_set.cases}
+            missing = sorted(set(wanted) - known)
+            if missing:
+                print(f"Unknown case id(s): {', '.join(missing)}", file=sys.stderr)
+                return 2
+            case_set = dataclasses.replace(
+                case_set, cases=tuple(c for c in case_set.cases if c.id in set(wanted))
+            )
 
     try:
         report = asyncio.run(run_evaluation(config, case_set))

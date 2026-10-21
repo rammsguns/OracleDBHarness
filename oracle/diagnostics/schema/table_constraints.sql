@@ -5,6 +5,7 @@
 -- @kiwi: allowed
 -- @min_version: 11
 -- @parameters: owner, table_name
+-- @required: owner, table_name
 -- @privileges: SELECT on ALL_CONSTRAINTS, ALL_CONS_COLUMNS
 SELECT c.constraint_name,
        c.constraint_type,

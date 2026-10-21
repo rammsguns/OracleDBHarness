@@ -6,8 +6,9 @@ through the API the way the console does, a steady phase, a saturation phase and
 recovery phase, and a check afterwards that no user's or target's work turned up anywhere
 it should not.
 
-This page is the procedure. Nothing on it has been run against the pilot; see
-docs/compatibility.md for what has.
+This page is the procedure. A three-database Oracle run completed on 2026-10-19
+against proposed thresholds. It is not a pilot qualification; see
+docs/compatibility.md for the measured results and remaining approval gate.
 
 ## What a run does
 

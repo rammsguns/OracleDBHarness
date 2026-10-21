@@ -76,6 +76,29 @@ _MAX_TEXT_PARAMETER = 512
 _TOOL_NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
+def _source_view(entry: CatalogEntry) -> str:
+    """The dictionary view an entry reads, from its privilege header."""
+
+    for privilege in entry.privileges:
+        if privilege.upper().startswith("SELECT ON "):
+            return privilege[len("SELECT on ") :].strip()
+    return "its dictionary view"
+
+
+def _object_types_description(entry: CatalogEntry) -> str:
+    text = (
+        f"One type of stored source, exactly: {', '.join(entry.object_types)} (the TYPE "
+        f"values {_source_view(entry)} can hold; JAVA SOURCE is Java text, LIBRARY a "
+        "library's definition and MLE MODULE JavaScript, not PL/SQL; MLE MODULE exists "
+        "from Oracle 23ai only and returns no rows on 19c). "
+        f"{_source_view(entry)} holds no TABLE, VIEW, SYNONYM, INDEX or SEQUENCE, so "
+        "this lookup cannot return a view's query; any other type is refused."
+    )
+    if "object_type" not in entry.required_parameters:
+        text += " Leave it out for every type."
+    return text
+
+
 def tool_name_for(operation_id: str) -> str:
     """``schema.object_status`` -> ``schema__object_status``; provider names allow no dot."""
 
@@ -102,6 +125,8 @@ class ToolOutcome:
     # explainer). Never put in the stream event.
     columns: list[str] = field(default_factory=list)
     rows: list[list[Any]] = field(default_factory=list)
+    # The 1-based position of this lookup in its request; set by the caller.
+    sequence: int = 0
 
     @property
     def is_error(self) -> bool:
@@ -123,6 +148,49 @@ class ToolOutcome:
             "executionId": self.execution_id,
             "errorCode": self.error_code,
         }
+
+    def evidence(self, max_bytes: int, *, target: str = "", schema: str = "") -> dict[str, Any]:
+        """What the model was shown by this lookup, for evaluation review (opt-in).
+
+        The content is the catalog result already sent to the model, cut to
+        ``max_bytes`` with the cut stated. Lookups are reviewed catalog queries, so
+        no application result rows, bind values or credentials can be in it. Errors,
+        refusals and truncation are kept explicit: a missing result is not an empty one.
+        """
+
+        encoded = self.content.encode("utf-8")
+        cut = len(encoded) > max_bytes
+        shown = encoded[:max_bytes].decode("utf-8", errors="ignore") if cut else self.content
+        lines = self._line_range()
+        return {
+            "lookup": self.sequence,
+            "callId": self.call_id,
+            "operationId": self.operation_id,
+            "status": self.status,
+            "errorCode": self.error_code,
+            "target": target,
+            "schema": self.parameters.get("owner") or schema,
+            "parameters": {k: v for k, v in self.parameters.items() if v is not None},
+            "why": self.why,
+            "rowCount": self.row_count,
+            "lookupTruncated": self.truncated,
+            "sourceLines": lines,
+            "resultBytes": self.result_bytes,
+            "contentTruncated": cut,
+            "content": shown,
+        }
+
+    def _line_range(self) -> list[int] | None:
+        """First and last source line returned, when the lookup returned numbered lines."""
+
+        upper = [str(c).upper() for c in self.columns]
+        for name in ("LINE", "START_LINE"):
+            if name in upper:
+                index = upper.index(name)
+                numbers = [r[index] for r in self.rows if isinstance(r[index], int)]
+                if numbers:
+                    return [min(numbers), max(numbers)]
+        return None
 
 
 class KiwiToolbox:
@@ -157,7 +225,9 @@ class KiwiToolbox:
                 properties[parameter] = {"type": "integer", "minimum": 0}
             else:
                 properties[parameter] = {"type": "string", "maxLength": _MAX_TEXT_PARAMETER}
-            if parameter in _PARAMETER_DESCRIPTIONS:
+            if parameter == "object_type" and entry.object_types:
+                properties[parameter]["description"] = _object_types_description(entry)
+            elif parameter in _PARAMETER_DESCRIPTIONS:
                 properties[parameter]["description"] = _PARAMETER_DESCRIPTIONS[parameter]
         properties[_WHY] = {
             "type": "string",
@@ -167,16 +237,17 @@ class KiwiToolbox:
         description = entry.title
         if entry.description:
             description += ". " + entry.description
+        if entry.required_parameters:
+            description += f" Requires {', '.join(entry.required_parameters)}."
         description += f" Needs {', '.join(entry.privileges) or 'no extra privilege'}."
-        return ToolSpec(
-            name=name,
-            description=description,
-            input_schema={
-                "type": "object",
-                "properties": properties,
-                "additionalProperties": False,
-            },
-        )
+        schema: dict[str, Any] = {
+            "type": "object",
+            "properties": properties,
+            "additionalProperties": False,
+        }
+        if entry.required_parameters:
+            schema["required"] = list(entry.required_parameters)
+        return ToolSpec(name=name, description=description, input_schema=schema)
 
     # -- running one call --------------------------------------------------------------
 
@@ -212,6 +283,12 @@ class KiwiToolbox:
         try:
             parameters = self._parameters(entry, raw)
         except ValidationError as exc:
+            # Keep what was asked for, so a review sees the call that was refused.
+            outcome.parameters = {
+                name: value[:_MAX_TEXT_PARAMETER] if isinstance(value, str) else value
+                for name, value in raw.items()
+                if name in entry.parameters and isinstance(value, str | int)
+            }
             return self._error(outcome, "invalid", exc)
         outcome.parameters = parameters
 
@@ -286,6 +363,27 @@ class KiwiToolbox:
                 f"{entry.operation_id} does not take the parameter(s) {', '.join(unknown)}.",
                 detail={"unknown": unknown, "parameters": list(entry.parameters)},
             )
+        # A required selector the query compares directly would bind NULL and match no
+        # row, which reads as "nothing exists" when nothing was searched. Refuse the call
+        # before it runs; never widen it to every schema or guess a value (C19).
+        missing = [
+            name
+            for name in entry.required_parameters
+            if raw.get(name) is None or (isinstance(raw.get(name), str) and not raw[name].strip())
+        ]
+        if missing:
+            hint = (
+                " An omitted owner is not a search of every schema; name the owner"
+                " (schema.list_schemas lists the visible ones)."
+                if "owner" in missing
+                else ""
+            )
+            raise ValidationError(
+                f"{entry.operation_id} requires {', '.join(missing)}; the lookup did not "
+                f"run.{hint}",
+                detail={"missing": missing, "required": list(entry.required_parameters)},
+            )
+        self._check_object_type(entry, raw.get("object_type"))
         parameters: dict[str, Any] = {}
         for name in entry.parameters:
             value = raw.get(name)
@@ -304,10 +402,34 @@ class KiwiToolbox:
                     f"{name} must be a string of at most {_MAX_TEXT_PARAMETER} characters.",
                     detail={"parameter": name},
                 )
+            if name == "object_type" and entry.object_types:
+                # The check above compared the trimmed value; bind what it accepted.
+                value = value.strip()
             parameters[name] = value
         if _ROW_LIMIT_PARAMETER in entry.parameters and parameters[_ROW_LIMIT_PARAMETER] is None:
             parameters[_ROW_LIMIT_PARAMETER] = self._settings.kiwi_max_rows_per_tool
         return parameters
+
+    @staticmethod
+    def _check_object_type(entry: CatalogEntry, value: Any) -> None:
+        """Refuse a type the entry's view cannot hold before it runs (C28).
+
+        ALL_SOURCE holds stored program source only, so ``object_type='VIEW'`` would
+        bind, match no row and read as "this view has no text". An omitted type stays
+        valid wherever the query guards it.
+        """
+
+        if not entry.object_types or not isinstance(value, str) or not value.strip():
+            return
+        if value.strip().upper() in entry.object_types:
+            return
+        raise ValidationError(
+            f"{entry.operation_id} cannot return object_type {value[:40]!r}: it reads "
+            f"{_source_view(entry)}, which holds only {', '.join(entry.object_types)}. "
+            "The lookup did not run. A view's query, a table's columns or a synonym's "
+            "target are not stored source; no lookup here returns a view's query.",
+            detail={"parameter": "object_type", "allowed": list(entry.object_types)},
+        )
 
     def _serialise(self, columns: list[str], rows: list[list[Any]]) -> tuple[str, int, bool]:
         """JSON rows, dropping trailing rows until the result fits its byte cap."""

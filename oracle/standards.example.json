@@ -1,0 +1,16 @@
+{
+  "namingPrefixes": {
+    "package": "pkg_",
+    "procedure": "prc_",
+    "function": "fn_",
+    "parameter": "p_",
+    "localVariable": "l_",
+    "globalVariable": "g_",
+    "constant": "c_",
+    "cursor": "cur_"
+  },
+  "errorLoggingPackage": "app_log.error",
+  "bulkCollectLimit": 500,
+  "exceptionPolicy": "Never silently swallow WHEN OTHERS. At the application boundary, record SQLCODE, SQLERRM and DBMS_UTILITY.FORMAT_ERROR_BACKTRACE with app_log.error, then re-raise with RAISE. Do not commit or roll back the caller's transaction in reusable routines; document expected exceptions explicitly.",
+  "headerTemplate": "-- Purpose: <business purpose>\n-- Author: <team or author>\n-- Parameters: <inputs, outputs and constraints>\n-- Transaction ownership: <caller or documented boundary>\n-- Exceptions: <expected errors and propagation>\n-- Change history: <YYYY-MM-DD, author, change>"
+}

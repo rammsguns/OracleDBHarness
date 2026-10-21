@@ -115,7 +115,7 @@ def test_capabilities_describe_kiwi_without_claiming_to_execute(
 ) -> None:
     headers = integration_headers(client, administrator)
     body = client.get("/api/v1/integrations/capabilities", headers=headers).json()
-    assert body["protocolVersion"] == "1.3"
+    assert body["protocolVersion"] == "1.5"
     assert body["executesDatabaseOperations"] is False
     kiwi = body["kiwi"]
     assert kiwi["enabled"] is True
@@ -181,8 +181,9 @@ def test_a_lookup_runs_as_the_user_and_is_recorded(client: TestClient, developer
     assert len(received) == 1
     content = received[0].content
     assert content.startswith("----- BEGIN UNTRUSTED TOOL_RESULT schema.object_status -----")
-    data, harness_note = content.rsplit("\n", 1)
+    data, number, harness_note = content.rsplit("\n", 2)
     assert data.endswith("----- END UNTRUSTED TOOL_RESULT schema.object_status -----")
+    assert number == "[harness] This is lookup 1."
     assert harness_note == "[harness] Lookups used: 1 of 12."
 
     # Invariant 3: the same Execution row and AuditEvent a console lookup leaves.
@@ -526,9 +527,18 @@ def test_every_result_counts_the_lookups_and_the_last_says_to_answer(
     received = provider.conversations[0].received
     notes = [result.content.splitlines()[-1] for result in received]
     assert notes[0] == "[harness] Lookups used: 1 of 3."
-    # Only the last result of a batch carries the count.
-    assert notes[1].startswith("----- END UNTRUSTED")
-    assert notes[2].startswith("[harness] Lookups used: 3 of 3. That was the last lookup")
+    # Only the last result of a batch carries the count; every result has its number.
+    assert notes[1] == "[harness] This is lookup 2."
+    assert [r.content.splitlines()[-2] for r in received[::2]] == [
+        "[harness] This is lookup 1.",
+        "[harness] This is lookup 3.",
+    ]
+    assert notes[2] == "[harness] Lookups used: 3 of 3."
+    # The instruction to answer is a harness message of its own, after the results, not
+    # a line inside one (trial 21, DIAG-02).
+    [answer_now] = provider.conversations[0].notes
+    assert answer_now.startswith("[harness] Lookups used: 3 of 3. That was the last lookup")
+    assert "No tools are offered" in answer_now
 
 
 def test_injected_text_in_a_result_stays_inside_the_markers(
@@ -549,7 +559,12 @@ def test_a_kiwi_proposal_applies_to_the_editor_only(client: TestClient, develope
     use_script(
         client,
         ScriptedTurn(tool_calls=(status_call(),)),
-        ScriptedTurn(text="Replace the body:\n\n```sql\n" + SELECTED_SOURCE + "\n```\n"),
+        # A changed body: a block that only repeats the source is a quote, not a proposal.
+        ScriptedTurn(
+            text="Replace the body:\n\n```sql\n"
+            + SELECTED_SOURCE.replace("FROM employee ", "FROM employees ")
+            + "\n```\n"
+        ),
     )
     events = sse(client, developer, kiwi_payload(targets["development"]["id"], action="propose"))
     proposal = last(events, "proposal")
@@ -634,7 +649,9 @@ def test_running_out_of_steps_ends_with_a_partial_answer(
     assert len([n for n in names(events) if n == "tool_call"]) == 1
     conversation = provider.conversations[0]
     assert conversation.answer_only_turns == [False, True]
-    assert "last this request allows" in conversation.received[0].content
+    assert "last this request allows" not in conversation.received[0].content
+    [answer_now] = conversation.notes
+    assert "last this request allows" in answer_now
     assert "With what I have" in "".join(d["text"] for n, d in events if n == "delta")
     budget = last(events, "budget")
     assert budget["exhausted"] == ["steps"]

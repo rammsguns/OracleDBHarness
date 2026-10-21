@@ -6,6 +6,7 @@
 -- @kiwi: allowed
 -- @min_version: 12
 -- @parameters: owner, chain_name, row_limit
+-- @required: owner, chain_name
 -- @privileges: SELECT on ALL_SCHEDULER_CHAIN_STEPS, SELECT on ALL_SCHEDULER_CHAIN_RULES
 SELECT 'STEP' AS item_kind,
        s.step_name AS item_name,

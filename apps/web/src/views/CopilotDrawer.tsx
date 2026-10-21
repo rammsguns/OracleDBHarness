@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { HarnessError, api } from "../api";
-import type { ContextAttachment, CopilotEvent, KiwiLineage, LineageEvidence, Target } from "../api";
+import type {
+  CodeCheckFragment,
+  ContextAttachment,
+  CopilotEvent,
+  KiwiLineage,
+  KiwiLookupRecord,
+  LineageEvidence,
+  ProposalValidation,
+  Target,
+} from "../api";
 
 const ACTIONS = [
   { id: "explain", label: "Explain" },
@@ -61,6 +70,7 @@ interface TraceEntry {
 }
 
 interface Proposal {
+  validation?: ProposalValidation;
   proposalId: string;
   editorId: string;
   baseRevision: string;
@@ -74,7 +84,39 @@ interface Proposal {
     baseRevision: string;
     proposedText: string;
     changed: boolean;
+    validation?: ProposalValidation;
   }>;
+}
+
+/** Why a proposal is not known to be a whole unit; empty when nothing was found wrong. */
+function incompleteProblems(proposal: Proposal): string[] {
+  const found: string[] = [];
+  if (proposal.validation && !proposal.validation.complete) {
+    found.push(...proposal.validation.problems);
+  }
+  for (const part of proposal.parts ?? []) {
+    if (part.changed && part.validation && !part.validation.complete) {
+      found.push(...part.validation.problems.map((problem) => `${part.part}: ${problem}`));
+    }
+  }
+  return found;
+}
+
+function ValidationNotice({ problems }: { problems: string[] }) {
+  if (problems.length === 0) return null;
+  return (
+    <div className="notice warning" role="alert" aria-label="Incomplete proposal">
+      <strong>This may not be a whole unit.</strong>
+      <ul>
+        {problems.map((problem) => (
+          <li key={problem}>{problem}</li>
+        ))}
+      </ul>
+      <p className="muted">
+        A structural check of statement boundaries only. Nothing was compiled or run.
+      </p>
+    </div>
+  );
 }
 
 /**
@@ -111,6 +153,10 @@ export function CopilotDrawer({
   const [answer, setAnswer] = useState("");
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [applied, setApplied] = useState<string | null>(null);
+  // Code in an answer with no editor to apply it to, and the boundary problems found in it.
+  const [codeCheck, setCodeCheck] = useState<CodeCheckFragment[]>([]);
+  // An incomplete proposal is applied only after a second, explicit click.
+  const [confirmIncomplete, setConfirmIncomplete] = useState(false);
   const [usage, setUsage] = useState<string | null>(null);
   const [fixture, setFixture] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -121,6 +167,17 @@ export function CopilotDrawer({
   const [partial, setPartial] = useState<string | null>(null);
   const [subject, setSubject] = useState("");
   const [lineage, setLineage] = useState<KiwiLineage | null>(null);
+  // The harness's claim checks: whether it had Kiwi revise the answer, and what it still
+  // finds in the answer shown.
+  const [revised, setRevised] = useState(false);
+  const [claimFindings, setClaimFindings] = useState<string[]>([]);
+  // Claims a check recognised but could not compute, and checks that failed: neither
+  // confirmed nor corrected, so they are shown rather than read as a pass.
+  const [claimUnchecked, setClaimUnchecked] = useState<string[]>([]);
+  // An edit request whose answer gave neither a proposal nor a no-change line.
+  const [editMissing, setEditMissing] = useState("");
+  // The harness's record of the lookups, not the model's: shown beside the answer.
+  const [lookupRecord, setLookupRecord] = useState<KiwiLookupRecord | null>(null);
   const [copied, setCopied] = useState(false);
   const abort = useRef<AbortController | null>(null);
 
@@ -226,11 +283,18 @@ export function CopilotDrawer({
     setAnswer("");
     setProposal(null);
     setApplied(null);
+    setCodeCheck([]);
+    setConfirmIncomplete(false);
     setError(null);
     setTrace([]);
     setBudget(null);
     setPartial(null);
     setLineage(null);
+    setRevised(false);
+    setClaimFindings([]);
+    setClaimUnchecked([]);
+    setEditMissing("");
+    setLookupRecord(null);
     setCopied(false);
     abort.current = new AbortController();
     try {
@@ -274,6 +338,7 @@ export function CopilotDrawer({
     if (event.event === "start") setFixture(event.data.isFixtureProvider);
     if (event.event === "delta") setAnswer((current) => current + event.data.text);
     if (event.event === "proposal") setProposal(event.data as Proposal);
+    if (event.event === "code_check") setCodeCheck(event.data.fragments);
     if (event.event === "usage") {
       setUsage(
         `${event.data.provider}/${event.data.model} - ${event.data.promptTokens ?? "?"} in, ` +
@@ -295,6 +360,27 @@ export function CopilotDrawer({
       setBudget(`${b.toolCalls}/${b.maxToolCalls} lookups, step ${b.steps}/${b.maxSteps}`);
     }
     if (event.event === "lineage") setLineage(event.data);
+    if (event.event === "revision") {
+      // The text that follows replaces the draft, which was the last text streamed.
+      const { draft, restored, rendered } = event.data;
+      setAnswer((current) =>
+        draft && current.endsWith(draft) ? current.slice(0, current.length - draft.length) : current,
+      );
+      // A rendered revision is the harness's own text, not a revision by Kiwi.
+      if (!rendered) setRevised(!restored);
+    }
+    if (event.event === "claim_check" && event.data.action !== "revise") {
+      setClaimFindings(event.data.findings.map((finding) => `${finding.claim} — ${finding.problem}`));
+      const unchecked = (event.data.unchecked ?? []).map((claim) => `${claim.claim} — ${claim.problem}`);
+      if (event.data.action.startsWith("check_failed:")) {
+        unchecked.push(`The harness's claim check did not run to completion (${event.data.action}).`);
+      }
+      setClaimUnchecked(unchecked);
+    }
+    if (event.event === "edit_contract" && event.data.delivered === "missing") {
+      setEditMissing(event.data.repair);
+    }
+    if (event.event === "lookup_record") setLookupRecord(event.data);
     if (event.event === "done" && event.data.partial) {
       setPartial(event.data.stopReason ?? "budget");
     }
@@ -355,6 +441,13 @@ export function CopilotDrawer({
 
   const apply = async () => {
     if (!proposal) return;
+    // Policy: an edit the check found incomplete is never applied by one click. The
+    // server's staleness and all-or-none checks still run on the confirming click.
+    if (incompleteProblems(proposal).length > 0 && !confirmIncomplete) {
+      setConfirmIncomplete(true);
+      return;
+    }
+    setConfirmIncomplete(false);
     if (proposal.multiPart) return applyParts();
     try {
       const result = await api.applyCheck(proposal.proposalId, {
@@ -551,11 +644,78 @@ export function CopilotDrawer({
         </div>
       )}
 
+      {revised && (
+        <div className="notice">
+          Kiwi revised this answer after the harness checked its claims against the lookups.
+        </div>
+      )}
+      {claimFindings.length > 0 && (
+        <div className="notice warn" aria-label="Claim check findings">
+          The harness found claims the lookups or Oracle&apos;s behaviour contradict:
+          <ul>
+            {claimFindings.map((finding) => (
+              <li key={finding}>{finding}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {editMissing && (
+        <div className="notice warn" aria-label="No usable proposal">
+          This answer gives no proposal the harness could use and does not say the code needs
+          no change ({editMissing}). Nothing can be applied from it.
+        </div>
+      )}
+      {claimUnchecked.length > 0 && (
+        <div className="notice" aria-label="Claims not checked">
+          The harness could not check these claims; they are neither confirmed nor corrected:
+          <ul>
+            {claimUnchecked.map((claim) => (
+              <li key={claim}>{claim}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {answer && (
         <section className="card">
           <h3>Answer</h3>
           {usage && <p className="meta">{usage}</p>}
           <div className="answer">{answer}</div>
+          {lookupRecord && (lookupRecord.lookups.length > 0 || lookupRecord.notRun.length > 0) && (
+            <div aria-label="Lookups made">
+              <p className="meta">Lookups made (the harness&apos;s record, not written by the model):</p>
+              <ol>
+                {lookupRecord.lookups.map((entry) => (
+                  <li key={entry.lookup} value={entry.lookup}>
+                    <code>{entry.operationId}</code>
+                    {Object.keys(entry.parameters).length > 0 &&
+                      ` (${Object.entries(entry.parameters)
+                        .map(([name, value]) => `${name}=${value}`)
+                        .join(", ")})`}
+                    : {entry.summary}
+                    {((entry.facts ?? []).length > 0 || (entry.sourceRead ?? []).length > 0) && (
+                      <ul>
+                        {(entry.facts ?? []).map((fact, index) => (
+                          <li key={`fact-${index}`}>{fact}</li>
+                        ))}
+                        {(entry.sourceRead ?? []).map((read) => (
+                          <li key={`read-${read.unit}`}>
+                            Read {read.lines} of {read.unit}
+                            {read.members.length > 0 && `: ${read.members.join("; ")}`}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ol>
+              {lookupRecord.notRun.map((entry, index) => (
+                <p className="meta" key={`${entry.operationId}-${index}`}>
+                  Not run: <code>{entry.operationId}</code> ({entry.reason})
+                </p>
+              ))}
+            </div>
+          )}
         </section>
       )}
 
@@ -599,6 +759,18 @@ export function CopilotDrawer({
         </section>
       )}
 
+      {!proposal && codeCheck.length > 0 && (
+        <section className="card" aria-label="Code check">
+          <h3>Code in the answer</h3>
+          {codeCheck.map((fragment) => (
+            <ValidationNotice
+              key={fragment.block}
+              problems={fragment.problems.map((problem) => `Block ${fragment.block}: ${problem}`)}
+            />
+          ))}
+        </section>
+      )}
+
       {proposal?.multiPart && (
         <section className="card">
           <h3>Proposed change to {proposal.parts?.length ?? 0} parts</h3>
@@ -626,8 +798,9 @@ export function CopilotDrawer({
             </div>
           ))}
           <div className="notice">{proposal.note}</div>
+          <ValidationNotice problems={incompleteProblems(proposal)} />
           <button className="primary" onClick={apply}>
-            Apply all parts
+            {confirmIncomplete ? "Apply all parts anyway" : "Apply all parts"}
           </button>
           {applied && <div className="notice">{applied}</div>}
         </section>
@@ -650,8 +823,9 @@ export function CopilotDrawer({
             </div>
           </div>
           <div className="notice">{proposal.note}</div>
+          <ValidationNotice problems={incompleteProblems(proposal)} />
           <button className="primary" onClick={apply}>
-            Apply to the editor
+            {confirmIncomplete ? "Apply anyway" : "Apply to the editor"}
           </button>
           {applied && <div className="notice">{applied}</div>}
         </section>

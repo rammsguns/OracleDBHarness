@@ -36,6 +36,34 @@ in this mode is evidence about Oracle.
 
 ### Talking to a real Oracle database locally
 
+For a disposable real-database metadata store, use the reviewed manifest workflow:
+
+```bash
+uv sync --extra oracle
+cp .env.real.example .env
+cp databases.example/targets.json.example databases/targets.json
+# Put each named password file in databases/secrets/ and chmod 600 each file.
+# Review host, service, wallet directory, users, and environment in the manifest.
+uv run python scripts/bootstrap_targets.py --manifest databases/targets.json --probe
+```
+
+Run `oracle/grants/verify_harness_grants.sql` as each Oracle account before onboarding,
+for example `sqlplus /nolog` followed by a credential-safe `CONNECT` method and
+`@oracle/grants/verify_harness_grants.sql`. It only reads `USER_ROLE_PRIVS`,
+`SESSION_PRIVS`, `ALL_TAB_PRIVS`, and `USER_TS_QUOTAS`; review missing diagnostic
+grants and elevated-privilege warnings with a DBA. Never place a password in a
+shell command line.
+
+The manifest names D1, D2, D3, D4 and read-only lab profiles. D3 uses a wallet and
+is observation-only. Every lab profile is marked `production` with worksheets and
+mutating runbooks disabled. The command refuses missing or permissive secret files,
+endpoint or secret drift, and incompatible auth mode. In `oidc` mode, replace the
+sample users with each provider's exact token `sub` in both `subject` and `oidcSub`.
+The probe prints version, container, database character set, and diagnostic
+capability results. The script reads character set separately from the target
+identity model through `NLS_DATABASE_PARAMETERS`.
+Never run fixture setup or teardown on lab profiles.
+
 ```bash
 HARNESS_ORACLE_BACKEND=oracledb
 HARNESS_ORACLE_DRIVER_MODE=thin
@@ -199,6 +227,14 @@ output together), `HARNESS_KIWI_MAX_WALL_SECONDS` (180), `HARNESS_KIWI_MAX_ROWS_
 `HARNESS_KIWI_MAX_TOOL_BYTES` (98304 per request). A request that reaches one of them
 stops asking the model for lookups and ends with what it has, marked as partial.
 
+`HARNESS_KIWI_MAX_REVISIONS` (1) is how many times the harness may send a diagnosis back
+to the model when its claim checks find a statement the lookups or Oracle's semantics
+contradict (see [copilot.md](copilot.md#claim-checks)). A revision is one more model turn
+with no tools; it is not counted in `HARNESS_KIWI_MAX_STEPS`, but it is held to the token
+bound and to its own time bound, `HARNESS_KIWI_REVISION_MAX_WALL_SECONDS` (120): a long
+diagnosis ends close to `HARNESS_KIWI_MAX_WALL_SECONDS`, which would leave no time to
+revise it. `0` turns revision off and still reports the findings.
+
 `cursor_search` and `cursor_plan` can return SQL text from the shared pool, which may
 contain literals. Remove their `@kiwi: allowed` header if that is not acceptable.
 `explain_plan_rows` is not offered: its PLAN_TABLE belongs to one session.
@@ -207,6 +243,14 @@ contain literals. Remove their `@kiwi: allowed` header if that is not acceptable
 standards that Kiwi follows and cites. See [copilot.md](copilot.md#playbooks-and-standards)
 for the accepted keys. A file that cannot be read or parsed shows as an error in the
 capabilities endpoint and fails each Kiwi request with `configuration_error`.
+
+`HARNESS_KIWI_CAPTURE_EVIDENCE` (off by default) is for evaluations. When on, each lookup
+also streams an `evidence` event holding what the model was shown, cut to
+`HARNESS_KIWI_EVIDENCE_MAX_BYTES` with the cut stated, and the explainer adds its
+intermediate summaries beside the lookups they summarise. The content is the catalog
+result already sent to the model, so it holds no application rows or bind values, but it
+does hold source text: keep it off outside an evaluation. The evaluation runner turns it
+on for its own throwaway harness and stores the events in the report.
 
 ## Connecting OracleDataForge
 

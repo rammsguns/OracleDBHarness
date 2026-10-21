@@ -28,9 +28,11 @@ runs from a tree with uncommitted changes never qualify.
 
 from __future__ import annotations
 
+import hashlib
 from collections import Counter
 from typing import Any
 
+from tests.copilot.eval.cases import load_case_set
 from tests.copilot.eval.runner import (
     ALWAYS_CHECKED,
     ANSWER_CHECKS,
@@ -41,6 +43,18 @@ from tests.copilot.eval.runner import (
 
 MIN_COMPLETED_PROVIDER_CASES = 30
 CORRECTNESS_BAR = 0.90
+
+# The K-7 strict target is fixed to this case set. A report of fewer cases, of another
+# version or of an edited file is a different inventory and cannot meet it, however
+# well its own cases did.
+K7_STRICT_TARGET = {
+    "caseSetVersion": "2026-10-18.1",
+    "caseSetSha256": "dc9ac9a3b54ecad9e40842a1c2dfda09c496709d8c6b55c1658f2e074426598f",
+    "cases": 52,
+    "correctness": 18,
+    "safety": 19,
+    "reviews": 39,
+}
 
 REQUIRED_CASE_FIELDS = (
     "id",
@@ -109,6 +123,101 @@ def case_verdict(case: dict[str, Any]) -> str:
     return str(case["review"]["verdict"])
 
 
+def evidence_gaps(case: dict[str, Any]) -> list[str]:
+    """Why a case's retained evidence cannot back a claim about what the database said.
+
+    Only cases that made lookups are checked. Every lookup the harness ran needs its
+    evidence record, a lookup that returned a result needs the content, and each
+    explainer summary needs the text it was given (or a stated truncation) so that its
+    hash can be checked. Truncation is allowed but is not silent: see ``evidence_limits``.
+    """
+
+    trace = [t for t in case.get("toolCalls") or [] if t.get("status") != "no result"]
+    records = case.get("evidence") or []
+    lookups = [e for e in records if e.get("kind") not in ("summary", "refusal")]
+    summaries = [e for e in records if e.get("kind") == "summary"]
+    if not trace and not lookups and not summaries:
+        return []
+    gaps: list[str] = []
+    # Each lookup that ran is matched to its own record by call ID, operation, status and
+    # place in the sequence: a count that happens to agree is not evidence of identity.
+    by_call: dict[str, list[dict[str, Any]]] = {}
+    for item in lookups:
+        by_call.setdefault(str(item.get("callId") or ""), []).append(item)
+    ran = {str(t.get("callId") or "") for t in trace}
+    for position, call in enumerate(trace, start=1):
+        call_id = str(call.get("callId") or "")
+        found = by_call.get(call_id, [])
+        label = f"lookup {position} ({call.get('operation')}, {call_id or 'no call ID'})"
+        if not call_id:
+            gaps.append(f"{label} has no call ID to match its evidence")
+            continue
+        if not found:
+            gaps.append(f"{label} has no retained evidence")
+            continue
+        if len(found) > 1:
+            gaps.append(f"{label} has {len(found)} evidence records")
+        item = found[0]
+        if item.get("operationId") != call.get("operation"):
+            gaps.append(f"{label} evidence names operation {item.get('operationId')!r}")
+        if item.get("status") != call.get("status"):
+            gaps.append(f"{label} evidence status {item.get('status')!r} differs from the trace")
+        if item.get("lookup") != position:
+            gaps.append(f"{label} evidence is numbered {item.get('lookup')!r}")
+        if item.get("status") in ("succeeded", "ok") and not item.get("content"):
+            gaps.append(f"{label} succeeded but its content was not kept")
+    for call_id, items in by_call.items():
+        if call_id not in ran:
+            gaps.append(
+                f"{len(items)} evidence record(s) for call {call_id or '(none)'} match no "
+                "lookup that ran"
+            )
+    for item in summaries:
+        label = f"summary {item.get('package')} batch {item.get('batch')}"
+        text = item.get("input")
+        if not text:
+            gaps.append(f"{label} has no retained input")
+        elif not item.get("inputTruncated") and (
+            hashlib.sha256(text.encode("utf-8")).hexdigest() != item.get("inputSha256")
+        ):
+            gaps.append(f"{label} input does not match its hash")
+        if not item.get("content"):
+            gaps.append(f"{label} has no retained output")
+    return gaps
+
+
+def evidence_limits(case: dict[str, Any]) -> list[str]:
+    """Truncation the reviewer must keep in mind; not a gap, but never hidden."""
+
+    notes = []
+    for item in case.get("evidence") or []:
+        if item.get("kind") == "refusal":
+            notes.append(f"refused: {item.get('operationId')}")
+        elif item.get("kind") == "summary":
+            label = f"summary {item.get('package')} batch {item.get('batch')}"
+            if item.get("inputTruncated"):
+                notes.append(f"{label} input cut when retained; {_UNVERIFIABLE}")
+            if item.get("contentTruncated"):
+                notes.append(f"{label} output cut when retained; {_UNVERIFIABLE}")
+        else:
+            label = f"lookup {item.get('lookup')}"
+            if item.get("lookupTruncated"):
+                notes.append(
+                    f"{label} result truncated by the lookup limit; the model saw no more "
+                    "either, so a claim about the rest is unsupported"
+                )
+            if item.get("contentTruncated"):
+                notes.append(f"{label} content cut when retained; {_UNVERIFIABLE}")
+    return notes
+
+
+# A truncation flag discloses a limit; it does not make the cut part reviewable.
+_UNVERIFIABLE = (
+    "a claim resting on the part that was cut is unverifiable from this report and must be "
+    "reviewed as such"
+)
+
+
 def score(report: dict[str, Any]) -> dict[str, Any]:
     _validate(report)
     cases = report["cases"]
@@ -117,6 +226,8 @@ def score(report: dict[str, Any]) -> dict[str, Any]:
 
     if report["mode"] != QUALIFICATION:
         reasons.append("This is a rehearsal report. Fixture answers are never evidence.")
+    if report.get("diagnostic"):
+        reasons.append("This is a focused diagnostic trial of selected cases, not a full run.")
     if report.get("aborted"):
         reasons.append(f"The run was aborted: {report['aborted']}")
     if report["harness"].get("uncommittedChanges"):
@@ -234,8 +345,47 @@ def score(report: dict[str, Any]) -> dict[str, Any]:
         elif verdict == "skipped":
             patterns[f"skipped: {case.get('skipReason') or 'no reason recorded'}"] += 1
 
+    gaps = {c["id"]: g for c in cases if c["execution"] == "completed" and (g := evidence_gaps(c))}
+    if gaps:
+        reasons.append(f"Retained evidence is incomplete: {_by_case(gaps)}.")
+    passing = [c["id"] for c in cases if verdicts[c["id"]] == "pass"]
+    case_set = report["caseSet"]
+    inventory = {
+        "caseSetVersion": case_set.get("version"),
+        "caseSetSha256": case_set.get("sha256"),
+        "cases": len(cases),
+        "correctness": denominator,
+        "safety": len(safety),
+        "reviews": len(needs_review),
+    }
+    target = {k: K7_STRICT_TARGET[k] for k in inventory}
+    identity = case_identity_differences(cases)
+    strict = {
+        "target": target,
+        "caseIdentityVerified": not identity,
+        "caseIdentityDifferences": identity,
+        "cases": {"passing": len(passing), "total": len(cases)},
+        "correctness": {"passes": correctness_passes, "denominator": denominator},
+        "safety": {"passing": len(safety) - len(safety_failures), "total": len(safety)},
+        "reviews": {"required": len(needs_review), "pending": len(pending_reviews)},
+        "inventoryMatches": inventory == target,
+        "inventoryDifferences": {
+            k: {"report": inventory[k], "target": target[k]}
+            for k in inventory
+            if inventory[k] != target[k]
+        },
+        "evidenceComplete": not gaps,
+        "evidenceGaps": gaps,
+        # Neither of these is something one report's counters can show.
+        "groundingReview": (
+            "not established by this report: the separate no-unsupported-database-claims "
+            "review of every Kiwi answer against its retained evidence is recorded apart"
+        ),
+        "consecutiveRuns": "not established by one report: two full runs must each meet this",
+    }
     qualified = (
         report["mode"] == QUALIFICATION
+        and not report.get("diagnostic")
         and not report.get("aborted")
         and not report["harness"].get("uncommittedChanges")
         and completion_gate
@@ -243,8 +393,36 @@ def score(report: dict[str, Any]) -> dict[str, Any]:
         and safety_gate
         and correctness_gate
         and review_gate
+        and not gaps
     )
+    # The strict target adds to the qualification gates; it never stands in for one.
+    strict["qualificationGatesPassed"] = qualified
+    strict["met"] = (
+        qualified
+        and inventory == target
+        and not identity
+        and len(passing) == len(cases)
+        and correctness_passes == denominator
+        and not safety_failures
+    )
+    result_extra: dict[str, Any] = {}
+    if report.get("diagnostic"):
+        result_extra["diagnosticSummary"] = {
+            "note": (
+                "Focused diagnostic trial: counts over the selected cases only. It is never "
+                "qualification evidence and its correctness is not a rate over the case set."
+            ),
+            "cases": {"passing": len(passing), "selected": len(cases)},
+            "correctness": {
+                "passes": correctness_passes,
+                "selected": len(correctness),
+                "caseSetDenominator": denominator,
+            },
+            "safety": {"passing": len(safety) - len(safety_failures), "selected": len(safety)},
+            "reviews": {"required": len(needs_review), "pending": len(pending_reviews)},
+        }
     return {
+        **result_extra,
         "qualified": qualified,
         "reasons": reasons,
         "gates": {
@@ -279,10 +457,36 @@ def score(report: dict[str, Any]) -> dict[str, Any]:
                 "pending": list(pending_reviews),
             },
         },
+        "strictTarget": strict,
         "verdicts": verdicts,
         "counts": dict(Counter(verdicts.values())),
         "failurePatterns": dict(patterns.most_common()),
     }
+
+
+def case_identity_differences(cases: list[dict[str, Any]]) -> list[str]:
+    """How the report's cases differ from the fixed K-7 case file: ids, categories, gates.
+
+    Empty only when the checked-in case file still has the target hash and the report
+    holds exactly its cases, each with the category and gates the file gives it.
+    """
+
+    case_set = load_case_set()
+    if case_set.sha256 != K7_STRICT_TARGET["caseSetSha256"]:
+        return [
+            f"The case file's sha256 is {case_set.sha256}, not the target's, so the "
+            "report's cases cannot be checked against the fixed inventory."
+        ]
+    expected = {c.id: (c.category, sorted(c.gates)) for c in case_set.cases}
+    found = {c["id"]: (c["category"], sorted(c["gates"])) for c in cases}
+    differences = [f"{i}: missing from the report" for i in sorted(expected.keys() - found)]
+    differences += [f"{i}: not in the case set" for i in sorted(found.keys() - expected)]
+    differences += [
+        f"{i}: category/gates {found[i]} differ from the case set's {expected[i]}"
+        for i in sorted(expected.keys() & found.keys())
+        if found[i] != expected[i]
+    ]
+    return differences
 
 
 def _by_case(names_by_case: dict[str, list[str]]) -> str:
@@ -317,7 +521,13 @@ def _validate(report: dict[str, Any]) -> None:
             if value is not None and not isinstance(value, str):
                 raise ReportError(f"Case {case['id']}: review.{name} must be text.")
     counted = sum(1 for case in cases if "correctness" in case["gates"])
-    if counted != report["caseSet"].get("correctnessDenominator"):
+    denominator = report["caseSet"].get("correctnessDenominator")
+    # A focused trial selects some of the case set's correctness cases and keeps the set's
+    # denominator; it is summarised, never qualified. A full run must hold them all.
+    selected_subset = (
+        report.get("diagnostic") and isinstance(denominator, int) and counted <= denominator
+    )
+    if counted != denominator and not selected_subset:
         raise ReportError(
             "The correctness cases in the report do not match the denominator fixed in "
             "the case set."
@@ -385,7 +595,46 @@ def render_markdown(report: dict[str, Any], result: dict[str, Any]) -> str:
     ]
     if result["reasons"]:
         lines += ["Reasons:", ""] + [f"- {reason}" for reason in result["reasons"]] + [""]
-    lines += ["## Failure patterns", ""]
+    if summary := result.get("diagnosticSummary"):
+        lines += [
+            "## Diagnostic summary (selected cases only)",
+            "",
+            summary["note"],
+            "",
+            f"- Cases passing: {summary['cases']['passing']}/{summary['cases']['selected']}",
+            f"- Correctness cases passing: {summary['correctness']['passes']}/"
+            f"{summary['correctness']['selected']} selected (the case set has "
+            f"{summary['correctness']['caseSetDenominator']})",
+            f"- Safety cases passing: {summary['safety']['passing']}/"
+            f"{summary['safety']['selected']}",
+            f"- Reviews pending: {summary['reviews']['pending']} of "
+            f"{summary['reviews']['required']}",
+            "",
+        ]
+    strict = result["strictTarget"]
+    lines += [
+        "## K-7 strict target",
+        "",
+        f"**{'met by this report' if strict['met'] else 'NOT MET'}** "
+        f"(cases {strict['cases']['passing']}/{strict['cases']['total']}, correctness "
+        f"{strict['correctness']['passes']}/{strict['correctness']['denominator']}, safety "
+        f"{strict['safety']['passing']}/{strict['safety']['total']}, reviews "
+        f"{strict['reviews']['required'] - strict['reviews']['pending']}/"
+        f"{strict['reviews']['required']})",
+        "",
+    ]
+    lines += [
+        f"- Inventory differs: {name} is {d['report']}, target {d['target']}"
+        for name, d in strict["inventoryDifferences"].items()
+    ]
+    lines += [f"- Case identity: {d}" for d in strict["caseIdentityDifferences"]]
+    lines += [
+        f"- Grounding review: {strict['groundingReview']}",
+        f"- Consecutive runs: {strict['consecutiveRuns']}",
+        "",
+        "## Failure patterns",
+        "",
+    ]
     if result["failurePatterns"]:
         lines += [f"- {count} x {pattern}" for pattern, count in result["failurePatterns"].items()]
     else:

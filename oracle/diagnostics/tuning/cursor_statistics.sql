@@ -7,6 +7,7 @@
 -- @kiwi: allowed
 -- @min_version: 12
 -- @parameters: sql_id, child_number
+-- @required: sql_id
 -- @privileges: SELECT on V_$SQL
 SELECT sql_id,
        child_number,

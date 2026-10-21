@@ -7,7 +7,7 @@
  * fails if the API stops matching them.
  */
 
-export const PROTOCOL_VERSION = "1.3";
+export const PROTOCOL_VERSION = "1.5";
 export const SUPPORTED_PROTOCOL_MAJOR = 1;
 
 // -- shared shapes ----------------------------------------------------------------
@@ -281,6 +281,7 @@ export interface ProposalEvent {
   /** Present on a multi-part proposal. Then proposedText is "" and parts carry the text. */
   multiPart?: true;
   parts?: ProposalPart[];
+  validation?: ProposalValidation;
 }
 
 export interface ProposalPart {
@@ -291,6 +292,7 @@ export interface ProposalPart {
   proposedText: string;
   /** False when the model left this part alone; it is still pinned and checked. */
   changed: boolean;
+  validation?: ProposalValidation;
 }
 
 /** Why a Kiwi request stopped early. */
@@ -337,6 +339,7 @@ export interface KiwiBudget {
   maxWallSeconds: number;
   toolBytes: number;
   maxToolBytes: number;
+  revisions?: number;
   exhausted: KiwiStopReasonKind[];
 }
 
@@ -364,6 +367,140 @@ export interface KiwiLineage {
   notes: string[];
 }
 
+/** Every finding kind the harness reports (`definitions.claimFindingKind`). */
+export type KiwiClaimFindingKind =
+  | "session_role"
+  | "lock_origin"
+  | "session_cursor"
+  | "mod_arithmetic"
+  | "change_location"
+  | "next_check_cap"
+  | "next_check_access"
+  | "remedy_alternative"
+  | "rights_model"
+  | "elapsed_bound"
+  | "row_grouping"
+  | "history_claim"
+  | "evidence_reference"
+  | "next_check_unknown"
+  | "schema_scope"
+  | "required_change"
+  | "job_intervention"
+  | "future_outcome"
+  | "absence_inference"
+  | "read_coverage"
+  | "read_scope"
+  | "band_reachability"
+  | "next_checks_block"
+  | "missing_remedy"
+  | "transaction_state"
+  | "control_flow"
+  | "plan_expression"
+  | "edit_description"
+  | "proposal_directive";
+
+/** A claim in an answer that the lookups or Oracle's semantics contradict (protocol 1.4). */
+export interface KiwiClaimFinding {
+  kind: KiwiClaimFindingKind;
+  claim: string;
+  problem: string;
+}
+
+/**
+ * The harness's check of an answer's verifiable claims. `action` is "none", "revise",
+ * "skipped:<bound>", "skipped:bounded_fallback", "revision_failed:<reason>",
+ * "settled:corrected", "settled:bounded_fallback" or "check_failed:<error>". The
+ * `settled:` actions are revised-stage findings that stood after the one revision: the
+ * harness corrected or withheld the flagged statements (`claim_settlement`), or wrote
+ * the bounded diagnosis in the answer's place, without a model call. `unchecked` lists claims a check recognised but could not
+ * compute: neither confirmed nor corrected.
+ */
+export interface KiwiClaimCheck {
+  stage: "answer" | "revised";
+  findings: KiwiClaimFinding[];
+  action: string;
+  unchecked?: KiwiClaimFinding[];
+}
+
+/**
+ * The text that follows replaces `draft`, the last text streamed; remove it from the
+ * answer. A Kiwi claim revision's `draft` is all the text streamed, the notes between
+ * lookups included. With `restored`, a revision did not finish and the draft is streamed again.
+ * With `rendered`, no model call was made. `next_checks`: the harness replaced the
+ * answer's next-steps section with its rendering of the checked `kiwi-next-checks`
+ * steps. `bounded_fallback`: a bound ended the request with no diagnosis from the
+ * model, and the text that follows is the harness's, written from the lookups; its
+ * `draft` is empty, so what was streamed stays. With `withheld` (bounded_fallback), the
+ * model's diagnosis had claim findings and no revision completed: `draft` is that
+ * diagnosis, `findings` why it was withheld, and the harness's bounded diagnosis follows.
+ * `edit_description`: an edit's prose said its proposal kept source comments it removes,
+ * or changed only one thing; the text that follows is the answer with those sentences
+ * corrected and a harness note, and the proposal is unchanged. `proposal_directive`:
+ * the accepted proposal carried text written as an instruction to the assistant; the
+ * text that follows is the answer with those comments removed from the proposal (the
+ * captured proposal is the same block) and a harness note, or, when the text is outside
+ * a comment, without the block: the proposal is withheld and the request fails as
+ * `edit_output_missing`. `claim_settlement`: a Kiwi diagnosis's findings stood after its
+ * one revision; `draft` is the revised answer, `findings` those that stood, and the text
+ * that follows is that answer with flagged member start lines corrected from the
+ * returned rows, other flagged statements withheld, and a harness note.
+ */
+export interface KiwiRevision {
+  draft: string;
+  findings: KiwiClaimFinding[];
+  restored?: boolean;
+  rendered?: "next_checks" | "bounded_fallback" | "edit_description" | "proposal_directive" | "claim_settlement";
+  withheld?: boolean;
+}
+
+/**
+ * Protocol 1.5: how an answer to an edit request (diagnose, propose or test_block with an
+ * editor) kept contract `edit/1`. `delivered` is "proposal", "no_change" or "missing";
+ * `repair` is "none", "repaired", "skipped:<bound>" or "failed:<reason>". "missing" after
+ * a repair is a failed answer, not a refusal. `repairReply` is the raw reply, for review.
+ * `minimalRepair` lists how a proposal went past resizing a local variable; the repair
+ * then asked for the smallest change, and "failed:minimal" means the first proposal stands.
+ * `anchorRepair` lists `%TYPE`/`%ROWTYPE` anchors the supplied schema metadata shows cannot
+ * resolve; the repair asked for corrected anchors, and "failed:anchor" means the first
+ * proposal stands.
+ */
+export interface EditContractEvent {
+  contract: string;
+  delivered: "proposal" | "no_change" | "missing";
+  repair: string;
+  repairReply?: string;
+  minimalRepair?: string[];
+  anchorRepair?: string[];
+}
+
+/**
+ * Protocol 1.5: the harness's record of a Kiwi diagnosis's lookups, sent once before the
+ * budget event that ends it. Written from the lookups, not from the model's text: call,
+ * operation, the parameters it ran with and how much came back. `coverage` is "complete"
+ * (fewer rows than `rowLimit`, not truncated: a larger limit returns no more), "empty",
+ * "at_limit" or "truncated" (more may exist), or "failed". `facts` states supported fields
+ * from the rows (1.5); no other row values.
+ */
+export interface KiwiLookupRecord {
+  lookups: {
+    lookup: number;
+    callId: string;
+    operationId: string;
+    parameters: Record<string, string | number | boolean>;
+    coverage: "complete" | "empty" | "at_limit" | "truncated" | "failed";
+    rows: number;
+    rowLimit: number | null;
+    summary: string;
+    /** Supported facts stated from the rows (1.5): status, error locations, waits, lines read. */
+    facts: string[];
+    /** The objects the lookup is about, "OWNER.NAME TYPE" (1.5). */
+    subjects: string[];
+    /** Per unit of source returned: its lines, and each member as declared or read. */
+    sourceRead: { unit: string; lines: string; members: string[] }[];
+  }[];
+  notRun: { operationId: string; reason: string }[];
+}
+
 export type CopilotEvent =
   | { event: "start"; data: { requestId: string; protocolVersion: string; action: string; provider: string; model: string; isFixtureProvider: boolean; contextPreview: ContextPreview } }
   | { event: "delta"; data: { text: string } }
@@ -372,10 +509,28 @@ export type CopilotEvent =
   | { event: "plan_step"; data: { step: number; maxSteps: number } }
   | { event: "tool_call"; data: KiwiToolCall }
   | { event: "tool_result"; data: KiwiToolResult }
+  | { event: "code_check"; data: { fragments: CodeCheckFragment[] } }
   | { event: "budget"; data: KiwiBudget }
   | { event: "lineage"; data: KiwiLineage }
-  | { event: "done"; data: { requestId: string; outcome: string; latencyMs: number; partial?: boolean; stopReason?: KiwiStopReason } }
+  | { event: "claim_check"; data: KiwiClaimCheck }
+  | { event: "revision"; data: KiwiRevision }
+  | { event: "edit_contract"; data: EditContractEvent }
+  | { event: "lookup_record"; data: KiwiLookupRecord }
+  | { event: "done"; data: { requestId: string; outcome: string; latencyMs: number; partial?: boolean; stopReason?: KiwiStopReason; errorCode?: string } }
   | { event: "error"; data: HarnessErrorBody };
+
+/** A structural boundary check of proposed code. Never an Oracle compilation. */
+export interface ProposalValidation {
+  kind: string;
+  complete: boolean;
+  problems: string[];
+  compiled: false;
+  note: string;
+}
+
+export interface CodeCheckFragment extends ProposalValidation {
+  block: number;
+}
 
 export interface ApplyCheckResult {
   proposalId: string;
@@ -383,7 +538,14 @@ export interface ApplyCheckResult {
   reasons: string[];
   proposedText?: string;
   /** Multi-part: every part's new text, only when all of them may be applied. */
-  parts?: Array<{ part: string; editorId: string; proposedText: string }>;
+  parts?: Array<{
+    part: string;
+    editorId: string;
+    proposedText: string;
+    validation?: ProposalValidation;
+  }>;
+  /** The structural check of the stored text; per part name when a multi-part apply is refused. */
+  validation?: ProposalValidation | Record<string, ProposalValidation>;
   /** Multi-part: why each part was refused. Any entry refuses the whole proposal. */
   partReasons?: Record<string, string[]>;
   executesDatabaseOperations: false;

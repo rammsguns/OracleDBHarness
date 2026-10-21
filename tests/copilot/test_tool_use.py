@@ -459,12 +459,16 @@ async def test_anthropic_a_turn_that_must_answer_chooses_no_tool(
     conversation = anthropic(client).start_conversation("sys", "why?", [STATUS])
     await run_turn(conversation)
     conversation.add_tool_results([ToolResult("toolu_1", "INVALID")])
-    conversation.require_answer()
+    conversation.require_answer("[harness] Answer now.")
     await run_turn(conversation)
     assert "tool_choice" not in client.requests[0]
     # The transcript holds a tool_use block, so the tools stay described.
     assert client.requests[1]["tools"] == client.requests[0]["tools"]
     assert client.requests[1]["tool_choice"] == {"type": "none"}
+    # The instruction follows the result as a text block of the same user turn.
+    blocks = client.requests[1]["messages"][-1]["content"]
+    assert [b["type"] for b in blocks] == ["tool_result", "text"]
+    assert blocks[-1]["text"] == "[harness] Answer now."
 
 
 async def test_anthropic_failure_on_a_later_turn_is_a_typed_provider_failure(

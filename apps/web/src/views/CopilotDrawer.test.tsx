@@ -244,3 +244,284 @@ describe("explain actions", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(LINEAGE.mermaid));
   });
 });
+
+const INCOMPLETE = {
+  kind: "plsql_source",
+  complete: false,
+  problems: ["The unit is not closed: a BEGIN, IS/AS, CASE, IF or LOOP has no matching END."],
+  compiled: false,
+  note: "Structural check of statement boundaries only.",
+};
+
+describe("incomplete proposals", () => {
+  it("warns on a multi-part proposal and applies only after a second click", async () => {
+    copilot.mockImplementation(() =>
+      (async function* () {
+        yield {
+          event: "proposal",
+          data: {
+            proposalId: "prop_1",
+            editorId: "",
+            baseRevision: "",
+            proposedText: "",
+            rationale: "",
+            note: "Applying changes the editor text only.",
+            multiPart: true,
+            parts: [
+              { part: "spec", editorId: "console:spec", baseRevision: "1", proposedText: NEW_SPEC, changed: true },
+              {
+                part: "body",
+                editorId: "console:body",
+                baseRevision: "2",
+                proposedText: "CREATE OR REPLACE PACKAGE BODY payroll AS",
+                changed: true,
+                validation: INCOMPLETE,
+              },
+            ],
+          },
+        };
+      })(),
+    );
+    applyCheck.mockResolvedValue({
+      proposalId: "prop_1",
+      canApply: false,
+      reasons: ["body: stale"],
+      executesDatabaseOperations: false,
+    });
+    await openWithParts();
+
+    expect(screen.getByRole("alert").textContent).toContain("body: The unit is not closed");
+    expect(screen.getByRole("alert").textContent).toContain("Nothing was compiled or run");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /apply all parts$/i }));
+    });
+    expect(applyCheck).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /apply all parts anyway/i }));
+    });
+    // The server's all-or-none and stale-source checks still decide.
+    expect(applyCheck).toHaveBeenCalledTimes(1);
+  });
+
+  it("warns on a single proposal and asks twice", async () => {
+    copilot.mockImplementation(() =>
+      (async function* () {
+        yield {
+          event: "proposal",
+          data: {
+            proposalId: "prop_2",
+            editorId: "console:main",
+            baseRevision: "1",
+            proposedText: "BEGIN NULL;",
+            rationale: "",
+            note: "Applying changes the editor text only.",
+            validation: INCOMPLETE,
+          },
+        };
+      })(),
+    );
+    applyCheck.mockResolvedValue({
+      proposalId: "prop_2",
+      canApply: true,
+      reasons: [],
+      proposedText: "BEGIN NULL;",
+      executesDatabaseOperations: false,
+    });
+    render(<CopilotDrawer target={target} seed={{ text: "BEGIN NULL; END;", action: "propose" }} onClose={() => undefined} />);
+    await waitFor(() => expect((screen.getByRole("button", { name: "Ask" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await screen.findByRole("alert");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Apply to the editor" }));
+    });
+    expect(applyCheck).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Apply anyway" }));
+    });
+    expect(applyCheck).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the code check for an answer with no editor", async () => {
+    copilot.mockImplementation(() =>
+      (async function* () {
+        yield { event: "delta", data: { text: "Use this." } };
+        yield { event: "code_check", data: { fragments: [{ block: 1, ...INCOMPLETE }] } };
+      })(),
+    );
+    render(<CopilotDrawer target={target} seed={{ text: "SELECT 1 FROM dual", action: "explain" }} onClose={() => undefined} />);
+    await waitFor(() => expect((screen.getByRole("button", { name: "Ask" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("Block 1: The unit is not closed");
+  });
+
+  it("replaces a revised draft and shows what the claim check still finds", async () => {
+    const finding = { kind: "session_role", claim: "read SID 42's ROW_WAIT_OBJ#", problem: "SID 42 is not waiting." };
+    copilot.mockImplementation(() =>
+      (async function* () {
+        yield { event: "delta", data: { text: "Looking up the blocker." } };
+        yield { event: "delta", data: { text: "Read SID 42's ROW_WAIT_OBJ#." } };
+        yield { event: "claim_check", data: { stage: "answer", findings: [finding], action: "revise" } };
+        yield { event: "revision", data: { draft: "Read SID 42's ROW_WAIT_OBJ#.", findings: [finding] } };
+        yield { event: "delta", data: { text: "Read SID 77's ROW_WAIT_OBJ#." } };
+        yield { event: "claim_check", data: { stage: "revised", findings: [], action: "none" } };
+      })(),
+    );
+    render(<CopilotDrawer target={target} seed={{ text: "SELECT 1 FROM dual", action: "explain" }} onClose={() => undefined} />);
+    await waitFor(() => expect((screen.getByRole("button", { name: "Ask" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await screen.findByText(/Kiwi revised this answer/);
+    const shown = document.querySelector(".answer")?.textContent ?? "";
+    expect(shown).toBe("Looking up the blocker.Read SID 77's ROW_WAIT_OBJ#.");
+    expect(screen.queryByLabelText("Claim check findings")).toBeNull();
+  });
+
+  it("replaces the next steps the harness rendered without saying Kiwi revised them", async () => {
+    const draft = "Next steps:\n1. Run something.\n";
+    copilot.mockImplementation(() =>
+      (async function* () {
+        yield { event: "delta", data: { text: "Finding: INVALID.\n\n" } };
+        yield { event: "delta", data: { text: draft } };
+        yield { event: "claim_check", data: { stage: "answer", findings: [], action: "none" } };
+        yield { event: "revision", data: { draft, findings: [], rendered: "next_checks" } };
+        yield { event: "delta", data: { text: "## Next steps\n1. Written by the harness." } };
+      })(),
+    );
+    render(<CopilotDrawer target={target} seed={{ text: "SELECT 1 FROM dual", action: "explain" }} onClose={() => undefined} />);
+    await waitFor(() => expect((screen.getByRole("button", { name: "Ask" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await waitFor(() => expect(document.querySelector(".answer")?.textContent).toContain("Written by the harness"));
+    const shown = document.querySelector(".answer")?.textContent ?? "";
+    expect(shown).not.toContain("Run something");
+    expect(screen.queryByText(/Kiwi revised this answer/)).toBeNull();
+  });
+
+  it("keeps the notes and adds the harness's answer when a bound left no diagnosis", async () => {
+    copilot.mockImplementation(() =>
+      (async function* () {
+        yield { event: "delta", data: { text: "Reading the failures." } };
+        yield { event: "revision", data: { draft: "", findings: [], rendered: "bounded_fallback" } };
+        yield { event: "delta", data: { text: "\n\n**Finding:** The harness wrote this answer." } };
+        yield { event: "claim_check", data: { stage: "answer", findings: [], action: "none" } };
+      })(),
+    );
+    render(<CopilotDrawer target={target} seed={{ text: "SELECT 1 FROM dual", action: "explain" }} onClose={() => undefined} />);
+    await waitFor(() => expect((screen.getByRole("button", { name: "Ask" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await waitFor(() => expect(document.querySelector(".answer")?.textContent).toContain("The harness wrote this answer"));
+    const shown = document.querySelector(".answer")?.textContent ?? "";
+    expect(shown).toContain("Reading the failures.");
+    expect(screen.queryByText(/Kiwi revised this answer/)).toBeNull();
+  });
+
+  it("shows claims the harness could not check instead of reading them as a pass", async () => {
+    const claim = { kind: "mod_arithmetic", claim: "MOD(Infinity, 2) = 1", problem: "not checked: not finite" };
+    copilot.mockImplementation(() =>
+      (async function* () {
+        yield { event: "delta", data: { text: "MOD(Infinity, 2) = 1." } };
+        yield { event: "claim_check", data: { stage: "answer", findings: [], action: "none", unchecked: [claim] } };
+      })(),
+    );
+    render(<CopilotDrawer target={target} seed={{ text: "SELECT 1 FROM dual", action: "explain" }} onClose={() => undefined} />);
+    await waitFor(() => expect((screen.getByRole("button", { name: "Ask" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    const notice = await screen.findByLabelText("Claims not checked");
+    expect(notice.textContent).toContain("MOD(Infinity, 2) = 1");
+    expect(screen.queryByLabelText("Claim check findings")).toBeNull();
+  });
+  it("says so when an edit answer gives no usable proposal", async () => {
+    copilot.mockImplementation(() =>
+      (async function* () {
+        yield { event: "delta", data: { text: "CREATE OR REPLACE FUNCTION f RETURN NUMBER IS BEGIN RETURN 1; END f;" } };
+        yield { event: "edit_contract", data: { contract: "edit/1", delivered: "missing", repair: "failed:missing" } };
+      })(),
+    );
+    render(<CopilotDrawer target={target} seed={{ text: "SELECT 1 FROM dual", action: "explain" }} onClose={() => undefined} />);
+    await waitFor(() => expect((screen.getByRole("button", { name: "Ask" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    const notice = await screen.findByLabelText("No usable proposal");
+    expect(notice.textContent).toContain("failed:missing");
+  });
+  it("shows the harness's lookup record apart from the model's answer", async () => {
+    const entry = {
+      lookup: 3,
+      callId: "call_1",
+      operationId: "dba.scheduler_run_history",
+      parameters: { owner: "APP_OWNER", job_name: "LOAD_ORDERS", row_limit: 25 },
+      coverage: "complete",
+      rows: 2,
+      rowLimit: 25,
+      summary: "2 rows, complete (fewer than row_limit 25, not truncated)",
+      facts: ["APP_OWNER.LOAD_ORDERS run 7: FAILED"],
+      subjects: ["APP_OWNER.LOAD_ORDERS"],
+      sourceRead: [],
+    };
+    copilot.mockImplementation(() =>
+      (async function* () {
+        yield { event: "delta", data: { text: "Run 7 failed." } };
+        yield {
+          event: "lookup_record",
+          data: { lookups: [entry], notRun: [{ operationId: "schema.object_source", reason: "budget: tool_calls" }] },
+        };
+      })(),
+    );
+    render(<CopilotDrawer target={target} seed={{ text: "SELECT 1 FROM dual", action: "explain" }} onClose={() => undefined} />);
+    await waitFor(() => expect((screen.getByRole("button", { name: "Ask" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    const record = await screen.findByLabelText("Lookups made");
+    expect(record.textContent).toContain("dba.scheduler_run_history");
+    expect(record.textContent).toContain("row_limit=25");
+    expect(record.textContent).toContain("complete (fewer than row_limit 25, not truncated)");
+    expect(record.textContent).toContain("Not run: schema.object_source (budget: tool_calls)");
+    expect(record.querySelector("ul li")?.textContent).toBe("APP_OWNER.LOAD_ORDERS run 7: FAILED");
+    expect(document.querySelector(".answer")?.textContent).toBe("Run 7 failed.");
+  });
+  it("shows a lookup the harness refused before it ran", async () => {
+    copilot.mockImplementation(() =>
+      (async function* () {
+        yield { event: "tool_call", data: { callId: "call_1", toolName: "schema__object_source", why: "Read the view's filter." } };
+        yield {
+          event: "tool_result",
+          data: { callId: "call_1", operationId: "schema.object_source", status: "invalid", rowCount: null, errorCode: "invalid_request" },
+        };
+        yield { event: "delta", data: { text: "The view's query is not stored source." } };
+      })(),
+    );
+    render(<CopilotDrawer target={target} seed={{ text: "SELECT 1 FROM dual", action: "explain" }} onClose={() => undefined} />);
+    await waitFor(() => expect((screen.getByRole("button", { name: "Ask" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    const lookups = (await screen.findByText("Lookups")).closest("section");
+    await waitFor(() => expect(lookups?.textContent).toContain("schema__object_source - invalid (invalid_request)"));
+    expect(lookups?.textContent).not.toContain("rows");
+  });
+  it("shows which source lines and members a lookup returned", async () => {
+    const entry = {
+      lookup: 1,
+      callId: "call_1",
+      operationId: "schema.object_source_range",
+      parameters: { owner: "APP", object_name: "PKG", object_type: "PACKAGE BODY" },
+      coverage: "complete",
+      rows: 4,
+      rowLimit: 50,
+      summary: "4 rows, complete (fewer than row_limit 50, not truncated)",
+      facts: [],
+      subjects: ["APP.PKG PACKAGE BODY"],
+      sourceRead: [
+        { unit: "APP.PKG PACKAGE BODY", lines: "lines 10-13", members: ["RUN: implementation from line 10, read whole"] },
+      ],
+    };
+    copilot.mockImplementation(() =>
+      (async function* () {
+        yield { event: "delta", data: { text: "The fix belongs in APP.PKG.RUN." } };
+        yield { event: "lookup_record", data: { lookups: [entry], notRun: [] } };
+      })(),
+    );
+    render(<CopilotDrawer target={target} seed={{ text: "SELECT 1 FROM dual", action: "explain" }} onClose={() => undefined} />);
+    await waitFor(() => expect((screen.getByRole("button", { name: "Ask" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    const record = await screen.findByLabelText("Lookups made");
+    expect(record.querySelector("ul li")?.textContent).toBe(
+      "Read lines 10-13 of APP.PKG PACKAGE BODY: RUN: implementation from line 10, read whole",
+    );
+    expect(document.querySelector(".answer")?.textContent).toBe("The fix belongs in APP.PKG.RUN.");
+  });
+});
