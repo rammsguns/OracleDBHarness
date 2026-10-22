@@ -21,6 +21,13 @@ claim. Where something has not been tested, it says so.
 | Protocol | 1.0 | Contract tests, adapter tests |
 | Identity provider | Keycloak 26.3, local container | `tests/identity` and `apps/web/src/oidc.keycloak.test.ts`, in CI. See [Identity providers](#identity-providers) |
 
+**Pinned version.** python-oracledb is pinned to `4.0.2` in
+`services/worker/pyproject.toml` (the `oracle` extra) and resolved as such in
+`uv.lock`. Changing this pin is a version change under PLAN.md G5: requalify each
+affected staging shape (old/new versions, thin/thick modes where deployed,
+regression results and DBA approval) before production promotion. A historical
+D1–D4 pass does not qualify an upgraded environment.
+
 ## What has not been tested
 
 | Component | Status |

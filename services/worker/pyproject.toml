@@ -9,7 +9,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-oracle = ["oracledb>=2.4"]
+oracle = ["oracledb==4.0.2"]
 
 [build-system]
 requires = ["hatchling"]
