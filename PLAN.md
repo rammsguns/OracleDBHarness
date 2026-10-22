@@ -359,3 +359,359 @@ run records and decision history remain unchanged. The dispatch explicitly
 prohibited pushing or opening a PR, so B0's PR condition remains pending and its
 checkbox stays open. No provider, deployment or database work was performed;
 B1 was not started.
+
+
+2026-10-22 B1 — evaluation-output triage completed on
+`plan/B1-triage-eval-output`; evidence/ignore commit `c90c008`; this
+completion record is the separate second commit. Inventory: 144 initially
+untracked files in 42 basename groups (the plan estimated about 150).
+No evaluation file was edited, moved or deleted. No source, tests, database
+inventory or Orca runtime files were staged or changed.
+
+| Decision | Files | Reason |
+| --- | ---: | --- |
+| Committed | 60 | Cited run evidence passing manual scan: 23 Markdown reports, 27 explicitly cited logs, 8 AI review records, 2 identity records |
+| Ignored | 29 | Uncited logs or pre-review snapshots; exact rooted paths in .gitignore avoid hiding cited/future evidence |
+| Left untracked: scan exclusion | 40 | Cited JSON reports/snapshots have non-placeholder local endpoint IP/URL matches; not staged |
+| Left untracked: scratch | 15 | No tracked docs/ or claude_k7.md citation; not one of the allowed scratch ignore types |
+
+Citation commands: `git ls-files --others --exclude-standard copilot-eval/`;
+`git ls-files docs/ claude_k7.md`; for each basename stem,
+`git grep -n -F "$stem" -- <tracked-doc-paths>`; for logs and pre-review
+snapshots also `git grep -l -F "$filename" -- <tracked-doc-paths>`.
+Only docs/ and claude_k7.md supplied citation authority; PLAN.md references
+did not promote the uncited 2026-10-21 diagnostic. All file paths in the
+tables below are relative to copilot-eval/. A suffix expands against its row
+stem. Every original file is represented once in the decision columns.
+
+| Run/report stem | COMMIT suffixes | IGNORE suffixes | Left untracked suffixes | Citation sources |
+| --- | --- | --- | --- | --- |
+| `cmp-strata-k7-focused-20261021T060834Z` | — | `.log`, `.pre-review.json` | `.json`, `.md` | None |
+| `diag-2026-10-16-focused-1` | `.log` | `.pre-ai-review.json` | `.json` | `claude_k7.md` |
+| `diag-2026-10-16-focused-2` | `.log` | `.pre-ai-review.json` | `.json` | `claude_k7.md` |
+| `diag-2026-10-16-focused-3` | `.log` | `.pre-ai-review.json` | `.json` | `claude_k7.md` |
+| `review-2026-10-15-case-limits` | — | — | `.html` | None |
+| `review-2026-10-16-one-block` | — | — | `.html` | None |
+| `run-2026-10-15` | — | — | `.json`, `.md` | None |
+| `run-2026-10-15-answer-only` | — | — | `.json` | None |
+| `run-2026-10-15-budget` | — | — | `.json` | None |
+| `run-2026-10-15-case-limits` | — | `.log` | `.json` | None |
+| `run-2026-10-15-explain-time` | — | `.log` | `.json` | None |
+| `run-2026-10-15-false-positives` | — | — | `.json` | None |
+| `run-2026-10-15-last-turn` | — | `.log` | `.json` | None |
+| `run-2026-10-15-sampled` | — | — | `.json`, `.md` | None |
+| `run-2026-10-15-source-search` | — | `.log` | `.json` | None |
+| `run-2026-10-16-one-block` | `.md` | `.log` | `.json`, `.pre-ai-review.json` | `docs/k7-dba-review-2026-10-16.md`, `docs/k7-pre-review.md` |
+| `strata-k7-focused-20261016T214747Z` | `.log` | `.pre-ai-review.json` | `.json` | `claude_k7.md` |
+| `strata-k7-focused-20261016T222023Z` | `.log` | `.pre-ai-review.json` | `.json` | `claude_k7.md` |
+| `strata-k7-focused-20261016T224557Z` | `.log` | `.pre-ai-review.json` | `.json` | `claude_k7.md`, `docs/k7-claude-round6-review-2026-10-16.md` |
+| `strata-k7-focused-20261017T000141Z` | `.log` | `.pre-ai-review.json` | `.json` | `claude_k7.md`, `docs/k7-claude-round7-review-2026-10-17.md` |
+| `strata-k7-focused-20261017T052221Z` | `.log`, `.md` | `.pre-ai-review.json` | `.json` | `claude_k7.md` |
+| `strata-k7-focused-20261017T054408Z` | `.log`, `.md` | `.pre-ai-review.json` | `.json` | `claude_k7.md`, `docs/k7-claude-round9-review-2026-10-17.md` |
+| `strata-k7-focused-20261017T061240Z` | `.log`, `.md` | `.pre-ai-review.json` | `.json` | `claude_k7.md`, `docs/k7-claude-round10-review-2026-10-17.md` |
+| `strata-k7-focused-20261017T071121Z` | `.log`, `.md` | `.pre-ai-review.json` | `.json` | `claude_k7.md` |
+| `strata-k7-focused-20261017T073417Z` | `.log`, `.md` | `.pre-ai-review.json` | `.json` | `claude_k7.md` |
+| `strata-k7-focused-20261017T075344Z` | `.log`, `.md` | `.pre-ai-review.json` | `.json` | `claude_k7.md`, `docs/k7-claude-round13-review-2026-10-17.md` |
+| `strata-k7-focused-20261017T150834Z` | `.log`, `.md` | `.pre-ai-review.json` | `.json` | `claude_k7.md`, `docs/k7-claude-round14-review-2026-10-18.md` |
+| `strata-k7-focused-20261018T005950Z` | `.log`, `.md` | `.pre-ai-review.json` | `.json` | `claude_k7.md` |
+| `strata-k7-focused-20261018T014422Z` | `.log`, `.md` | `.pre-ai-review.json` | `.json` | `claude_k7.md`, `docs/k7-claude-round16-review-2026-10-18.md` |
+| `strata-k7-focused-20261018T023504Z` | `.log`, `.md` | `.pre-ai-review.json` | `.json` | `claude_k7.md`, `docs/k7-claude-round17-review-2026-10-18.md` |
+| `strata-k7-focused-20261018T032443Z` | `.log`, `.md` | `.pre-ai-review.json` | `.json` | `claude_k7.md`, `docs/k7-claude-round18-review-2026-10-18.md` |
+| `strata-k7-focused-20261018T180931Z` | `.log`, `.md` | — | `.json`, `.pre-ai-review.json` | `claude_k7.md`, `docs/k7-q5-trial19-review-2026-10-18.md` |
+| `strata-k7-focused-20261019T010105Z` | `.log`, `.md` | — | `.json`, `.pre-ai-review.json` | `claude_k7.md`, `docs/k7-q5-trial20-review-2026-10-19.md` |
+| `strata-k7-focused-20261019T050700Z` | `.log`, `.md` | — | `.json`, `.pre-ai-review.json` | `claude_k7.md`, `docs/k7-q5-trial21-review-2026-10-19.md` |
+| `strata-k7-focused-20261019T155430Z` | `.ai-review.json`, `.log`, `.md` | — | `.json`, `.pre-ai-review.json` | `claude_k7.md`, `docs/k7-q5-trial22-review-2026-10-19.md` |
+| `strata-k7-focused-20261019T175628Z` | `.ai-review.json`, `.log`, `.md` | — | `.json`, `.pre-ai-review.json` | `claude_k7.md`, `docs/k7-q5-trial23-review-2026-10-19.md` |
+| `strata-k7-focused-20261019T194933Z` | `.ai-review.json`, `.log`, `.md` | — | `.json`, `.pre-ai-review.json` | `claude_k7.md`, `docs/k7-q5-trial24-review-2026-10-19.md` |
+| `strata-k7-focused-20261019T231907Z` | `.ai-review.json`, `.log`, `.md` | — | `.json`, `.pre-ai-review.json` | `claude_k7.md`, `docs/k7-q5-trial25-review-2026-10-19.md` |
+| `strata-k7-focused-20261020T040546Z` | `.ai-review.json`, `.log`, `.md` | — | `.json`, `.pre-ai-review.json` | `claude_k7.md`, `docs/k7-q5-trial26-review-2026-10-20.md` |
+| `strata-k7-focused-20261020T053711Z` | `.ai-review.json`, `.log`, `.md` | — | `.json`, `.pre-ai-review.json` | `claude_k7.md`, `docs/k7-q5-trial27-review-2026-10-20.md` |
+| `strata-k7-focused-20261020T144306Z` | `.ai-review.json`, `.identity.json`, `.md` | `.log`, `.pre-ai-review.json` | `.json` | `claude_k7.md`, `docs/k7-q5-trial28-review-2026-10-20.md` |
+| `strata-k7-focused-20261020T155124Z` | `.ai-review.json`, `.identity.json`, `.md` | `.log`, `.pre-ai-review.json` | `.json` | `claude_k7.md`, `docs/k7-q5-trial29-review-2026-10-20.md` |
+
+Scan commands and results (before staging, repeated before evidence commit):
+
+```sh
+grep -nEi '([0-9]{1,3}\.){3}[0-9]{1,3}|password|passwd|secret|token|wallet|BEGIN .*PRIVATE|@[a-z0-9-]+\.[a-z]|host=|connect[_ -]?string|hostname|https?://|[a-z0-9.-]+\.(local|internal|lan)\b' "$file"
+git diff --cached --check
+git check-ignore -q --no-index "$file"
+```
+
+The grep command ran individually on all 100 evidence candidates; raw match
+lines stayed in temporary local files and are not copied here. Hit counts below
+count matching lines. The 40 excluded JSON files have 110–282 matching lines
+(including endpoint addresses); they remain untracked. Other matches included
+token metrics, wallet redaction markers, Oracle version numbers and public
+documentation URLs. No excluded content was edited to make it pass.
+
+The 60 committed files were rescanned: 37 had zero hits, and 23 had exactly
+one hit each, the Markdown table heading `In/out tokens`. That heading is a
+metric label, not a credential. Manual review accepted these 23 false positives;
+zero unresolved secret/host findings remain in the committed evidence set.
+Additional hostname/path review extracted domain-shaped words and paths with
+`(?:[A-Za-z0-9_-]+\.)+[A-Za-z]{2,}|(?:/[A-Za-z0-9_.-]+){2,}`
+from committed candidates: matches were Python logger names, report filenames
+and repository-relative report paths, with no host names or wallet paths.
+The B2 repeatable scan does not exist yet; B1 used the dispatch-prescribed
+grep/manual review on the staged set, without starting B2.
+
+| Committed file | grep hit lines | Disposition |
+| --- | ---: | --- |
+| `diag-2026-10-16-focused-1.log` | 0 | No matches |
+| `diag-2026-10-16-focused-2.log` | 0 | No matches |
+| `diag-2026-10-16-focused-3.log` | 0 | No matches |
+| `run-2026-10-16-one-block.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261016T214747Z.log` | 0 | No matches |
+| `strata-k7-focused-20261016T222023Z.log` | 0 | No matches |
+| `strata-k7-focused-20261016T224557Z.log` | 0 | No matches |
+| `strata-k7-focused-20261017T000141Z.log` | 0 | No matches |
+| `strata-k7-focused-20261017T052221Z.log` | 0 | No matches |
+| `strata-k7-focused-20261017T052221Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261017T054408Z.log` | 0 | No matches |
+| `strata-k7-focused-20261017T054408Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261017T061240Z.log` | 0 | No matches |
+| `strata-k7-focused-20261017T061240Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261017T071121Z.log` | 0 | No matches |
+| `strata-k7-focused-20261017T071121Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261017T073417Z.log` | 0 | No matches |
+| `strata-k7-focused-20261017T073417Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261017T075344Z.log` | 0 | No matches |
+| `strata-k7-focused-20261017T075344Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261017T150834Z.log` | 0 | No matches |
+| `strata-k7-focused-20261017T150834Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261018T005950Z.log` | 0 | No matches |
+| `strata-k7-focused-20261018T005950Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261018T014422Z.log` | 0 | No matches |
+| `strata-k7-focused-20261018T014422Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261018T023504Z.log` | 0 | No matches |
+| `strata-k7-focused-20261018T023504Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261018T032443Z.log` | 0 | No matches |
+| `strata-k7-focused-20261018T032443Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261018T180931Z.log` | 0 | No matches |
+| `strata-k7-focused-20261018T180931Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261019T010105Z.log` | 0 | No matches |
+| `strata-k7-focused-20261019T010105Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261019T050700Z.log` | 0 | No matches |
+| `strata-k7-focused-20261019T050700Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261019T155430Z.ai-review.json` | 0 | No matches |
+| `strata-k7-focused-20261019T155430Z.log` | 0 | No matches |
+| `strata-k7-focused-20261019T155430Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261019T175628Z.ai-review.json` | 0 | No matches |
+| `strata-k7-focused-20261019T175628Z.log` | 0 | No matches |
+| `strata-k7-focused-20261019T175628Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261019T194933Z.ai-review.json` | 0 | No matches |
+| `strata-k7-focused-20261019T194933Z.log` | 0 | No matches |
+| `strata-k7-focused-20261019T194933Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261019T231907Z.ai-review.json` | 0 | No matches |
+| `strata-k7-focused-20261019T231907Z.log` | 0 | No matches |
+| `strata-k7-focused-20261019T231907Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261020T040546Z.ai-review.json` | 0 | No matches |
+| `strata-k7-focused-20261020T040546Z.log` | 0 | No matches |
+| `strata-k7-focused-20261020T040546Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261020T053711Z.ai-review.json` | 0 | No matches |
+| `strata-k7-focused-20261020T053711Z.log` | 0 | No matches |
+| `strata-k7-focused-20261020T053711Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261020T144306Z.ai-review.json` | 0 | No matches |
+| `strata-k7-focused-20261020T144306Z.identity.json` | 0 | No matches |
+| `strata-k7-focused-20261020T144306Z.md` | 1 | Token metric heading only |
+| `strata-k7-focused-20261020T155124Z.ai-review.json` | 0 | No matches |
+| `strata-k7-focused-20261020T155124Z.identity.json` | 0 | No matches |
+| `strata-k7-focused-20261020T155124Z.md` | 1 | Token metric heading only |
+
+Verification: `git diff --cached --check` before commit: no output, exit 0.
+Ignore audit with `git check-ignore -q --no-index` over all 144 initial files:
+29 intended ignores matched, 115 others did not (144/144 pass); no cited file
+is ignored. `git status --short copilot-eval`: exit 0, exactly the following
+55 deliberately untracked files; each reason follows in the table.
+
+```text
+?? copilot-eval/cmp-strata-k7-focused-20261021T060834Z.json
+?? copilot-eval/cmp-strata-k7-focused-20261021T060834Z.md
+?? copilot-eval/diag-2026-10-16-focused-1.json
+?? copilot-eval/diag-2026-10-16-focused-2.json
+?? copilot-eval/diag-2026-10-16-focused-3.json
+?? copilot-eval/review-2026-10-15-case-limits.html
+?? copilot-eval/review-2026-10-16-one-block.html
+?? copilot-eval/run-2026-10-15-answer-only.json
+?? copilot-eval/run-2026-10-15-budget.json
+?? copilot-eval/run-2026-10-15-case-limits.json
+?? copilot-eval/run-2026-10-15-explain-time.json
+?? copilot-eval/run-2026-10-15-false-positives.json
+?? copilot-eval/run-2026-10-15-last-turn.json
+?? copilot-eval/run-2026-10-15-sampled.json
+?? copilot-eval/run-2026-10-15-sampled.md
+?? copilot-eval/run-2026-10-15-source-search.json
+?? copilot-eval/run-2026-10-15.json
+?? copilot-eval/run-2026-10-15.md
+?? copilot-eval/run-2026-10-16-one-block.json
+?? copilot-eval/run-2026-10-16-one-block.pre-ai-review.json
+?? copilot-eval/strata-k7-focused-20261016T214747Z.json
+?? copilot-eval/strata-k7-focused-20261016T222023Z.json
+?? copilot-eval/strata-k7-focused-20261016T224557Z.json
+?? copilot-eval/strata-k7-focused-20261017T000141Z.json
+?? copilot-eval/strata-k7-focused-20261017T052221Z.json
+?? copilot-eval/strata-k7-focused-20261017T054408Z.json
+?? copilot-eval/strata-k7-focused-20261017T061240Z.json
+?? copilot-eval/strata-k7-focused-20261017T071121Z.json
+?? copilot-eval/strata-k7-focused-20261017T073417Z.json
+?? copilot-eval/strata-k7-focused-20261017T075344Z.json
+?? copilot-eval/strata-k7-focused-20261017T150834Z.json
+?? copilot-eval/strata-k7-focused-20261018T005950Z.json
+?? copilot-eval/strata-k7-focused-20261018T014422Z.json
+?? copilot-eval/strata-k7-focused-20261018T023504Z.json
+?? copilot-eval/strata-k7-focused-20261018T032443Z.json
+?? copilot-eval/strata-k7-focused-20261018T180931Z.json
+?? copilot-eval/strata-k7-focused-20261018T180931Z.pre-ai-review.json
+?? copilot-eval/strata-k7-focused-20261019T010105Z.json
+?? copilot-eval/strata-k7-focused-20261019T010105Z.pre-ai-review.json
+?? copilot-eval/strata-k7-focused-20261019T050700Z.json
+?? copilot-eval/strata-k7-focused-20261019T050700Z.pre-ai-review.json
+?? copilot-eval/strata-k7-focused-20261019T155430Z.json
+?? copilot-eval/strata-k7-focused-20261019T155430Z.pre-ai-review.json
+?? copilot-eval/strata-k7-focused-20261019T175628Z.json
+?? copilot-eval/strata-k7-focused-20261019T175628Z.pre-ai-review.json
+?? copilot-eval/strata-k7-focused-20261019T194933Z.json
+?? copilot-eval/strata-k7-focused-20261019T194933Z.pre-ai-review.json
+?? copilot-eval/strata-k7-focused-20261019T231907Z.json
+?? copilot-eval/strata-k7-focused-20261019T231907Z.pre-ai-review.json
+?? copilot-eval/strata-k7-focused-20261020T040546Z.json
+?? copilot-eval/strata-k7-focused-20261020T040546Z.pre-ai-review.json
+?? copilot-eval/strata-k7-focused-20261020T053711Z.json
+?? copilot-eval/strata-k7-focused-20261020T053711Z.pre-ai-review.json
+?? copilot-eval/strata-k7-focused-20261020T144306Z.json
+?? copilot-eval/strata-k7-focused-20261020T155124Z.json
+```
+
+| Deliberately untracked file | Reason |
+| --- | --- |
+| `cmp-strata-k7-focused-20261021T060834Z.json` | Uncited scratch outside allowed log/snapshot ignore types; retained unchanged |
+| `cmp-strata-k7-focused-20261021T060834Z.md` | Uncited scratch outside allowed log/snapshot ignore types; retained unchanged |
+| `diag-2026-10-16-focused-1.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `diag-2026-10-16-focused-2.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `diag-2026-10-16-focused-3.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `review-2026-10-15-case-limits.html` | Uncited scratch outside allowed log/snapshot ignore types; retained unchanged |
+| `review-2026-10-16-one-block.html` | Uncited scratch outside allowed log/snapshot ignore types; retained unchanged |
+| `run-2026-10-15.json` | Uncited scratch outside allowed log/snapshot ignore types; retained unchanged |
+| `run-2026-10-15.md` | Uncited scratch outside allowed log/snapshot ignore types; retained unchanged |
+| `run-2026-10-15-answer-only.json` | Uncited scratch outside allowed log/snapshot ignore types; retained unchanged |
+| `run-2026-10-15-budget.json` | Uncited scratch outside allowed log/snapshot ignore types; retained unchanged |
+| `run-2026-10-15-case-limits.json` | Uncited scratch outside allowed log/snapshot ignore types; retained unchanged |
+| `run-2026-10-15-explain-time.json` | Uncited scratch outside allowed log/snapshot ignore types; retained unchanged |
+| `run-2026-10-15-false-positives.json` | Uncited scratch outside allowed log/snapshot ignore types; retained unchanged |
+| `run-2026-10-15-last-turn.json` | Uncited scratch outside allowed log/snapshot ignore types; retained unchanged |
+| `run-2026-10-15-sampled.json` | Uncited scratch outside allowed log/snapshot ignore types; retained unchanged |
+| `run-2026-10-15-sampled.md` | Uncited scratch outside allowed log/snapshot ignore types; retained unchanged |
+| `run-2026-10-15-source-search.json` | Uncited scratch outside allowed log/snapshot ignore types; retained unchanged |
+| `run-2026-10-16-one-block.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `run-2026-10-16-one-block.pre-ai-review.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261016T214747Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261016T222023Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261016T224557Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261017T000141Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261017T052221Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261017T054408Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261017T061240Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261017T071121Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261017T073417Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261017T075344Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261017T150834Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261018T005950Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261018T014422Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261018T023504Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261018T032443Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261018T180931Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261018T180931Z.pre-ai-review.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261019T010105Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261019T010105Z.pre-ai-review.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261019T050700Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261019T050700Z.pre-ai-review.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261019T155430Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261019T155430Z.pre-ai-review.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261019T175628Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261019T175628Z.pre-ai-review.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261019T194933Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261019T194933Z.pre-ai-review.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261019T231907Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261019T231907Z.pre-ai-review.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261020T040546Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261020T040546Z.pre-ai-review.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261020T053711Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261020T053711Z.pre-ai-review.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261020T144306Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+| `strata-k7-focused-20261020T155124Z.json` | Scan exclusion: local endpoint IP/URL; retained unchanged, not staged or ignored |
+
+`git show --stat HEAD` for `c90c008`: exit 0; file statistics below
+(author metadata omitted to avoid copying personal contact details).
+
+```text
+ .gitignore                                         |  31 ++++++
+ copilot-eval/diag-2026-10-16-focused-1.log         |   9 ++
+ copilot-eval/diag-2026-10-16-focused-2.log         |   9 ++
+ copilot-eval/diag-2026-10-16-focused-3.log         |   9 ++
+ copilot-eval/run-2026-10-16-one-block.md           |  95 ++++++++++++++++++
+ .../strata-k7-focused-20261016T214747Z.log         |   9 ++
+ .../strata-k7-focused-20261016T222023Z.log         |   9 ++
+ .../strata-k7-focused-20261016T224557Z.log         |   9 ++
+ .../strata-k7-focused-20261017T000141Z.log         |   9 ++
+ .../strata-k7-focused-20261017T052221Z.log         |   9 ++
+ copilot-eval/strata-k7-focused-20261017T052221Z.md | 110 ++++++++++++++++++++
+ .../strata-k7-focused-20261017T054408Z.log         |   9 ++
+ copilot-eval/strata-k7-focused-20261017T054408Z.md | 108 ++++++++++++++++++++
+ .../strata-k7-focused-20261017T061240Z.log         |   9 ++
+ copilot-eval/strata-k7-focused-20261017T061240Z.md | 109 ++++++++++++++++++++
+ .../strata-k7-focused-20261017T071121Z.log         |   9 ++
+ copilot-eval/strata-k7-focused-20261017T071121Z.md | 107 ++++++++++++++++++++
+ .../strata-k7-focused-20261017T073417Z.log         |   9 ++
+ copilot-eval/strata-k7-focused-20261017T073417Z.md | 109 ++++++++++++++++++++
+ .../strata-k7-focused-20261017T075344Z.log         |   9 ++
+ copilot-eval/strata-k7-focused-20261017T075344Z.md | 111 +++++++++++++++++++++
+ .../strata-k7-focused-20261017T150834Z.log         |   9 ++
+ copilot-eval/strata-k7-focused-20261017T150834Z.md | 109 ++++++++++++++++++++
+ .../strata-k7-focused-20261018T005950Z.log         |   9 ++
+ copilot-eval/strata-k7-focused-20261018T005950Z.md | 109 ++++++++++++++++++++
+ .../strata-k7-focused-20261018T014422Z.log         |   9 ++
+ copilot-eval/strata-k7-focused-20261018T014422Z.md | 106 ++++++++++++++++++++
+ .../strata-k7-focused-20261018T023504Z.log         |   9 ++
+ copilot-eval/strata-k7-focused-20261018T023504Z.md | 108 ++++++++++++++++++++
+ .../strata-k7-focused-20261018T032443Z.log         |   9 ++
+ copilot-eval/strata-k7-focused-20261018T032443Z.md | 109 ++++++++++++++++++++
+ .../strata-k7-focused-20261018T180931Z.log         |   9 ++
+ copilot-eval/strata-k7-focused-20261018T180931Z.md | 110 ++++++++++++++++++++
+ .../strata-k7-focused-20261019T010105Z.log         |   9 ++
+ copilot-eval/strata-k7-focused-20261019T010105Z.md | 109 ++++++++++++++++++++
+ .../strata-k7-focused-20261019T050700Z.log         |   9 ++
+ copilot-eval/strata-k7-focused-20261019T050700Z.md | 105 +++++++++++++++++++
+ ...rata-k7-focused-20261019T155430Z.ai-review.json |   7 ++
+ .../strata-k7-focused-20261019T155430Z.log         |   9 ++
+ copilot-eval/strata-k7-focused-20261019T155430Z.md | 107 ++++++++++++++++++++
+ ...rata-k7-focused-20261019T175628Z.ai-review.json |   7 ++
+ .../strata-k7-focused-20261019T175628Z.log         |   9 ++
+ copilot-eval/strata-k7-focused-20261019T175628Z.md | 107 ++++++++++++++++++++
+ ...rata-k7-focused-20261019T194933Z.ai-review.json |   7 ++
+ .../strata-k7-focused-20261019T194933Z.log         |   9 ++
+ copilot-eval/strata-k7-focused-20261019T194933Z.md | 109 ++++++++++++++++++++
+ ...rata-k7-focused-20261019T231907Z.ai-review.json |   7 ++
+ .../strata-k7-focused-20261019T231907Z.log         |   9 ++
+ copilot-eval/strata-k7-focused-20261019T231907Z.md | 105 +++++++++++++++++++
+ ...rata-k7-focused-20261020T040546Z.ai-review.json |   7 ++
+ .../strata-k7-focused-20261020T040546Z.log         |   9 ++
+ copilot-eval/strata-k7-focused-20261020T040546Z.md | 107 ++++++++++++++++++++
+ ...rata-k7-focused-20261020T053711Z.ai-review.json |   7 ++
+ .../strata-k7-focused-20261020T053711Z.log         |   9 ++
+ copilot-eval/strata-k7-focused-20261020T053711Z.md | 107 ++++++++++++++++++++
+ ...rata-k7-focused-20261020T144306Z.ai-review.json |   9 ++
+ ...trata-k7-focused-20261020T144306Z.identity.json |  18 ++++
+ copilot-eval/strata-k7-focused-20261020T144306Z.md | 108 ++++++++++++++++++++
+ ...rata-k7-focused-20261020T155124Z.ai-review.json |   9 ++
+ ...trata-k7-focused-20261020T155124Z.identity.json |  18 ++++
+ copilot-eval/strata-k7-focused-20261020T155124Z.md | 108 ++++++++++++++++++++
+ 61 files changed, 2842 insertions(+)
+```
+
+`git diff --check HEAD~1` after evidence commit: no output, exit 0 (pass).
+Application suites were not run: this task only adds retained evidence, ignore
+entries and this completion record; it changes no executable code.
+Remaining limitations: 40 cited raw reports/snapshots were deliberately excluded
+by the requested conservative scan policy, and 15 uncited files remain visible.
+Historical verdicts remain unchanged; retaining summaries does not qualify K-7.
+No push, PR, provider run or database access occurred. B2 was not started.
