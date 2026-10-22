@@ -480,3 +480,39 @@ off by default.
 Not built. [ADR-0011](decisions.md) proposes that Kiwi's draft may be compiled on a
 target marked `development`, by the user's confirmation, in a separate session. Until
 it is accepted, Kiwi cannot compile and applying a proposal is still not running it.
+
+K-7 tiered scoring is offline and leaves the historical `score` rendering unchanged:
+
+```bash
+uv run python -m tests.copilot.eval pool trial-1.json trial-2.json trial-3.json --markdown /tmp/k7-pool.md
+uv run python -m tests.copilot.eval q6 full-a.json --markdown /tmp/k7-full-a.md
+```
+
+`pool` checks the Q5 three-trial bar; `q6` checks one full run (Full A and B
+must still share a clean candidate and satisfy repeatability and external gates).
+Both exit 0 on passing evidence, 1 on a failing bar, and 2 on an invalid report.
+Neither command alone establishes D1 compile/check, cleanup, secret-scan or live
+qualification: retain those independent gates alongside the scoring summary.
+
+Keep `review.rubricVerdict` separate from `review.grounding.verdict` (`pass`,
+`fail`, or `pending`). A grounding failure may add `severity: "S1"` or `"S2"`;
+`disputed: true` prevents qualification. Existing reviewer, notes and failure-pattern
+requirements apply. Missing severity retains historical scoring semantics, but an
+unclassified grounding failure cannot pass a tiered bar. Multiple findings in one
+case aggregate to the worst severity (S1 > S2 > pass), counting one S2 case-trial.
+Retain individual findings and second-review dispute resolutions with the evidence.
+
+New CLI `run` reports record `qualificationIdentity.rubric` as
+`k7-rubric-2026-10-22.1`. Supply `--configuration-id` with a retained fingerprint of
+the effective harness and model-server configuration (including model weights and
+server command-line settings); `--trial-sequence` with the consecutive candidate
+attempt number; and `--previous-run-id` linking each later trial to its predecessor.
+These become `qualificationIdentity.configuration`, `trialSequence`, and
+`previousRunId`. Keep failed trials in the sequence; any failure or candidate change
+restarts the three-trial attempt. The scorer also compares clean harness commits,
+provider requested/served/access-check model identities, report limits and fixed
+case-set version/hash and inventory. Existing model-server `.identity.json`
+sidecars remain provenance supporting the configuration fingerprint; volatile PIDs
+and elapsed times are not candidate identity. Missing identity, including the rubric
+on retained pre-publication reports, prevents counting a run. Do not backfill old
+reports to qualify them.
