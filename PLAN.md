@@ -167,17 +167,17 @@ task.
   2026-10-21 diagnostic run (identify its code state from its log and say whether
   it reflects Wave 2X). **Done when:** the review states pass/fail per item and is
   committed. Do not start K1 on a failing review; STOP instead.
-- [ ] **K1 Bounded answer retry.** When a forced-answer turn produces no diagnosis,
+- [x] **K1 Bounded answer retry.** When a forced-answer turn produces no diagnosis,
   allow one no-tools answer retry. It consumes the remaining step/time/token budget;
   do not raise default bounds. Cap retries at one, add a config setting (default on
   or off is the user's decision; default off until decided), and document it in
   `.env.example` and `docs/copilot.md`.
-- [ ] **K2 Application-error fallback.** Make the harness fallback state the
+- [x] **K2 Application-error fallback.** Make the harness fallback state the
   documented meaning of Oracle application errors (ORA-20000 to ORA-20999: raised
   by application code via `RAISE_APPLICATION_ERROR`) and cite a job or action only
   when retained lookup evidence supports it. Do not name the raising source unless
   a lookup returned it, and do not infer its absence from scoped searches.
-- [ ] **K3 Tests.** Cover successful retry, exhausted retry, disabled retry, budget
+- [x] **K3 Tests.** Cover successful retry, exhausted retry, disabled retry, budget
   exhaustion, cancellation, unsupported evidence and non-application-error
   controls. Preserve existing assertions; no case-specific production logic.
   **Verify:** `uv run pytest -q tests/copilot` and the standard checks.
@@ -1309,7 +1309,7 @@ default. **This review does not authorize a provider run.** No provider/Strata/l
 model calls, Oracle/database access, excluded-store content reads, deletions,
 evaluation-artifact changes, push or PR occurred. K1 was not started.
 
-### K1 — Bounded answer retry — 2026-10-22 — implementation
+### K1 — Bounded answer retry — 2026-10-22 — done (`c46224a`)
 
 Implemented on `plan/K1-bounded-answer` from `plan/K0-wave2x-review`; this task's
 commit contains the retry, setting and documentation. One completed forced-answer
@@ -1328,7 +1328,7 @@ usage exactly. `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache uv run pytest -q
 tests/copilot/test_k7_bounded_answer.py`: **20 passed**, exit 0; ruff format on
 both changed Python files: unchanged, exit 0. K3 records final combined checks.
 
-### K2 — Application-error fallback — 2026-10-22 — implementation
+### K2 — Application-error fallback — 2026-10-22 — done (`eea2612`)
 
 The K2 commit on `plan/K1-bounded-answer` adds a generic explanation for retained
 ORA-20000 through ORA-20999 messages or ERROR_NUMBER values: application code
@@ -1340,3 +1340,100 @@ added; non-application errors take the unchanged rendering path. No case IDs or
 expected answers appear in the implementation. `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache
 uv run pytest -q tests/copilot/test_k7_bounded_answer.py`: **20 passed**, exit 0;
 ruff format on fallback.py: unchanged, exit 0. K3 records final combined checks.
+
+
+### K3 — Tests — 2026-10-22 — done
+
+The K3 test commit on `plan/K1-bounded-answer` contains this completion record,
+`test_k7_bounded_retry.py`, application-error controls appended beside the existing
+fallback tests, and test-driven guards that only forced-answer turns
+can retry and that disabled retry uses the original synchronous fallback directly.
+K1 implementation: `c46224a`; K2 implementation: `eea2612`. The user
+explicitly authorized this one branch for K1–K3, overriding one-branch-per-task.
+All existing assertions are preserved. K1–K3 are marked complete: the final
+candidate passed the copilot and full suites with zero failures. K4 was not started.
+
+Coverage: successful retry at step/lookup bounds after an unoffered call, empty
+text or notes; a second non-answer falls back without a third request; disabled
+retry emits events byte-identical to the previous fallback path; exhausted step,
+time or token allowance skips retry; cancellation propagates and closes the turn;
+unsupported retry claims are settled; actual token overrun is counted and checked;
+provider failure/timeout falls back; unknown prompt usage and unforced truncation
+skip retry. Application-error tests cover range endpoints, negative error numbers,
+retained job logs, errors with no source evidence beside scoped searches and an
+unread JOB_ACTION, numeric errors without text, failed lookups and byte-identical
+non-application-error controls. No case-specific implementation was added.
+
+All uv commands used `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache`.
+
+| Command | Exit | Result / saved output |
+| --- | ---: | --- |
+| `uv run pytest -q tests/copilot/test_k7_bounded_retry.py tests/copilot/test_k7_bounded_answer.py` | 0 | **51 passed**, 22.03s; `/tmp/k3-focused.log` |
+| `uv run pytest -q tests/copilot` (initial candidate) | 0 | **1910 passed, 0 failed**, 339.88s; `/tmp/k3-copilot.log` |
+| `uv run pytest -q tests/copilot` (final code) | 0 | **1911 passed, 0 failed**, 339.84s; `/tmp/k3-copilot-final.log` |
+| `uv run pytest -q tests/copilot/test_k7_bounded_retry.py tests/copilot/test_k7_bounded_answer.py tests/copilot/test_k7_wave2x.py` (final code) | 0 | **84 passed**, 26.96s; `/tmp/k3-focused-final.log` |
+| `uv run pytest -q` (run 1) | 1 | **1 failed, 2663 passed, 83 skipped**, 543.08s; `/tmp/k3-full-suite.log` |
+| `uv run pytest -q tests/copilot/test_k7_wave2x.py::test_an_answer_written_at_the_bound_is_reviewed_and_settled` | 0 | **1 passed**, 1.29s; `/tmp/k3-wave2x-rerun.log`; unchanged test |
+| `uv run pytest -q` (run 2, original run-limit reached) | 1 | **1 failed, 2663 passed, 83 skipped**, 545.94s; `/tmp/k3-full-suite2.log` |
+| `uv run pytest -q` (final corrected candidate; additional run authorized by coordinator) | 0 | **2665 passed, 83 skipped, 0 failed**, 539.03s; `/tmp/k3-full-candidate-final.log` |
+| `uv run ruff format --check .` | 0 | 317 files already formatted; `/tmp/k3-ruff-format.log`, `/tmp/k3-ruff-format-final.log` |
+| `uv run ruff check .` | 0 | All checks passed; `/tmp/k3-ruff-check.log`, `/tmp/k3-ruff-check-final.log` |
+| `npm --prefix apps/web run typecheck` | 0 | `tsc --noEmit`; `/tmp/k3-typecheck.log`, `/tmp/k3-typecheck-final.log` |
+| `bash scripts/secret_scan.sh` | 0 | Clean, including after staging new tests; `/tmp/k3-secret-scan.log`, `/tmp/k3-secret-scan-staged.log`, `/tmp/k3-secret-scan-final.log` |
+| `git diff --check`, `git diff --cached --check` | 0 | Clean |
+| `git diff plan/K0-wave2x-review -- packages/contracts` | 0 | Empty |
+
+Both initial candidate full runs failed only
+`tests/copilot/test_k7_wave2x.py::test_an_answer_written_at_the_bound_is_reviewed_and_settled`:
+the existing 0.5-second-wall-bound scenario expected `absence_inference` but got
+no findings. It passed in the copilot suite and unchanged targeted rerun. The
+original two-full-run limit was reached, then the coordinator explicitly
+instructed further diagnosis and authorized additional full runs only as needed.
+No existing assertion or deadline was changed.
+
+Requested load comparison: **20/20 current and 20/20 pre-K1 (`7378896`) passes**
+with retry off, two owned busy-loop processes plus pytest pinned to one CPU.
+Both busy loops were terminated and waited for. Logs are
+`/tmp/k3-load-summary.json` and `/tmp/k3-load-{current,baseline}-NN.log`.
+Baseline imports were verified from `/tmp/oracledbharness-k3-base` using explicit
+PYTHONPATH overrides, not the main checkout's editable API/worker packages.
+The authorized diagnostic baseline full run passed **2631, skipped 85**, with
+one instrumentation import warning, in 533.23s (`/tmp/k3-baseline-full.log`);
+its two additional skips versus the main checkout limit whole-suite equivalence.
+A current isolated test after full collection passed **1, deselected 2746**
+(`/tmp/k3-collection-current.log`). A current pre-correction prefix run retaining
+the full collection then executing through the target reproduced **1 failed,
+1520 passed**, 176.29s (`/tmp/k3-current-prefix-trace.log`). Its trace showed
+**step 2, elapsed 0.95098s, answered false** after two successful lookups: scheduler
+failures and an empty object listing. The deadline expired before the diagnosis
+turn, rather than the absence checker accepting that diagnosis. This does not
+prove a baseline flake or a causal K1 regression.
+
+Diff review found no K1 change to the `end is None` wall-time handler, but K1 did
+interpose an async generator even when disabled on completed non-diagnosis turns.
+The final correction checks the setting in `_kiwi_loop` and calls the original
+synchronous fallback directly when off. A new integration assertion proves the
+retry helper is never entered when disabled. This restores the concrete disabled
+path without changing budgets or the existing test; the timing failure's causal
+link to that interposition is not established. The final uninstrumented full run
+passed **2665 tests, 83 skipped, zero failures** in 539.03s. There were three main-checkout full runs
+and one diagnostic baseline full run in total; the coordinator explicitly
+authorized the two additional runs after the original limit was reached.
+
+Initial focused-test development failures (corrected expected settlement text,
+minimal-token boundary, a frozen dataclass fixture assignment) were fixed; no
+implementation assertions were removed.
+
+Limitations for K4: token admission uses the previous prompt plus 512 tokens,
+not an exact next-prompt cap, as explicitly approved by the coordinator. Adapters
+retain raw unoffered tool-call content even when ToolConversation drops the call;
+a provider may reject the reopened transcript, in which case the retry catches
+ProviderError and falls back. No adapter change was authorized or made. Existing
+old-protocol and checker-failure delivery limitations from K0 remain. K4 was not
+started. K-7 remains NOT QUALIFIED and the retry remains off by default. No real
+provider/Strata/local-model run, Oracle/database access, excluded-store content
+read, package/contract change, push or PR occurred; Orca was invoked
+only for skill guidance and coordinator communication. Untracked evaluation
+artifacts were left untouched. The clean temporary baseline worktree was removed
+with `git worktree remove` as explicitly instructed; no source or evaluation
+artifact was deleted from the main checkout.

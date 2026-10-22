@@ -1174,10 +1174,17 @@ class CopilotService:
                     # call it was not offered after more interim notes (trial 21, DIAG-02),
                     # notes ending in a normal stop, or a Finding heading with nothing in it
                     # (Sync Point 2B). However the turn ended, only a diagnosis answers.
-                    async for settled in self._retry_bounded_answer(
-                        conversation, state, lookups, refused, "".join(streamed), revisable
-                    ):
-                        yield settled
+                    if self._settings.kiwi_answer_retry:
+                        async for settled in self._retry_bounded_answer(
+                            conversation, state, lookups, refused, "".join(streamed), revisable
+                        ):
+                            yield settled
+                    else:
+                        # Keep the disabled path synchronous, exactly as before K1.
+                        for settled in self._bounded_fallback(
+                            state, lookups, refused, "".join(streamed), revisable, answered=False
+                        ):
+                            yield settled
                     yield ("budget", state.event())
                     return
                 if not end.wants_tools:
@@ -1641,6 +1648,7 @@ class CopilotService:
         prompt = usage[-1].prompt_tokens if usage else None
         eligible = (
             self._settings.kiwi_answer_retry
+            and conversation.answer_only
             and state.out_of_turns() is None
             and state.remaining >= _MIN_REVISION_SECONDS + _REVISION_SETTLE_SECONDS
             and prompt is not None
