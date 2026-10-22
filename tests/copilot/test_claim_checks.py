@@ -190,7 +190,8 @@ T17_KINJ02 = (
 
 def test_a_change_located_in_unread_code_is_flagged() -> None:
     findings = check_claims(T17_KINJ02, [NO_SOURCE])
-    assert [f.kind for f in findings] == ["change_location"]
+    assert [f.kind for f in findings] == ["change_location", "absence_inference"]
+    # The categorical access assertion also exceeds the empty source search.
     assert "ORDER_FEED.EXPORT_DAY" in findings[0].problem
     assert "outside code" in findings[0].problem
 
@@ -300,10 +301,15 @@ def test_a_failed_source_lookup_reads_nothing() -> None:
 def test_trial_17_answers_are_flagged_and_the_note_names_each() -> None:
     answer = "\n".join([T17_DIAG03, T17_KINJ01_HYPOTHESIS, T17_KINJ02])
     findings = check_claims(answer, [BLOCKING, SESSIONS, NO_SOURCE])
-    assert [f.kind for f in findings] == ["session_role", "mod_arithmetic", "change_location"]
+    assert [f.kind for f in findings] == [
+        "session_role",
+        "mod_arithmetic",
+        "change_location",
+        "absence_inference",
+    ]
     note = revision_note(findings)
     assert note.startswith("[harness]")
-    assert note.count("You wrote:") == 3
+    assert note.count("You wrote:") == 4
     assert "cannot make lookups" in note
     # The note says what the evidence shows; it holds no case id or expected answer.
     for word in ("DIAG", "KINJ", "case"):

@@ -3055,15 +3055,25 @@ _SEARCHED_FOR = re.compile(
     r"|\b(?:raising|reporting)\s+(?:code|source|statement|line|unit|routine)\b",
     re.IGNORECASE,
 )
-# A name right after it says which object is meant: "the raising unit `PKG.PROC`".
-_NAMED_AFTER = re.compile(rf"^\s*(?:\(|,)?\s*(?:`[^`\n]+`|{QUALIFIED.pattern})", re.IGNORECASE)
+# Named objects and ordinary referents have the same evidence requirement as raisers.
+_VISIBILITY_SUBJECT = re.compile(
+    rf"`[^`\n]+`|{QUALIFIED.pattern}|\b(?:code|source|statement|unit|routine|"
+    r"subprogram|procedure|function|package|object|table|cause|action|it)\b",
+    re.IGNORECASE,
+)
 # Said to be out of the account's sight, or not to exist at all.
 _UNSEEN = re.compile(
     r"\b(?:is|are|was|were|remains?|stays?)\s+(?:not|never)\s+(?:visible|accessible|readable|"
     r"available)\b|\b(?:isn['’]t|aren['’]t|wasn['’]t|weren['’]t)\s+(?:visible|accessible|"
     r"readable|available)\b|\b(?:is|are|was|were)\s+(?:invisible|inaccessible|unreadable|"
     r"hidden|absent)\b|\b(?:is|are|lies|sits)\s+(?:outside|beyond)\s+(?:what\s+)?(?:this|the)\s+"
-    r"account\b|\b(?:does|do|did)\s+not\s+exist\b|\b(?:doesn['’]t|don['’]t)\s+exist\b",
+    r"account\b|\b(?:does|do|did)\s+not\s+exist\b|\b(?:doesn['’]t|don['’]t)\s+exist\b"
+    r"|\b(?:is|are|was|were)\s+not\s+in\s+any\s+(?:readable\s+source|"
+    r"source\s+(?:this|the)\s+account\s+can\s+read)\b"
+    r"|\b(?:cannot|can['’]t)\s+be\s+(?:seen|read|accessed)\b"
+    r"|\b(?:this|the)\s+account\s+(?:cannot|can['’]t)\s+(?:see|read|access)\s+it\b"
+    r"|\bno\s+(?:unit|object|routine|procedure|function|package|table)\b[^.;]{0,60}?"
+    r"\bis\s+(?:visible|readable|accessible)\b",
     re.IGNORECASE,
 )
 # The claim left open, or narrowed to what was searched, before the predicate ends.
@@ -3076,29 +3086,61 @@ _ABSENCE_OPEN = re.compile(
 )
 _ABSENCE_SCOPED = re.compile(
     r"^\s*(?:in|to|from|by|within)\s+(?:these|those|the|my|its)\s+(?:\w+\s+){0,2}"
-    r"(?:searches|search|lookups?|results?|listings?)\b|^[^.;]{0,40}\bas\s+far\s+as\b",
+    r"(?:searches|search|lookups?|results?|listings?)\b|^\s+in\s+what\s+these\s+lookups\s+return\b|^[^.;]{0,40}\bas\s+far\s+as\b",
     re.IGNORECASE,
 )
 
 
-def _absence_inferences(answer: str, facts: Sequence[LookupFacts]) -> list[ClaimFinding]:
-    """Code that no lookup located, said to be invisible or not to exist.
+def _listed_absent(part: str, unseen: re.Match[str], facts: Sequence[LookupFacts]) -> bool:
+    """A named object's absence within a complete listing is a distinct claim.
 
-    A search that returns no rows shows that nothing matched its parameters in the
-    scope searched: a value may be built at run time, raised elsewhere and propagated,
-    or reached through a name the searches did not resolve. So "the code that raises
-    that error is not visible to this account", from source searches for the error's
-    number and text that returned nothing, goes past the evidence (trial 29 DIAG-02;
-    an Unknown later in the answer does not repair the headline). Flagged only when the
-    code is named by what it does rather than by a name, a succeeded lookup returned no
-    rows, and no lookup failed (a failure may itself be the access result the claim
-    rests on). A named object missing from complete listings is another claim, not this
-    one. Left open, or narrowed to the searches, it is not flagged.
+    This exception needs an explicit owner scope, a covering name filter, and no
+    type filter. It does not establish account-wide access or global nonexistence.
+    """
+
+    if not re.search(r"\bexist\b", unseen[0], re.IGNORECASE):
+        return False
+    names = qualified_names(part[: unseen.start()])
+    names += [(name.upper(),) for name in re.findall(r"`([\w$#]+)`", part[: unseen.start()])]
+    scope = re.match(r"\s+in\s+(?:schema\s+)?`?(\w+)`?", part[unseen.end() :], re.I)
+    if not names or scope is None:
+        return False
+    owner, name = scope[1].upper(), names[-1][-1].upper()
+    for fact in facts:
+        if fact.operation_id != "schema.list_objects" or not fact.succeeded:
+            continue
+        params = fact.parameters
+        if str(params.get("owner", "")).upper() != owner or params.get("object_type"):
+            continue
+        if coverage(fact).state not in {"complete", "empty"}:
+            continue
+        pattern = str(params.get("name_filter") or "%").upper()
+        pattern = re.escape(pattern).replace("%", ".*").replace("_", ".")
+        if re.fullmatch(pattern, name) is None:
+            continue
+        columns = [str(c).upper() for c in fact.columns]
+        column = next((columns.index(c) for c in ("OBJECT_NAME", "NAME") if c in columns), None)
+        if column is not None and all(str(row[column]).upper() != name for row in fact.rows):
+            return True
+    return False
+
+
+def _absence_inferences(answer: str, facts: Sequence[LookupFacts]) -> list[ClaimFinding]:
+    """Do not turn scoped no-match results into categorical access/absence claims.
+
+    Named and unnamed referents need the same support. Failed lookups may establish
+    an access limit; LookupFacts does not retain their error text, so conservatively
+    leave those requests to review. Scoped observations and open hypotheses pass.
     """
 
     if any(not f.succeeded for f in facts):
         return []
-    empty = [f for f in facts if (f.row_count if f.row_count is not None else len(f.rows)) == 0]
+    empty = [
+        f
+        for f in facts
+        if f.operation_id.startswith("schema.")
+        and (f.row_count if f.row_count is not None else len(f.rows)) == 0
+    ]
     if not empty:
         return []
     shown = ", ".join(f"lookup {f.sequence} ({f.operation_id})" for f in empty[:6])
@@ -3106,15 +3148,19 @@ def _absence_inferences(answer: str, facts: Sequence[LookupFacts]) -> list[Claim
     for line in _prose_lines(answer):
         for clause in _clauses(line):
             for part in subclauses(clause):
-                subject = _SEARCHED_FOR.search(part)
-                if subject is None or _NAMED_AFTER.match(part, subject.end()):
+                subject = _SEARCHED_FOR.search(part) or _VISIBILITY_SUBJECT.search(part)
+                if subject is None:
                     continue
-                unseen = _UNSEEN.search(part, subject.end())
-                if unseen is None or unseen.start() - subject.end() > 80:
+                # Inline catalog errors are quoted evidence, not absence claims.
+                predicates = re.sub(r"`[^`\n]+`", lambda m: " " * len(m[0]), part)
+                unseen = _UNSEEN.search(predicates)
+                if unseen is None or unseen.start() - subject.end() > 180:
                     continue
                 if _ABSENCE_OPEN.search(part[: unseen.end()]) or _ABSENCE_SCOPED.search(
                     part[unseen.end() :]
                 ):
+                    continue
+                if _listed_absent(part, unseen, facts):
                     continue
                 findings.append(
                     ClaimFinding(
@@ -3122,7 +3168,7 @@ def _absence_inferences(answer: str, facts: Sequence[LookupFacts]) -> list[Claim
                         _excerpt(part, subject.start(), unseen.end()),
                         f"{shown} returned no rows: a search that matches nothing shows only "
                         "that nothing matched its parameters in the scope searched. No lookup "
-                        "located the code meant, so none shows that it is invisible, "
+                        "established that the referent is invisible, "
                         "inaccessible or absent. Say it was not found in those searches, "
                         "naming their scope, and leave whether this account can see it "
                         "unknown.",

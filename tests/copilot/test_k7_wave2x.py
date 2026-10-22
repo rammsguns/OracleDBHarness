@@ -117,14 +117,9 @@ def test_unlocated_code_said_invisible_is_flagged(sentence: str) -> None:
         # Trial 29 DIAG-02's own Unknown line, which states the limit correctly.
         "The searches show only that no match was found, not that the unit that raises "
         "the error is absent or invisible.",
-        # A named unit: a statement about that unit, not about unlocated code.
-        "The unit `ORDER_FEED.EXPORT_DAY` that raises the error is not visible to this account.",
-        "The failing unit `ORDER_FEED.EXPORT_DAY` is not readable by this account.",
-        # No subject that raised anything.
-        "The table is not visible to this account.",
     ],
 )
-def test_a_scoped_open_or_named_statement_passes(sentence: str) -> None:
+def test_a_scoped_or_open_statement_passes(sentence: str) -> None:
     assert "absence_inference" not in kinds(sentence, SEARCHED)
 
 

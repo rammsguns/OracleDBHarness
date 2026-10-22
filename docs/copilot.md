@@ -268,6 +268,15 @@ stated each rule:
   line 10, `END calc;` at line 20"). With several units read and none named, the
   reference is unresolved and flagged unless every unit covers it. A citation of
   lookups that read no source (an error's line number) is not checked as source lines.
+- **Visibility from no matches** (`absence_inference`). A succeeded catalog/source
+  lookup returning no rows establishes only no match under its parameters. Named
+  objects, raising code and “the cause” cannot thereby be called invisible,
+  unreadable, inaccessible or nonexistent. Scoped observations (“not found in these
+  searches”, “I read no source”) and open hypotheses pass. A named object's absence
+  in an explicitly scoped complete object listing is a separate supported claim;
+  it does not establish account-wide access. Quoted catalog errors are evidence,
+  not assertions of global absence. The check conservatively leaves requests with
+  failed lookups to review because its lookup facts do not retain the error text.
 - **Bounded work on model-written numbers.** Line and lookup numbers in an answer are
   read up to nine digits; a longer one stands for a line past every unit's end. Ranges
   stay intervals and are tested against the lines returned with binary searches, never
