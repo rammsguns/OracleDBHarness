@@ -1,0 +1,9 @@
+INFO:harness.recovery:recovery: nothing interrupted was found in the metadata store
+WARNING:harness.api:configuration: HARNESS_ALLOWED_ENDPOINTS is empty, so an operator can register any reachable database endpoint. Set it before the pilot.
+WARNING:harness.api:configuration: The Oracle backend is the local stand-in. Nothing here demonstrates compatibility with a real Oracle database.
+WARNING:harness.api:configuration: HARNESS_KIWI_ENABLED is on. Kiwi may run reviewed read-only catalog lookups as the requesting user, and what it fetches is sent to the model provider. The data-sharing approval has to cover that.
+Report: copilot-eval/strata-k7-focused-20261016T222023Z.json
+Mode: qualification. Focused diagnostic trial of selected cases. NOT qualification evidence.
+Cases: {'completed': 18}
+Estimated spend: $0.0000
+Next: DBA review of the report, then `score`. See reviewInstructions in the report.

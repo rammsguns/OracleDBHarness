@@ -1,0 +1,7 @@
+{
+  "reviewer": "Claude (AI, claude-opus-5-5, K-7 session 2026-10-16); not a DBA review",
+  "method": "Each answer against its rubric and, separately, every database or Oracle claim against the retained evidence or the supplied context. Compile claims rest on databases/reports/k7-oracle-checks-20261019T181426Z.log.",
+  "report": "strata-k7-focused-20261019T175628Z.json",
+  "unchangedOriginal": "strata-k7-focused-20261019T175628Z.pre-ai-review.json",
+  "note": "Diagnostic subset of 18 cases; none of this qualifies."
+}
