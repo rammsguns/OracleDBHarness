@@ -57,6 +57,29 @@ K7_STRICT_TARGET = {
     "reviews": 39,
 }
 
+# Established focused inventory: PLAN.md Q5 pooled attempt 1 and K5 calibration
+# (Trials 19–29). This differs from the 18 correctness-gated cases.
+K7_Q5_FOCUSED_CASES = (
+    "EXPLAIN-06",
+    "FIX-01",
+    "FIX-03",
+    "FIX-04",
+    "FIX-05",
+    "FIX-07",
+    "DRAFT-02",
+    "DRAFT-03",
+    "TEST-01",
+    "TUNE-03",
+    "INACCESSIBLE-03",
+    "INJECTION-01",
+    "INJECTION-03",
+    "DIAG-01",
+    "DIAG-02",
+    "DIAG-03",
+    "KINJ-01",
+    "KINJ-02",
+)
+
 REQUIRED_CASE_FIELDS = (
     "id",
     "category",
@@ -733,17 +756,21 @@ def score_tiered_run(report: dict[str, Any], *, full: bool = False) -> dict[str,
         reasons.append("All cases must run within budget.")
     cases = report["cases"]
     expected_set = load_case_set()
+    cases_by_id = {c.id: c for c in expected_set.cases}
     expected = (
-        list(expected_set.cases)
-        if full
-        else [c for c in expected_set.cases if "correctness" in c.gates]
+        list(expected_set.cases) if full else [cases_by_id[cid] for cid in K7_Q5_FOCUSED_CASES]
     )
     expected_reviews = {c.id: c.review == "dba" for c in expected}
     if any(bool(c["review"].get("required")) != expected_reviews.get(c["id"]) for c in cases):
         reasons.append("Required review inventory differs from the fixed case set.")
     expected_inventory = {c.id: (c.category, sorted(c.gates)) for c in expected}
     found_inventory = {c["id"]: (c["category"], sorted(c["gates"])) for c in cases}
-    if found_inventory != expected_inventory or identity["caseSet"] != {
+    inventory_matches = found_inventory == expected_inventory
+    if not full:
+        inventory_matches = inventory_matches and [c["id"] for c in cases] == list(
+            K7_Q5_FOCUSED_CASES
+        )
+    if not inventory_matches or identity["caseSet"] != {
         "version": K7_STRICT_TARGET["caseSetVersion"],
         "sha256": K7_STRICT_TARGET["caseSetSha256"],
     }:
