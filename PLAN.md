@@ -130,6 +130,7 @@ artifacts included in changes. Documentation consolidation alone does not pass i
 - [x] **P1** Verify API and console refusals for production worksheets, session
   writes, compile, mutating runbooks, copilot and Kiwi, including direct API
   requests. Add missing regression tests; do not change refusal semantics.
+- [ ] **P1a Audit refusals.** Refused direct REST calls (worksheet open, compile, tuning explain, runbook run, admin target create) raise PolicyError before any AuditEvent is written; decide whether every policy refusal must be audited and, if so, record refusals at one central point. Found by the P1 review (2026-10-22).
 - [ ] **P2** Verify Oracle 19c identity checks fail closed for unsupported production
   targets (23ai/26ai, unknown banner, identity lookup failure).
 - [ ] **P3** Check the diagnostic catalog for licensed features (fixed list above)
@@ -987,3 +988,26 @@ rollback/cancel/close remain non-provider or discard-only paths.
 No push, PR, provider run, real Oracle/database access, excluded-store access or
 untracked evaluation-artifact edits occurred. Nothing was deleted. P1 is marked
 done; P2 was not started.
+
+**P1 review:** reviewer agy (antigravity), verdict PASS WITH FINDINGS, Finding 1 fixed in `f05e011`, Finding 2 deferred to P1a.
+
+Follow-up uses the console reference format (`harness:<target.id>:<defaultSchema>`)
+to compare only the target token, retaining raw ID/name and `profileId` refusals.
+Two schema-collision regressions cover development schemas matching a production
+name or ID; existing production ID/name reference cases remain passing.
+
+Follow-up verification (all uv commands used
+`UV_CACHE_DIR=/tmp/oracledbharness-uv-cache`; fake backend/fixture providers only):
+
+| Command | Exit | Result / saved output |
+| --- | ---: | --- |
+| `uv run pytest -q tests/unit/test_production_boundary.py tests/copilot/test_kiwi.py` | 0 | **67 passed**, 39.24s; `/tmp/p1-followup-focused.log` |
+| `uv run ruff format --check .` | 0 | **310 files already formatted** |
+| `uv run ruff check .` | 0 | **All checks passed** |
+| `bash scripts/secret_scan.sh` | 0 | **no findings** |
+| `uv run pytest -q` | 0 | **2498 passed, 83 skipped**, 467.59s; `/tmp/p1-followup-full.log`; full suite ran **once**, zero failures |
+| `git diff --check` | 0 | **no output** |
+
+No real Oracle, provider, `OrcaServer/` or `databases/` access, contract changes,
+deletions, push or PR occurred during this follow-up. Orca coordination used the
+configured CLI executable only; excluded store contents were not read.
