@@ -329,3 +329,33 @@ task IDs, Verify/Done-when, STOP/HUMAN markers, B0 (the consolidation is still
 uncommitted on main, with live references to removed plans), B1 (untracked
 evaluation output), K0 (Wave 2X review), and made the driver pin a concrete task
 (P4). Planning only.
+
+
+2026-10-22 B0 — consolidation committed as `d1abbf4` on
+`plan/B0-commit-consolidation`; this completion record is a separate follow-up
+commit. Reviewed every modified tracked file before staging: all changes were
+plan-reference/documentation consolidation, including comment-only updates in
+`.env.example` and `deploy/backup-restore-drill.sh`. Eight tracked old-plan
+deletions were committed; the coordinator confirmed that the ninth document was
+the untracked Wave 2Y outline already absent from the tree. No additional files
+were deleted.
+
+Verification after the consolidation commit:
+
+- `git status --short -- ':!copilot-eval'`: no output (pass).
+- `git grep -n -E "MVP_PLAN|NEXT_PHASE_PLAN|k7-remediation-plan" -- .env.example deploy`:
+  no output, exit 1 as expected for no matches (pass).
+- `git log --oneline -2`: `d1abbf4 Consolidate project plans and update active documentation references`;
+  `2a73d4f Add K-7 evidence checks and bounded proposal remediation (#40)`.
+- `git diff --check HEAD~1`: no output, exit 0 (pass).
+- `uv run ruff format --check .`: `307 files already formatted`, exit 0 (pass).
+- `uv run ruff check .`: `All checks passed!`, exit 0 (pass).
+
+Limitations: the two initial uv invocations exited 2 because the default
+`/home/kiwi/.cache/uv/CACHEDIR.TAG` was not writable; rerunning with
+`UV_CACHE_DIR=/tmp/oracledbharness-b0-uv-cache` passed both checks above. No
+`copilot-eval/` or `OrcaServer/` files were staged. Dated reviews, compatibility
+run records and decision history remain unchanged. The dispatch explicitly
+prohibited pushing or opening a PR, so B0's PR condition remains pending and its
+checkbox stays open. No provider, deployment or database work was performed;
+B1 was not started.
