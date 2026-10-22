@@ -247,7 +247,14 @@ emails, with placeholder and documentation-address exceptions. This heuristic sc
 requires review and does not prove the absence of secrets.
 
 Reviewed false positives can use `scripts/secret_scan.allow`: put an explanatory
-comment immediately before each `repository-relative-path:Python-regex` entry.
-The regex suppresses matching lines in that exact file; keep exceptions narrow.
+comment immediately before each `repository-relative-path:rule:Python-regex` entry.
+The regex suppresses only that rule on matching lines in that exact tracked file;
+other rules still run. Historical username exceptions apply only to `home-path`.
+Reserved example/internal/test/invalid domains, complete placeholder values,
+secret reference/file keys, source expressions and reviewed synthetic literals
+are distinguished from literal credentials. Package lock metadata is scanned
+without treating integrity/resolved fields as credential assignments. CI fixture
+connections to localhost and action references are recognized. Regression tests
+plant plausible credentials and hosts alongside these exceptions.
 Real secrets or host identifiers require a STOP report with locations only,
 without copying values or rewriting history.
