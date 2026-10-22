@@ -232,3 +232,29 @@ and effective execution limits. Bind ordering does not matter. Raw SQL and bind
 values are not retained by this mechanism. Reusing a key with different inputs is
 rejected. Old executions have no digest and cannot be verified as identical retries;
 their keys are rejected too. Verify their outcome before submitting a new request.
+
+## Secret and host scan
+
+Run `bash scripts/secret_scan.sh` from the repository to check tracked working-tree
+files, or pass tracked file paths to check a selected set (for example,
+`bash scripts/secret_scan.sh .env.example docs/operations.md`). This requires Bash,
+Git and Python 3; it does not inspect the index contents. Untracked files, symlinks,
+`OrcaServer/` and `databases/` are excluded. Output contains only
+`file:line:rule`; exit codes are 0 for clean, 1 for findings and 2 for invalid
+usage or allowlist configuration. Rules check private keys, credential assignments,
+Oracle connection/wallet references, cloud hosts, IPv4 addresses, home paths and
+emails, with placeholder and documentation-address exceptions. This heuristic scan
+requires review and does not prove the absence of secrets.
+
+Reviewed false positives can use `scripts/secret_scan.allow`: put an explanatory
+comment immediately before each `repository-relative-path:rule:Python-regex` entry.
+The regex suppresses only that rule on matching lines in that exact tracked file;
+other rules still run. Historical username exceptions apply only to `home-path`.
+Reserved example/internal/test/invalid domains, complete placeholder values,
+secret reference/file keys, source expressions and reviewed synthetic literals
+are distinguished from literal credentials. Package lock metadata is scanned
+without treating integrity/resolved fields as credential assignments. CI fixture
+connections to localhost and action references are recognized. Regression tests
+plant plausible credentials and hosts alongside these exceptions.
+Real secrets or host identifiers require a STOP report with locations only,
+without copying values or rewriting history.
