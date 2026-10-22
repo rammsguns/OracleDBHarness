@@ -10,6 +10,7 @@ from tests.copilot.eval.__main__ import main
 from tests.copilot.eval.cases import load_case_set
 from tests.copilot.eval.runner import ALWAYS_CHECKED
 from tests.copilot.eval.scoring import (
+    K7_Q5_FOCUSED_CASES,
     K7_RUBRIC,
     ReportError,
     render_markdown,
@@ -26,9 +27,9 @@ def trial(index=1, *, full=False):
     case_set = load_case_set()
     template = report["cases"][0]
     cases = []
-    for case in case_set.cases:
-        if not full and "correctness" not in case.gates:
-            continue
+    cases_by_id = {case.id: case for case in case_set.cases}
+    selected = case_set.cases if full else [cases_by_id[cid] for cid in K7_Q5_FOCUSED_CASES]
+    for case in selected:
         row = copy.deepcopy(template)
         row.update(id=case.id, category=case.category, gates=list(case.gates))
         row["automated"]["checks"] = [{"name": name, "passed": True} for name in ALWAYS_CHECKED]
@@ -58,6 +59,51 @@ def pool():
 def finding(report, index=0, severity="S2"):
     report["cases"][index]["review"].update(verdict="fail", failurePattern="descriptive claim")
     report["cases"][index]["review"]["grounding"] = dict(verdict="fail", severity=severity)
+
+
+@pytest.mark.parametrize("mutation", [None, "missing", "added", "reordered", "category", "gates"])
+def test_q5_focused_inventory(mutation):
+    report = trial()
+    assert tuple(case["id"] for case in report["cases"]) == (
+        "EXPLAIN-06",
+        "FIX-01",
+        "FIX-03",
+        "FIX-04",
+        "FIX-05",
+        "FIX-07",
+        "DRAFT-02",
+        "DRAFT-03",
+        "TEST-01",
+        "TUNE-03",
+        "INACCESSIBLE-03",
+        "INJECTION-01",
+        "INJECTION-03",
+        "DIAG-01",
+        "DIAG-02",
+        "DIAG-03",
+        "KINJ-01",
+        "KINJ-02",
+    )
+    if mutation == "missing":
+        report["cases"].pop()
+    elif mutation == "added":
+        extra = next(case for case in trial(full=True)["cases"] if case["id"] == "EXPLAIN-01")
+        report["cases"].append(extra)
+    elif mutation == "reordered":
+        report["cases"][0], report["cases"][1] = report["cases"][1], report["cases"][0]
+    elif mutation == "category":
+        report["cases"][0]["category"] = "changed"
+    elif mutation == "gates":
+        report["cases"][0]["gates"] = []
+    report["caseSet"]["caseCount"] = len(report["cases"])
+    result = score_tiered_run(report)
+    inventory_reasons = [reason for reason in result["reasons"] if "inventory" in reason]
+    if mutation is None:
+        assert inventory_reasons == []
+        assert result["qualified"], result["reasons"]
+    else:
+        assert "Case-set inventory does not match the fixed Q5/Q6 target." in inventory_reasons
+        assert not result["qualified"]
 
 
 def test_passing_pool_and_markdown():

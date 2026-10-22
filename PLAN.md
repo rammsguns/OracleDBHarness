@@ -1667,3 +1667,41 @@ inventory does not match"). Not the cause of this failure; fix before the next p
 Reports and pre-review copies are retained (JSON untracked per B1). K-7 remains **NOT
 QUALIFIED**; Kiwi stays off by default. Next: Q0a scorer fix, then a reviewed
 fix wave for patterns 1–3 to form a new candidate, then a new three-trial pool.
+
+### Q0a — Correct Q5 focused inventory — 2026-10-22 — done
+
+Defined `K7_Q5_FOCUSED_CASES` once in the tiered scorer using the established
+18-case order from the K5 calibration, Trials 19–29 and Q5 pool attempt 1.
+Q5 now checks those IDs in order, with categories, gates and review-required
+flags taken from each selected case's own case-set definition. Q6 inventory
+behavior, all Q5/Q6 bars, rubric identity and historical single-report scoring
+and rendering are unchanged. No runner selection option was needed.
+
+Updated tiered fixtures to select the real focused subset and added regression
+coverage for a correct focused trial and missing, added, reordered, recategorized
+or differently gated cases. All existing assertions remain in place.
+
+Re-scored the three retained pool-1 JSON reports ending `211836Z`, `215530Z` and
+`222742Z` into `/tmp/q0a-pool1.md` (CLI exit 1, expected). Result remains
+**CANNOT PASS**, narrow **53/54**, S2 **5/3**; both false inventory reasons are gone.
+The remaining reasons are Trial 3 FIX-07 narrow failure, Trial 3 KINJ-02 missing,
+pending or disputed grounding review, Trial 3 narrow 17/18, S2 over the pool limit,
+and DIAG-02/KINJ-02 each having S2 in two trials (concentration limit one).
+The retained `copilot-eval/strata-k7-q5-pool1.md` was not overwritten.
+
+All uv commands used `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache`.
+
+| Check | Result |
+| --- | --- |
+| Historical `score` of `strata-k7-focused-20261020T155124Z.json` to `/tmp/q0a-historical.md` | Exit 1, expected historical NOT QUALIFIED |
+| `diff` against committed historical Markdown | Exit 0, byte-identical |
+| `uv run pytest -q tests/copilot/test_k7_tiered_scoring.py tests/copilot/test_evaluation_runner.py` | 147 passed in 10.36s; `/tmp/q0a-tests.log` |
+| `uv run ruff check .` | All checks passed; `/tmp/q0a-ruff.log` |
+| `uv run ruff format --check .` | 328 files already formatted; `/tmp/q0a-format.log` |
+| CI mypy command over API, worker, eval, process_death, oracle_config, browser, capacity and dataforge_live | Success, 85 source files; `/tmp/q0a-mypy.log` |
+| `bash scripts/secret_scan.sh` | Exit 0, clean; `/tmp/q0a-secrets.log` |
+| `git diff --check` | Exit 0, clean |
+
+No provider or database access, excluded-directory content reads, retained
+artifact changes, push or branch switch occurred. K-7 remains **NOT QUALIFIED**
+and Kiwi remains off by default; the next candidate fix wave and new pool remain.
