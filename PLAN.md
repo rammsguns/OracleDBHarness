@@ -114,7 +114,7 @@ git diff --check
   **Verify:** the secret scan from B2 passes on the staged set. **Done when:**
   `git status --short copilot-eval` shows only files deliberately left untracked,
   each listed in the completion record.
-- [ ] **B2 Secret scan.** Add a repeatable secret/host scan (script under
+- [x] **B2 Secret scan.** Add a repeatable secret/host scan (script under
   `scripts/`, documented in `docs/operations.md`) and run it over tracked files.
   **Verify:** the scan exits 0 on the tree and non-zero on a planted fixture
   string. **Done when:** findings are fixed or recorded with a reason.
@@ -777,3 +777,101 @@ excludes tracked entries beneath `OrcaServer/` and `databases/` as a safeguard.
 This is a heuristic UTF-8 working-tree scan, not an index/blob or binary scanner.
 B2 remains incomplete and failed until the coordinator resolves actual identifiers
 and the remaining candidates are reviewed; do not start B3.
+
+
+### B2 — Secret scan completion — 2026-10-22 — done
+
+This completion supersedes the failed B2 attempt above (`5dd58dc`, `9976070`),
+without altering its historical record. Work stayed on `plan/B2-secret-scan`.
+Commits: `c6eb173` scrubbed endpoints, the wallet template and live username paths;
+`81006bb` tuned the scanner, documented its behavior and added regressions;
+`6b5e832` corrected an overly broad replacement to retain the example copilot
+URL on loopback. This completion record is a separate documentation commit.
+
+The coordinator authorized replacing current-tree host identifiers with stand-ins,
+keeping historical username paths only as per-file, home-path-only exceptions.
+The old values remain in public git history: no history rewrite or force operation
+was performed. The D4 owner should restrict network access to that endpoint.
+No original endpoint values are reproduced here or in commit messages.
+
+| Rule | Before this completion attempt | Final hits |
+| --- | ---: | ---: |
+| private-key | 0 | 0 |
+| credential-assignment | 513 | 0 |
+| oracle-connect | 22 | 0 |
+| wallet-path | 0 | 0 |
+| cloud-host | 3 | 0 |
+| ipv4 | 4 | 0 |
+| home-path | 114 | 0 |
+| email | 90 | 0 |
+| **Total candidate line/rule hits** | **746** | **0** |
+
+The baseline differs from the previous attempt's home-path count because its
+completion commit had already replaced the earlier B1 record's root path.
+These are heuristic candidate hits, not counts of confirmed secrets.
+
+Scrubbed locations (values deliberately omitted):
+
+- `.env.real.example:8:ipv4`
+- `.env.real.example:8:cloud-host`
+- `databases.example/targets.json.example:63:ipv4`
+- `databases.example/targets.json.example:76:cloud-host`
+- `databases.example/targets.json.example:78:cloud-host`
+- `databases.example/targets.json.example:87:home-path`
+- `databases.example/targets.json.example:87:wallet-path`
+- `restart_strata.md:24:home-path`
+- `restart_strata.md:40:home-path`
+- `restart_strata.md:47:home-path`
+- `restart_strata.md:94:home-path`
+- `restart_strata.md:95:home-path`
+- `restart_strata.md:96:home-path`
+- `restart_strata.md:97:home-path`
+- `scripts/restart_strata.sh:4:home-path`
+- `scripts/strata_stats.sh:4:home-path`
+- `strata_utils.md:30:home-path`
+- `strata_utils.md:31:home-path`
+- `strata_utils.md:32:home-path`
+- `strata_utils.md:42:home-path`
+- `strata_utils.md:88:ipv4`
+
+The copilot base URL at `.env.real.example:12` is verified as loopback. The
+walletDir field retains its JSON key and uses a relative target placeholder;
+all target JSON remains parseable. Live shell paths use the runtime HOME variable.
+
+Allowlist: **five commented, exact-file, rule-scoped entries**:
+
+- `claude_k7.md:home-path`: retain username paths in dated historical evidence.
+- `claude_tasks.md:home-path`: same historical-record rationale.
+- `codex_tasks.md:home-path`: same historical-record rationale.
+- `tests/copilot/test_local_provider.py:ipv4`: one exact synthetic non-loopback
+  URL line verifies provider refusal; no other address in that file is exempt.
+- `tests/unit/test_bootstrap_targets.py:wallet-path`: one exact disposable
+  temporary wallet fixture line; other wallet paths still fail.
+
+No docs review or copilot-eval report needed an additional home-path exception.
+Domain placeholders, secret reference/file keys, empty/template values, source
+expressions, token metadata and reviewed synthetic credentials use narrow rule
+handling rather than file-wide exclusions. Package-lock integrity/resolved
+metadata requires no blanket exemption. Historical exceptions cannot suppress
+credentials, keys, cloud hosts or addresses on the same line. Regression tests
+pair these exceptions with real-looking credentials/hosts and verify non-allowlisted
+home paths, a non-documentation public address and tenancy-specific cloud services
+still fail; planted fixture scans return 1 and clean fixtures return 0.
+
+Verification (UV_CACHE_DIR set to the authorized temporary cache):
+
+- `bash scripts/secret_scan.sh ; echo exit=$?`: no findings, **exit=0**.
+- `python3 -c "import json;json.load(open('databases.example/targets.json.example'))"`:
+  no output, **exit=0**.
+- `uv run pytest -q tests/test_secret_scan.py tests/ -k "bootstrap or target or secret_scan"`:
+  **102 passed, 3 skipped, 2442 deselected**, exit 0. The skips are the existing
+  environment-dependent target/qualification checks, not secret scan failures.
+- `uv run ruff format --check .`: **309 files already formatted**, exit 0.
+- `uv run ruff check .`: **All checks passed**, exit 0.
+- `git diff --check plan/B1-triage-eval-output`: no output, exit 0.
+
+The scanner still enumerates tracked files only and skips excluded stores,
+symlinks and non-UTF-8 files; it scans the working tree, not historical blobs or
+staged content. Untracked evaluation artifacts were not read, staged or deleted.
+No push, PR, provider run, database access or access to excluded source stores
+occurred. B2 is complete; B3 was not started.
