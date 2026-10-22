@@ -1695,10 +1695,10 @@ class CopilotService:
             answered = is_diagnosis(state.final_text) and end is not None
         else:
             answered = False
-        for event in self._bounded_fallback(
+        for settled in self._bounded_fallback(
             state, lookups, refused, streamed, revisable, answered=answered
         ):
-            yield event
+            yield settled
 
     def _bounded_fallback(
         self,
