@@ -136,7 +136,7 @@ artifacts included in changes. Documentation consolidation alone does not pass i
 - [x] **P3** Check the diagnostic catalog for licensed features (fixed list above)
   and verify restricted grants degrade to explicit permission states rather than
   false healthy results.
-- [ ] **P4 Pin the driver.** `services/worker/pyproject.toml` declares
+- [x] **P4 Pin the driver.** `services/worker/pyproject.toml` declares
   `oracle = ["oracledb>=2.4"]` and `uv.lock` resolves it unpinned. Change it to
   `oracledb==4.0.2`, run `uv lock`, and check the deployment image installs that
   version. **Verify:** `uv run python -c "import oracledb; print(oracledb.__version__)"`
@@ -1173,3 +1173,43 @@ No real Oracle/provider/database access, excluded-store reads, contract changes,
 deletions, untracked evaluation-artifact edits, push or PR occurred. Orca
 coordination used only the configured CLI executable. P3 is complete; P4 was not
 started.
+
+
+### P4 — Pin the driver — 2026-10-22 — done
+
+Implementation commit on `plan/P4-pin-oracledb`, branched from
+`plan/P3-licensed-features` (`b7b5520`). This completion record is a separate
+commit. Changed `services/worker/pyproject.toml`'s `oracle` extra from
+`oracledb>=2.4` to `oracledb==4.0.2` and ran `uv lock`; `uv.lock` now resolves
+oracledb `4.0.2` with specifier `==4.0.2`.
+
+Deployment-path audit: the only place oracledb is installed is
+`deploy/Dockerfile.api` (`pip install "./services/worker[oracle]"`), which
+resolves the extra from the now-pinned `pyproject.toml`, so no separate pin was
+needed. `deploy/Dockerfile.web`, `deploy/compose.yaml`,
+`deploy/backup-restore-drill.sh`, `.github/workflows/ci.yml` and `docs/setup.md`
+install no oracledb directly (CI uses `uv sync --frozen` without the `oracle`
+extra). No unpinned `pip install oracledb` exists anywhere.
+
+Added a short **Pinned version** note under `docs/compatibility.md`'s tested
+table stating that changing the pin is a PLAN.md G5 version change requiring
+requalification of each affected staging shape. No recorded run entry was
+altered.
+
+| Command | Exit | Result / saved output |
+| --- | ---: | --- |
+| `uv lock` | 0 | resolved 63 packages; `uv.lock` specifier `==4.0.2`, version `4.0.2` |
+| `uv sync --all-extras` | 0 | installed `oracledb==4.0.2` |
+| `uv run python -c "import oracledb; print(oracledb.__version__)"` | 0 | `4.0.2` |
+| `uv run ruff format --check .` | 0 | 314 files already formatted |
+| `uv run ruff check .` | 0 | All checks passed |
+| `npm --prefix apps/web run typecheck` | 0 | tsc --noEmit clean |
+| `uv run pytest -q` | 0 | **2628 passed, 83 skipped, 0 failures**, 532.99s; `/tmp/p4-pytest-full.log` |
+| `git diff --check` | 0 | no output |
+
+All uv commands used `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache`. The full
+pytest suite ran **once**. The 83 skips remain environment-dependent
+Oracle/OIDC/PostgreSQL qualification checks. No real Oracle/provider/database
+access, excluded-store reads, contract changes, deletions, untracked
+evaluation-artifact edits, push or PR occurred. P4 is complete; P6 follows on its
+own branch.
