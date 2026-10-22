@@ -97,7 +97,7 @@ git diff --check
 
 ## 1. Reconcile the baseline
 
-- [ ] **B0 Commit the consolidation.** The deletion of the nine old plans, the edits
+- [x] **B0 Commit the consolidation.** The deletion of the nine old plans, the edits
   to README, docs and task files, and this file are uncommitted on `main`. Move them
   to `plan/B0-commit-consolidation` and open a PR. Repoint live (non-historical)
   references to removed plans: `.env.example` lines 40 and 93,
@@ -106,7 +106,7 @@ git diff --check
   **Verify:** `git status --short -- ':!copilot-eval'` is empty after commit;
   `git grep -n -E "MVP_PLAN|NEXT_PHASE_PLAN|k7-remediation-plan" -- .env.example deploy`
   returns nothing. **Done when:** the PR is open and not merged by the agent.
-- [ ] **B1 Triage untracked evaluation output.** About 150 files under
+- [x] **B1 Triage untracked evaluation output.** About 150 files under
   `copilot-eval/` are untracked. List them by run and decide for each: commit as
   evidence (reports referenced by a review), or add a `.gitignore` rule for scratch
   (`*.log`, `*.pre-review.json`, `*.pre-ai-review.json`). Delete nothing. Scan every
@@ -118,7 +118,7 @@ git diff --check
   `scripts/`, documented in `docs/operations.md`) and run it over tracked files.
   **Verify:** the scan exits 0 on the tree and non-zero on a planted fixture
   string. **Done when:** findings are fixed or recorded with a reason.
-- [ ] **B3 Record current checks.** Run the standard checks on the B0 branch and
+- [x] **B3 Record current checks.** Run the standard checks on the B0 branch and
   record counts. Fix formatting only within the files a task touches.
   **Done when:** every failure is recorded with the failing test IDs.
 
@@ -333,7 +333,7 @@ evaluation output), K0 (Wave 2X review), and made the driver pin a concrete task
 
 2026-10-22 B0 — consolidation committed as `d1abbf4` on
 `plan/B0-commit-consolidation`; this completion record is a separate follow-up
-commit. Reviewed every modified tracked file before staging: all changes were
+commit. PR #41 is open. Reviewed every modified tracked file before staging: all changes were
 plan-reference/documentation consolidation, including comment-only updates in
 `.env.example` and `deploy/backup-restore-drill.sh`. Eight tracked old-plan
 deletions were committed; the coordinator confirmed that the ninth document was
@@ -363,7 +363,7 @@ B1 was not started.
 
 2026-10-22 B1 — evaluation-output triage completed on
 `plan/B1-triage-eval-output`; evidence/ignore commit `c90c008`; this
-completion record is the separate second commit. Inventory: 144 initially
+completion record is the separate second commit. PR #42 is open. Inventory: 144 initially
 untracked files in 42 basename groups (the plan estimated about 150).
 No evaluation file was edited, moved or deleted. No source, tests, database
 inventory or Orca runtime files were staged or changed.
@@ -781,8 +781,9 @@ and the remaining candidates are reviewed; do not start B3.
 
 ### B2 — Secret scan completion — 2026-10-22 — done
 
-This completion supersedes the failed B2 attempt above (`5dd58dc`, `9976070`),
-without altering its historical record. Work stayed on `plan/B2-secret-scan`.
+PR #43 is open. This completion supersedes the failed B2 attempt above
+(`5dd58dc`, `9976070`), without altering its historical record. Work stayed on
+`plan/B2-secret-scan`.
 Commits: `c6eb173` scrubbed endpoints, the wallet template and live username paths;
 `81006bb` tuned the scanner, documented its behavior and added regressions;
 `6b5e832` corrected an overly broad replacement to retain the example copilot
@@ -875,3 +876,36 @@ symlinks and non-UTF-8 files; it scans the working tree, not historical blobs or
 staged content. Untracked evaluation artifacts were not read, staged or deleted.
 No push, PR, provider run, database access or access to excluded source stores
 occurred. B2 is complete; B3 was not started.
+
+### B3 — Record current checks — 2026-10-22 — done
+
+Ran the standard checks on `plan/B3-record-checks` (branched from
+`plan/B2-secret-scan`). All six checks passed; no test failed, so there are no
+failing test IDs to record. No source file was edited; only this completion
+record changed. `node_modules` was already present under `apps/web`, so no
+`npm ci` was needed.
+
+| Command | Exit | Result |
+| --- | ---: | --- |
+| `uv run ruff format --check .` | 0 | 309 files already formatted |
+| `uv run ruff check .` | 0 | All checks passed |
+| `uv run pytest -q` | 0 | 2464 passed, 83 skipped, 0 failed (445.40s) |
+| `npm --prefix apps/web run typecheck` | 0 | `tsc --noEmit` clean |
+| `bash scripts/secret_scan.sh` | 0 | no findings |
+| `git diff --check plan/B2-secret-scan` | 0 | no output |
+
+All `uv` invocations used `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache`.
+
+Skipped-test reason summary (83 total, all environment-dependent, none a
+failure):
+
+- 65 skipped: no Oracle target configured (`oracle_only` / qualification
+  suites; require `HARNESS_QUAL_ORACLE_DSN` and credentials).
+- 7 skipped: OIDC issuer not set (`HARNESS_TEST_OIDC_ISSUER`; Keycloak
+  qualification realm).
+- 11 skipped: no disposable PostgreSQL URL (`HARNESS_TEST_POSTGRES_URL`).
+
+No provider, database or Oracle access was performed; no environment variables
+enabling a real Oracle target, database or provider were set. B0, B1 and B2
+checkboxes are marked done with their open PRs (#41, #42, #43) noted above.
+P1 was not started.
