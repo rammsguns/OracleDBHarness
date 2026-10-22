@@ -25,3 +25,34 @@ apps/web/.vite/
 
 # Local Orca server install and its runtime data (keys, session databases). Never commit.
 /OrcaServer/
+
+# B1: uncited evaluation logs and pre-review scratch snapshots only.
+/copilot-eval/cmp-strata-k7-focused-20261021T060834Z.log
+/copilot-eval/cmp-strata-k7-focused-20261021T060834Z.pre-review.json
+/copilot-eval/diag-2026-10-16-focused-1.pre-ai-review.json
+/copilot-eval/diag-2026-10-16-focused-2.pre-ai-review.json
+/copilot-eval/diag-2026-10-16-focused-3.pre-ai-review.json
+/copilot-eval/run-2026-10-15-case-limits.log
+/copilot-eval/run-2026-10-15-explain-time.log
+/copilot-eval/run-2026-10-15-last-turn.log
+/copilot-eval/run-2026-10-15-source-search.log
+/copilot-eval/run-2026-10-16-one-block.log
+/copilot-eval/strata-k7-focused-20261016T214747Z.pre-ai-review.json
+/copilot-eval/strata-k7-focused-20261016T222023Z.pre-ai-review.json
+/copilot-eval/strata-k7-focused-20261016T224557Z.pre-ai-review.json
+/copilot-eval/strata-k7-focused-20261017T000141Z.pre-ai-review.json
+/copilot-eval/strata-k7-focused-20261017T052221Z.pre-ai-review.json
+/copilot-eval/strata-k7-focused-20261017T054408Z.pre-ai-review.json
+/copilot-eval/strata-k7-focused-20261017T061240Z.pre-ai-review.json
+/copilot-eval/strata-k7-focused-20261017T071121Z.pre-ai-review.json
+/copilot-eval/strata-k7-focused-20261017T073417Z.pre-ai-review.json
+/copilot-eval/strata-k7-focused-20261017T075344Z.pre-ai-review.json
+/copilot-eval/strata-k7-focused-20261017T150834Z.pre-ai-review.json
+/copilot-eval/strata-k7-focused-20261018T005950Z.pre-ai-review.json
+/copilot-eval/strata-k7-focused-20261018T014422Z.pre-ai-review.json
+/copilot-eval/strata-k7-focused-20261018T023504Z.pre-ai-review.json
+/copilot-eval/strata-k7-focused-20261018T032443Z.pre-ai-review.json
+/copilot-eval/strata-k7-focused-20261020T144306Z.log
+/copilot-eval/strata-k7-focused-20261020T144306Z.pre-ai-review.json
+/copilot-eval/strata-k7-focused-20261020T155124Z.log
+/copilot-eval/strata-k7-focused-20261020T155124Z.pre-ai-review.json

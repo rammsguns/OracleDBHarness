@@ -1,0 +1,9 @@
+{
+  "reviewer": "Codex (AI; single-agent self-review, 2026-10-20); not a DBA review",
+  "method": "Single-agent Codex self-review of all 18 delivered answers/proposals, retained drafts, raw lookups and fixed rubrics; rubric and full factual grounding judged separately. D1 compilation/parse and 66 semantic checks have limited scope, not DBA sign-off.",
+  "report": "strata-k7-focused-20261020T144306Z.json",
+  "unchangedOriginal": "strata-k7-focused-20261020T144306Z.pre-ai-review.json",
+  "note": "Diagnostic subset of 18 cases; none of this qualifies.",
+  "compileLog": "databases/reports/k7-proposal-compile-20261020T150154Z.log",
+  "oracleLog": "databases/reports/k7-oracle-checks-20261020T150202Z.log"
+}
