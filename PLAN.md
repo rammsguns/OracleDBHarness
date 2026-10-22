@@ -198,7 +198,7 @@ task.
   Replay retained Trials 25–29 and Q5 pool attempt 1, add generic controls, and run
   the copilot suite, lint, format, CI types, secret scan and diff checks. No provider
   or database access. Completion record below; independent review remains K7.
-- [ ] **K7 Review of K6.** Independently review detector coverage, negative controls,
+- [x] **K7 Review of K6.** Independently review detector coverage, negative controls,
   retained replay and passing-answer false positives under the grounding rubric.
   Publish a dated review and verification evidence. This does not authorize a
   provider run. **STOP.**
@@ -1804,3 +1804,32 @@ count), without changing product behavior after the full run began. The final
 38-test run of that entire file passes. The full suite was not rerun, honoring
 the requested single-run constraint; a clean post-update full-suite run is not
 claimed. Independent K7 review remains outstanding.
+
+
+### K7 — Review of K6 — 2026-10-22 — done
+
+Independent review completed on `plan/K6-visibility-claims`. Published
+`docs/k7-k6-review-2026-10-22.md` with verdict **PASS WITH FINDINGS**. Product
+code and tests were read-only and unmodified.
+
+Verified:
+- Generic patterns: no case IDs, case-specific object names, or expected answers
+  in product code.
+- Coverage: independent replay across all 8 retained reports (236 stages, 144
+  delivered answers) under `/tmp/oracledbharness-k7/` confirms 8/8 graded visibility
+  S2 delivered answers flagged (up from baseline 2/8) and 23 stages with added findings.
+- False positives: 0 new flags on all 123 delivered grounding passes; 16 adversarial
+  negative probes passed without false positives, and 12 positive probes in new
+  wordings were flagged as expected.
+- Safety: no safety or grounding assertions weakened or removed; test diffs verified;
+  Kiwi prompt unchanged as existing rules in `context.py` already forbid widening
+  searches into nonexistence.
+- Four low-severity findings document detector lexical boundaries (`_ABSENCE_OPEN`
+  omitting `possible`/`possibility`; `_UNSEEN` omitting `remains`/`stays` before
+  single-word negative adjectives; unbackticked user quote handling; and conservative
+  suppression on any lookup failure).
+- Verification: 100/100 targeted pytest passed, ruff check and format clean, CI mypy
+  clean (85 files), secret scan clean, git diff check clean.
+
+K-7 remains **NOT QUALIFIED**, Kiwi remains off by default, and no provider run is
+authorized.
