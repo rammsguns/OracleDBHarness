@@ -10,6 +10,9 @@ from __future__ import annotations
 
 
 class HarnessError(Exception):
+    # Set by the API when a refusal is audited.
+    refusal_audited: bool
+
     code = "harness_error"
     http_status = 500
     retryable = False
@@ -55,6 +58,11 @@ class ValidationError(HarnessError):
 
 class PolicyError(HarnessError):
     """The request is well formed but the policy layer refuses it."""
+
+    # Set by the API when a refusal is audited.
+    audit_profile_id: str
+    audit_operation_id: str
+    audit_permission: str
 
     code = "policy_refused"
     http_status = 403
