@@ -240,7 +240,7 @@ export function WorksheetView({
     }
   };
 
-  if (!target.worksheetsEnabled) {
+  if (target.environment === "production" || !target.worksheetsEnabled) {
     return (
       <div className="notice warn">
         Free-form worksheets are not enabled on {target.name}. Reviewed diagnostics are

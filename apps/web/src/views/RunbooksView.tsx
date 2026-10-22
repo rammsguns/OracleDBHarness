@@ -149,7 +149,10 @@ export function RunbooksView({ target }: { target: Target }) {
             </h3>
             <p className="meta">{runbook.id}</p>
             <p>{runbook.description}</p>
-            <button disabled={running} onClick={() => choose(runbook)}>
+            <button
+              disabled={running || (target.environment === "production" && runbook.mutating)}
+              onClick={() => choose(runbook)}
+            >
               Select
             </button>
           </section>
@@ -183,7 +186,10 @@ export function RunbooksView({ target }: { target: Target }) {
             </button>
             <button
               className="primary"
-              disabled={running || (selected.mutating && !confirmable)}
+              disabled={
+                running ||
+                (selected.mutating && (!confirmable || target.environment === "production"))
+              }
               onClick={() => runNow(selected)}
             >
               {running ? "Running..." : selected.mutating ? "Confirm and run" : "Run"}

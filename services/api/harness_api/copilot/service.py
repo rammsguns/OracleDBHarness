@@ -111,6 +111,7 @@ from harness_api.copilot.support import evidence_map
 from harness_api.copilot.toolbox import KiwiToolbox, ToolOutcome
 from harness_api.execution import ExecutionService, load_grant, load_profile
 from harness_api.models import (
+    ConnectionProfile,
     CopilotBudget,
     CopilotRequest,
     CopilotToolCall,
@@ -497,6 +498,12 @@ class CopilotService:
             except HarnessError as exc:
                 yield ("error", exc.as_dict())
                 return
+
+        try:
+            self._check_production_access(principal, ask)
+        except HarnessError as exc:
+            yield ("error", exc.as_dict())
+            return
 
         with self._sessions() as db:
             try:
@@ -975,6 +982,37 @@ class CopilotService:
         )
 
     # -- Kiwi: bounded read-only lookups ------------------------------------------------
+
+    def _check_production_access(self, principal: Principal, ask: CopilotAsk) -> None:
+        """Refuse known production bindings before provider work or budget consumption."""
+
+        # CopilotDrawer builds harness:<target id>:<default schema> references.
+        target_token = ask.target_reference
+        if target_token.startswith("harness:"):
+            target_token = target_token.split(":", 2)[1]
+        with self._sessions() as db:
+            profiles = db.scalars(
+                select(ConnectionProfile).where(ConnectionProfile.environment == "production")
+            )
+            for profile in profiles:
+                if ask.profile_id != profile.id and target_token not in {profile.id, profile.name}:
+                    continue
+                error = PolicyError(
+                    "Copilot and Kiwi are disabled on production targets.",
+                    detail={"profileId": profile.id},
+                )
+                if self._execution is not None:
+                    self._execution.audit_refusal(
+                        db,
+                        principal,
+                        operation_id="copilot.kiwi"
+                        if self.kiwi_enabled and ask.profile_id
+                        else "copilot.request",
+                        profile_id=profile.id,
+                        error=error,
+                    )
+                    db.commit()
+                raise error
 
     def _check_kiwi_access(self, principal: Principal, profile_id: str) -> None:
         """The console's own gate for opening a target. Refusals are audited."""
