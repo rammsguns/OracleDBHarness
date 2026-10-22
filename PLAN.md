@@ -160,7 +160,7 @@ editing `service.py`. Keep protocol contracts (`packages/contracts`) unchanged;
 any grounding-check change outside these files is a separate, separately reviewed
 task.
 
-- [ ] **K0 Review Wave 2X.** No dated review exists for the code committed in
+- [x] **K0 Review Wave 2X.** No dated review exists for the code committed in
   `2a73d4f`. Publish `docs/k7-wave2x-review-2026-10-<dd>.md` covering the handoff's
   checks: replay of retained Trial 25–29 events, adversarial probes for the four
   unfixed Part A misses, and the T26 KINJ-02 finding it introduced. Also review the
@@ -1262,3 +1262,49 @@ Oracle/OIDC/PostgreSQL qualification checks. No real Oracle/provider/database
 access, excluded-store reads, contract changes, deletions, untracked
 evaluation-artifact edits, push or PR occurred. P6 is complete; P5 (HUMAN) and
 section 3 were not started.
+
+
+### K0 — Review Wave 2X — 2026-10-22 — done
+
+Review and completion-record commit on `plan/K0-wave2x-review`, branched from
+`plan/P6-production-config` (`bb49379`). Deliverable:
+[Wave 2X review](docs/k7-wave2x-review-2026-10-22.md), verdict **PASS WITH FINDINGS**;
+no new high-severity implementation finding. Product code, tests, contracts,
+historical reports and original grades are unchanged.
+
+Reconstructed offline replay under `/tmp/oracledbharness-k0/` reproduces **148
+answer/stage events, 90 delivered answers** across Trials 25–29. Nine additions
+occur only on T26 KINJ-02, T29 EXPLAIN-06 and T29 DIAG-02 (three stages each);
+T29 EXPLAIN-06 answer-stage `missing_remedy` is removed. No difference from the
+handoff's claimed detector changes. The pre-2X comparator disables the two new
+checks and removes the new remedy directive alternative; it is a reconstructed
+baseline, not a separately retained historical checkout.
+
+Seven adversarial phrasings confirm all four documented Part A mechanisms remain
+missed. Among 77 independently accepted delivered answers, no additional answer
+gains either new kind beyond disputed T26 KINJ-02; **0/59 correct plain answers**
+would lose text. Four independently failed plain answers would lose flagged
+sentences. Ten semantic controls and ten direct bound/fallback scenarios pass;
+a four-event synthetic development stream is identical through the P1a wrapper.
+The T26/T29 grade conflict is recorded for K5, not resolved.
+
+The untracked/ignored October 21 diagnostic was read in place: harness `952920f`
+with uncommitted changes, recognizable Wave 2X fallback revisions and absence
+checking, but no exact source snapshot. Its 9/18 correctness denominator is
+9/9 selected correctness cases; selected total is 17/18 with 3/4 safety. KINJ-02
+fails error-explanation coverage, not injection compliance; diagnostic only.
+
+| Command | Exit | Result / saved output |
+| --- | ---: | --- |
+| `uv run python /tmp/oracledbharness-k0/compare.py` | 0 | 148 events, 90 delivered; nine additions, one removal; `compare.log`, `replay.json` |
+| `uv run python /tmp/oracledbharness-k0/probes.py` | 0 | seven expected misses; positive line control; ten bound/fallback scenarios; identical four-event wrapper stream; `probes.log` |
+| `uv run python /tmp/oracledbharness-k0/controls.py` | 0 | 10/10 semantic controls |
+| `uv run pytest -q tests/copilot` | 0 | **1879 passed, 0 failed**, 328.73s; `/tmp/oracledbharness-k0/pytest.log`; ran **once** |
+| `git diff --check` and `git diff --cached --check` | 0 | clean |
+
+All uv commands used `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache`. Known lexical
+gaps, old-protocol/checker-failure delivery and finite-sample false-positive limits
+remain explicit in the review. K-7 remains NOT QUALIFIED; Kiwi remains off by
+default. **This review does not authorize a provider run.** No provider/Strata/local
+model calls, Oracle/database access, excluded-store content reads, deletions,
+evaluation-artifact changes, push or PR occurred. K1 was not started.
