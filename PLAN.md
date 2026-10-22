@@ -131,7 +131,7 @@ artifacts included in changes. Documentation consolidation alone does not pass i
   writes, compile, mutating runbooks, copilot and Kiwi, including direct API
   requests. Add missing regression tests; do not change refusal semantics.
 - [x] **P1a Audit refusals.** Refused direct REST calls (worksheet open, compile, tuning explain, runbook run, admin target create) raise PolicyError before any AuditEvent is written; decide whether every policy refusal must be audited and, if so, record refusals at one central point. Found by the P1 review (2026-10-22).
-- [ ] **P2** Verify Oracle 19c identity checks fail closed for unsupported production
+- [x] **P2** Verify Oracle 19c identity checks fail closed for unsupported production
   targets (23ai/26ai, unknown banner, identity lookup failure).
 - [ ] **P3** Check the diagnostic catalog for licensed features (fixed list above)
   and verify restricted grants degrade to explicit permission states rather than
@@ -1061,3 +1061,53 @@ REST response bodies/statuses, SSE events and contracts are unchanged.
 No push, PR, real Oracle/provider/database access, excluded-store reads,
 untracked evaluation-artifact edits or deletions occurred. Orca coordination used
 only the configured CLI executable. P1a is complete; P2 was not started.
+
+
+### P2 — Oracle 19c identity fails closed — 2026-10-22 — done
+
+Implementation commit: `e41739e` on `plan/P2-19c-identity`, branched from
+`plan/P1a-audit-refusals` (`b1bfe69`). This completion record is a separate commit.
+The audit found a real gap: `probe_target` accepted any identity and policy only
+checked operation minimum versions, allowing unknown and newer production targets.
+The coordinator approved exact-major-19 checks at probe time and central
+read authorization, plus durable cache invalidation before production re-probing.
+A failed connection, identity lookup or timeout now removes earlier 19c proof.
+Non-production behavior and contracts remain unchanged.
+
+Identity comes from `OracleDbConnection.identity`: USERENV supplies database,
+instance, host, current schema/user, container name/ID and session ID;
+`product_component_version` supplies numeric version and banner, with the existing
+server-reported `connection.version` fallback on unreadable version queries.
+Edition is not a separate identity field or an authorization criterion. The
+coordinator explicitly approved retaining this fallback regardless of the view
+failure: an authoritative numeric server version proves identity independently of
+banner text. Unknown/unparseable numeric versions fail closed; unknown banner text
+with a proved numeric 19 is allowed. Container/edition wording does not prove 19c.
+The Oracle adapter itself is unchanged. This rule is documented in
+`docs/operations.md` under Production boundary.
+
+Added **24 regressions** in `tests/unit/test_production_identity.py`: numeric 19
+positive including successful production panels, 23ai/26ai/18 refusals, empty and
+unparseable versions, unchanged development probing, central unprobed/unsupported
+refusals, identity error/timeout with and without cached 19c, failed connection
+cache invalidation, explicit unavailable production panels after failed proof,
+and authoritative driver-version fallback. Tests use fake targets and driver
+stand-ins only. Updated the existing positive production policy test to provide
+its newly required 19c proof.
+
+| Command | Exit | Result / saved output |
+| --- | ---: | --- |
+| `uv run pytest -q tests/unit/test_production_identity.py tests/unit/test_policy.py` | 0 | **36 passed**, 10.20s; `/tmp/p2-focused.log` |
+| `uv run ruff format --check .` | 0 | **312 files already formatted**; `/tmp/p2-format.log` |
+| `uv run ruff check .` | 0 | **All checks passed**; `/tmp/p2-ruff.log` |
+| `npm --prefix apps/web run typecheck` | 0 | **tsc --noEmit clean**; `/tmp/p2-typecheck.log` |
+| `bash scripts/secret_scan.sh` | 0 | **no findings**, including staged tests; `/tmp/p2-secret-scan.log` |
+| `uv run pytest -q` | 0 | **2527 passed, 83 skipped, 0 failures**, 496.39s; `/tmp/p2-pytest-full.log` |
+| `git diff --check` and `git diff --cached --check` | 0 | **no output** |
+
+All uv commands used `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache`. Full suite ran
+**once**, after all code/tests were final. Skips remain environment-dependent
+Oracle/OIDC/PostgreSQL qualification checks; stand-ins do not qualify live Oracle.
+No real Oracle/provider/database access, excluded-store reads, contract changes,
+deletions, untracked artifact edits, push or PR occurred. Orca coordination used
+only the configured CLI executable. P2 is complete; P3 follows on its own branch.
