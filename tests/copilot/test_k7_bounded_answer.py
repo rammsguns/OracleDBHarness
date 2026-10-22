@@ -23,6 +23,7 @@ whose model answer stands. Nothing here calls a real model or a database.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -480,3 +481,105 @@ def test_interim_notes_are_not_a_diagnosis() -> None:
     assert not is_diagnosis("**Finding:**\n**Evidence:** lookup 1.")
     assert not is_diagnosis("Finding the destination next.")
     assert is_diagnosis("**Finding**\n\nThe job failed with ORA-20001.\n\n**Unknown:** why.")
+
+
+# -- generic application-error meaning (K2/K3) --------------------------------------------
+
+
+def returned_error(number: int, *, scheduler: bool = False) -> LookupFacts:
+    if scheduler:
+        return LookupFacts(
+            "dba.scheduler_run_history",
+            True,
+            ["OWNER", "JOB_NAME", "LOG_ID", "STATUS", "ERROR_NUMBER", "ADDITIONAL_INFO"],
+            [["APP", "NIGHTLY", 17, "FAILED", number, f"ORA-{abs(number):05d}: application text"]],
+            {"owner": "APP", "job_name": "NIGHTLY"},
+            sequence=1,
+        )
+    return LookupFacts(
+        "custom.errors",
+        True,
+        ["ERROR_MESSAGE"],
+        [[f"ORA-{abs(number):05d}: application text"]],
+        {},
+        sequence=1,
+    )
+
+
+@pytest.mark.parametrize("number", [20000, 20001, 20999, -20001])
+def test_application_error_with_retained_job_evidence_is_cited(number) -> None:
+    answer = render([returned_error(number, scheduler=True)], ["steps"])
+    assert "application errors raised by application code via RAISE_APPLICATION_ERROR" in answer
+    assert "Their number and text are defined by that code, not by Oracle" in answer
+    assert f"ORA-{abs(number):05d} (lookup 1)" in answer
+    assert "APP.NIGHTLY log 17" in answer
+    assert f"error number {number}: ORA-{abs(number):05d}: application text (lookup 1)" in answer
+
+
+def test_application_error_without_source_evidence_explains_meaning_only() -> None:
+    scoped_search = LookupFacts(
+        "schema.object_source_search",
+        True,
+        ["LINE", "TEXT"],
+        [],
+        {"owner": "APP", "object_name": "SUSPECT", "search": "RAISE_APPLICATION_ERROR"},
+        sequence=2,
+    )
+    detail = LookupFacts(
+        "dba.scheduler_job_detail",
+        True,
+        ["OWNER", "JOB_NAME", "JOB_TYPE", "JOB_ACTION"],
+        [["APP", "NIGHTLY", "STORED_PROCEDURE", "APP.UNREAD_PROGRAM"]],
+        {"owner": "APP", "job_name": "NIGHTLY"},
+        sequence=3,
+    )
+    answer = render([returned_error(20001), scoped_search, detail], ["steps"])
+    finding = answer.split("**Evidence:**")[0]
+    assert "ORA-20001 (lookup 1)" in finding
+    assert "RAISE_APPLICATION_ERROR" in finding
+    assert "not by Oracle" in finding
+    assert "APP.NIGHTLY" not in finding and "UNREAD_PROGRAM" not in finding
+    assert "SUSPECT" not in finding
+    for unsupported in (
+        "not visible",
+        "does not exist",
+        "no raising",
+        "raised by APP",
+        "raises it",
+    ):
+        assert unsupported not in answer
+    # An action name remains only a job field, not an assertion that it raised the error.
+    assert "job_action APP.UNREAD_PROGRAM" in answer
+
+
+def test_application_error_number_without_message_still_has_meaning() -> None:
+    lookup = returned_error(20001, scheduler=True)
+    lookup.rows[0][-1] = None
+    answer = render([lookup], ["steps"])
+    assert "ORA-20001 (lookup 1)" in answer
+    assert "RAISE_APPLICATION_ERROR" in answer
+
+
+@pytest.mark.parametrize("number", [19999, 21000, 1403])
+def test_non_application_error_control_keeps_rendering_unchanged(number) -> None:
+    lookup = returned_error(number)
+    answer = render([lookup], ["steps"])
+    assert answer == (
+        "**Finding:** The harness wrote this answer: the request reached its limit on model "
+        "turns before the model wrote a diagnosis. It repeats what the lookups returned "
+        "and concludes no cause. The lookups returned "
+        f"ORA-{number:05d}: application text (lookup 1).\n\n"
+        "**Evidence:**\n- custom.errors: 1 row, complete (not truncated) (lookup 1)\n\n"
+        "**Unknown:**\n- The cause: no diagnosis was written from these results, and none "
+        "is inferred here.\n\n**Remedy:** None proposed: these results have not been "
+        "diagnosed. Any action on a session or a job is for the user or their DBA to decide."
+    )
+
+
+def test_failed_lookup_does_not_supply_application_error_or_source_evidence() -> None:
+    lookup = returned_error(20001, scheduler=True)
+    lookup = replace(lookup, succeeded=False)
+    answer = render([lookup], ["steps"])
+    assert "RAISE_APPLICATION_ERROR" not in answer
+    assert "ORA-20001" not in answer
+    assert "log 17" not in answer

@@ -120,6 +120,7 @@ def test_production_still_allows_reviewed_reads() -> None:
         grant=grant(PERMISSION_READ),
         permission=PERMISSION_READ,
         risk=RiskClass.READ,
+        target_major_version=19,
     )
     assert decision.allowed
 

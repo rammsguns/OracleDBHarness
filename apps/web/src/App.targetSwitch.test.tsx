@@ -209,3 +209,42 @@ describe("the copilot across a target switch", () => {
     expect(screen.queryByRole("heading", { name: "Kiwi" })).toBeNull();
   });
 });
+
+describe("the production boundary", () => {
+  const production = makeTarget({
+    id: "prf_prod",
+    name: "production",
+    environment: "production",
+    worksheetsEnabled: true,
+    mutatingRunbooksEnabled: true,
+  });
+
+  it("closes Kiwi and disables compile and Kiwi entry points on production", async () => {
+    targets.mockResolvedValue([development, production]);
+    await openOnDevelopment(/pl\/sql workspace/i);
+    fireEvent.click(screen.getByRole("button", { name: /ask kiwi about this unit/i }));
+    await screen.findByRole("heading", { name: "Kiwi" });
+    switchTo("prf_prod");
+    expect(screen.queryByRole("heading", { name: "Kiwi" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^ask kiwi$/i })).toBeNull();
+    const compileButton = screen.getByRole("button", { name: /^compile$/i });
+    const askButton = screen.getByRole("button", { name: /ask kiwi about this unit/i });
+    expect(compileButton.hasAttribute("disabled")).toBe(true);
+    expect(askButton.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(compileButton);
+    fireEvent.click(askButton);
+    expect(compile).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "Kiwi" })).toBeNull();
+  });
+
+  it("refuses worksheet controls even when the stored production flag is enabled", async () => {
+    targets.mockResolvedValue([development, production]);
+    await openOnDevelopment(/pl\/sql workspace/i);
+    switchTo("prf_prod");
+    fireEvent.click(screen.getByRole("button", { name: /sql worksheet/i }));
+    expect(await screen.findByText(/Free-form worksheets are not enabled on production/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /open session/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^commit$/i })).toBeNull();
+    expect(screen.queryByLabelText("editor")).toBeNull();
+  });
+});

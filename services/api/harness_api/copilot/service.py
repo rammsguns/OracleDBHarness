@@ -30,6 +30,7 @@ import json
 import re
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from contextlib import aclosing
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
@@ -111,6 +112,7 @@ from harness_api.copilot.support import evidence_map
 from harness_api.copilot.toolbox import KiwiToolbox, ToolOutcome
 from harness_api.execution import ExecutionService, load_grant, load_profile
 from harness_api.models import (
+    ConnectionProfile,
     CopilotBudget,
     CopilotRequest,
     CopilotToolCall,
@@ -163,6 +165,7 @@ _BUDGET_REFUSAL = "Not run: this request has used its lookup budget."
 # Neither ends a completed diagnosis as partial: the budgets are not reached.
 _REVISION_SETTLE_SECONDS = 5.0
 _MIN_REVISION_SECONDS = 20.0
+_MIN_ANSWER_RETRY_TOKENS = 512
 _WITHHELD = {
     "skipped:revisions": "no revision was left",
     "unresolved": "its one revision still made claims the lookups do not support",
@@ -475,6 +478,27 @@ class CopilotService:
     async def run(
         self, principal: Principal, ask: CopilotAsk
     ) -> AsyncGenerator[tuple[str, dict[str, Any]], None]:
+        """Audit policy refusals carried by the existing SSE error transport."""
+        async with aclosing(self._run(principal, ask)) as events:
+            async for name, payload in events:
+                if name == "error" and payload.get("code") == PolicyError.code:
+                    if self._execution is not None:
+                        error = PolicyError(payload["message"], detail=payload.get("detail"))
+                        with self._sessions() as db:
+                            self._execution.audit_refusal(
+                                db,
+                                principal,
+                                operation_id="copilot.kiwi"
+                                if self.kiwi_enabled and ask.profile_id
+                                else "copilot.request",
+                                profile_id=error.detail.get("profileId") or ask.profile_id or None,
+                                error=error,
+                            )
+                yield name, payload
+
+    async def _run(
+        self, principal: Principal, ask: CopilotAsk
+    ) -> AsyncGenerator[tuple[str, dict[str, Any]], None]:
         """Yield (event name, payload) pairs for the caller to serialise as SSE."""
 
         request_id = new_id("cop")
@@ -497,6 +521,12 @@ class CopilotService:
             except HarnessError as exc:
                 yield ("error", exc.as_dict())
                 return
+
+        try:
+            self._check_production_access(principal, ask)
+        except HarnessError as exc:
+            yield ("error", exc.as_dict())
+            return
 
         with self._sessions() as db:
             try:
@@ -976,6 +1006,26 @@ class CopilotService:
 
     # -- Kiwi: bounded read-only lookups ------------------------------------------------
 
+    def _check_production_access(self, principal: Principal, ask: CopilotAsk) -> None:
+        """Refuse known production bindings before provider work or budget consumption."""
+
+        # CopilotDrawer builds harness:<target id>:<default schema> references.
+        target_token = ask.target_reference
+        if target_token.startswith("harness:"):
+            target_token = target_token.split(":", 2)[1]
+        with self._sessions() as db:
+            profiles = db.scalars(
+                select(ConnectionProfile).where(ConnectionProfile.environment == "production")
+            )
+            for profile in profiles:
+                if ask.profile_id != profile.id and target_token not in {profile.id, profile.name}:
+                    continue
+                error = PolicyError(
+                    "Copilot and Kiwi are disabled on production targets.",
+                    detail={"profileId": profile.id},
+                )
+                raise error
+
     def _check_kiwi_access(self, principal: Principal, profile_id: str) -> None:
         """The console's own gate for opening a target. Refusals are audited."""
 
@@ -1124,10 +1174,17 @@ class CopilotService:
                     # call it was not offered after more interim notes (trial 21, DIAG-02),
                     # notes ending in a normal stop, or a Finding heading with nothing in it
                     # (Sync Point 2B). However the turn ended, only a diagnosis answers.
-                    for settled in self._bounded_fallback(
-                        state, lookups, refused, "".join(streamed), revisable, answered=False
-                    ):
-                        yield settled
+                    if self._settings.kiwi_answer_retry:
+                        async for settled in self._retry_bounded_answer(
+                            conversation, state, lookups, refused, "".join(streamed), revisable
+                        ):
+                            yield settled
+                    else:
+                        # Keep the disabled path synchronous, exactly as before K1.
+                        for settled in self._bounded_fallback(
+                            state, lookups, refused, "".join(streamed), revisable, answered=False
+                        ):
+                            yield settled
                     yield ("budget", state.event())
                     return
                 if not end.wants_tools:
@@ -1568,6 +1625,80 @@ class CopilotService:
         """1 when a revision of the answer is still possible, so its step is kept."""
 
         return int(revisable and state.revisions < self._settings.kiwi_max_revisions)
+
+    async def _retry_bounded_answer(
+        self,
+        conversation: ToolConversation,
+        state: _KiwiRun,
+        lookups: list[LookupFacts],
+        refused: list[tuple[str, str]],
+        streamed: str,
+        revisable: bool,
+    ) -> AsyncGenerator[tuple[str, dict[str, Any]], None]:
+        """One no-tools retry of a completed forced turn, within this request's bounds.
+
+        Admission uses the last prompt's measured tokens plus a minimal answer allowance.
+        As with other turns, actual cumulative usage is counted afterwards; providers do
+        not expose a next-prompt estimate or a per-turn request-budget cap here. A timed
+        out or cancelled conversation is never reopened. Retry output follows exactly
+        the bound-answer checks and settlement, without another model revision.
+        """
+
+        usage = conversation.turn_usage()
+        prompt = usage[-1].prompt_tokens if usage else None
+        eligible = (
+            self._settings.kiwi_answer_retry
+            and conversation.answer_only
+            and state.out_of_turns() is None
+            and state.remaining >= _MIN_REVISION_SECONDS + _REVISION_SETTLE_SECONDS
+            and prompt is not None
+            and state.max_tokens - state.tokens >= prompt + _MIN_ANSWER_RETRY_TOKENS
+        )
+        if eligible:
+            conversation.request_revision(
+                "[harness] Bounded answer retry (one only): the last turn did not write "
+                "a diagnosis. No tools are offered. Write Finding, Evidence, Unknown, "
+                "Remedy and Next steps now, using only the lookups already returned."
+            )
+            state.steps += 1
+            if revisable:
+                # Empty findings distinguish this answer retry from a claim revision;
+                # the draft preserves all notes while removing them from the answer.
+                yield ("revision", {"draft": streamed, "findings": []})
+                streamed = ""
+            yield ("plan_step", {"step": state.steps, "maxSteps": state.max_steps})
+            text: list[str] = []
+            end: TurnEnd | None = None
+            try:
+                async with contextlib.aclosing(
+                    _timed_turn(conversation, state.remaining - _REVISION_SETTLE_SECONDS)
+                ) as turn:
+                    async for event in turn:
+                        if isinstance(event, TextDelta):
+                            text.append(event.text)
+                            yield ("delta", {"text": event.text})
+                        else:
+                            end = event
+            except TimeoutError:
+                state.exhaust("wall_time")
+            except ProviderError:
+                # A failed retry still has the original retained lookups to report.
+                pass
+            self._count_tokens(state, conversation)
+            state.final_text = "".join(text)
+            streamed += state.final_text
+            spent = state.out_of_turns()
+            if spent is not None:
+                state.exhaust(spent)
+            if end is not None and end.truncated:
+                state.exhaust("max_output_tokens")
+            answered = is_diagnosis(state.final_text) and end is not None
+        else:
+            answered = False
+        for settled in self._bounded_fallback(
+            state, lookups, refused, streamed, revisable, answered=answered
+        ):
+            yield settled
 
     def _bounded_fallback(
         self,

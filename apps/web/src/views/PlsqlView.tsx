@@ -91,11 +91,17 @@ export function PlsqlView({
           </select>
         </label>
         <button onClick={load}>Load source</button>
-        <button className="primary" onClick={compile} disabled={busy}>
+        <button
+          className="primary"
+          onClick={compile}
+          disabled={busy || target.environment === "production"}
+        >
           {busy ? "Compiling..." : "Compile"}
         </button>
-        <button onClick={() => onAsk(source)}>Ask Kiwi about this unit</button>
-        {result && !result.compiled && (
+        <button disabled={target.environment === "production"} onClick={() => onAsk(source)}>
+          Ask Kiwi about this unit
+        </button>
+        {target.environment !== "production" && result && !result.compiled && (
           <button
             onClick={() =>
               onAsk({

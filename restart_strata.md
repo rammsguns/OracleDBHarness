@@ -21,7 +21,7 @@ When the Strata HTTP server (`server.py`) is already running (even if run under 
 ### One-Liner Command
 
 ```bash
-API_KEY=$(cat /home/kiwi/llm-rig/strata/.config/strata/api-key) && \
+API_KEY=$(cat ${HOME}/llm-rig/strata/.config/strata/api-key) && \
 curl -s -X POST http://127.0.0.1:8080/unload -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" -d '{}' && \
 curl -s -X POST http://127.0.0.1:8080/load -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" -d '{}'
 ```
@@ -37,14 +37,14 @@ If the HTTP server process has stopped or crashed, restart it directly from the 
 ### Foreground
 
 ```bash
-cd /home/kiwi/llm-rig/strata
+cd ${HOME}/llm-rig/strata
 ./start.sh
 ```
 
 ### Background with Logging
 
 ```bash
-cd /home/kiwi/llm-rig/strata
+cd ${HOME}/llm-rig/strata
 mkdir -p logs
 nohup ./start.sh > "logs/server-$(date -u +%Y%m%dT%H%M%SZ).log" 2>&1 &
 ```
@@ -91,8 +91,8 @@ Expected: Each RTX A4000 GPU should show ~15.5 GiB VRAM utilized by the `strata`
 
 ## Key Configurations & Paths
 
-- **Strata Root:** `/home/kiwi/llm-rig/strata`
-- **Startup Script:** `/home/kiwi/llm-rig/strata/start.sh`
-- **Configuration:** `/home/kiwi/llm-rig/strata/engine/strata-iq3_s.json`
-- **API Key File:** `/home/kiwi/llm-rig/strata/.config/strata/api-key`
+- **Strata Root:** `${HOME}/llm-rig/strata`
+- **Startup Script:** `${HOME}/llm-rig/strata/start.sh`
+- **Configuration:** `${HOME}/llm-rig/strata/engine/strata-iq3_s.json`
+- **API Key File:** `${HOME}/llm-rig/strata/.config/strata/api-key`
 - **Base API URL:** `http://127.0.0.1:8080/v1`

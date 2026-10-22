@@ -232,3 +232,144 @@ and effective execution limits. Bind ordering does not matter. Raw SQL and bind
 values are not retained by this mechanism. Reusing a key with different inputs is
 rejected. Old executions have no digest and cannot be verified as identical retries;
 their keys are rejected too. Verify their outcome before submitting a new request.
+
+## Secret and host scan
+
+Run `bash scripts/secret_scan.sh` from the repository to check tracked working-tree
+files, or pass tracked file paths to check a selected set (for example,
+`bash scripts/secret_scan.sh .env.example docs/operations.md`). This requires Bash,
+Git and Python 3; it does not inspect the index contents. Untracked files, symlinks,
+`OrcaServer/` and `databases/` are excluded. Output contains only
+`file:line:rule`; exit codes are 0 for clean, 1 for findings and 2 for invalid
+usage or allowlist configuration. Rules check private keys, credential assignments,
+Oracle connection/wallet references, cloud hosts, IPv4 addresses, home paths and
+emails, with placeholder and documentation-address exceptions. This heuristic scan
+requires review and does not prove the absence of secrets.
+
+Reviewed false positives can use `scripts/secret_scan.allow`: put an explanatory
+comment immediately before each `repository-relative-path:rule:Python-regex` entry.
+The regex suppresses only that rule on matching lines in that exact tracked file;
+other rules still run. Historical username exceptions apply only to `home-path`.
+Reserved example/internal/test/invalid domains, complete placeholder values,
+secret reference/file keys, source expressions and reviewed synthetic literals
+are distinguished from literal credentials. Package lock metadata is scanned
+without treating integrity/resolved fields as credential assignments. CI fixture
+connections to localhost and action references are recognized. Regression tests
+plant plausible credentials and hosts alongside these exceptions.
+Real secrets or host identifiers require a STOP report with locations only,
+without copying values or rewriting history.
+
+## Production boundary
+
+Stage 1 profiles whose `environment` is exactly `production` are observation only.
+Copilot and Kiwi default off in `config.py`; even if enabled globally for development,
+a known production binding is refused before provider work, budget consumption or
+Oracle lookup. Refusals use the existing HTTP 403 `policy_refused` error; copilot
+keeps its HTTP 200 SSE transport and emits only an `error` event. Earlier grant,
+role and request-validation failures retain their existing errors.
+
+Production read authorization also requires a successful target probe reporting
+Oracle Database major version **19**. Unprobed, empty/unparseable and non-19
+identities (including 23ai and 26ai) are refused with `policy_refused`. Before a
+production re-probe, the cached identity is cleared durably: a failed connection,
+identity lookup or timeout cannot retain an earlier 19c authorization. Probe
+failures retain their existing error shape. Development/test version behavior is
+unchanged. A numeric version from `product_component_version` or the driver's
+`connection.version` is authoritative; banner wording, edition and CDB/PDB fields
+are descriptive and do not substitute for the numeric version. The fake-backend
+and driver-stand-in regressions are in `tests/unit/test_production_identity.py`.
+
+Diagnostic SQL and tool catalogs exclude management-pack features even when an
+account could technically read them. `tests/unit/test_licensed_features.py` scans
+tracked product SQL/scripts, SQL literals and catalog/toolbox metadata under
+`services/`, `oracle/`, `runbooks/` and `kiwi/`; it also checks planted forbidden
+references. Prose documenting exclusions is allowed. Missing/revoked diagnostic
+grants must remain explicit: panel `available: false` with an error, failed
+execution history, and an error result from Kiwi. ORA-00942/ORA-01031 injected after
+capability probing cover every read catalog panel in
+`tests/unit/test_diagnostic_permissions.py`; a stale successful capability probe
+must never turn an unavailable lookup into an empty healthy result. The real
+adapter maps these Oracle codes to `capability_unavailable`; a raw Oracle error
+from the stand-in also remains unavailable and retains its code.
+
+The P1 audit found that production copilot/Kiwi bindings were accepted, console
+controls remained available, and worksheet policy depended solely on stored flags.
+The coordinator approved the minimal server and console fixes on 2026-10-22.
+Production worksheet permission, compile permission and session/persistent/admin
+write risks now fail closed regardless of stored enablement flags. No protocol
+contract changed.
+
+| Path | Enforced where | Regression evidence |
+| --- | --- | --- |
+| `POST /api/v1/admin/targets` with either unsafe flag | `routers/admin.py:create_target`: production flags rejected before insert | `tests/unit/test_production_boundary.py:test_production_create_refuses_mutating_flags` (both flags) |
+| Target PUT/PATCH | No update route is registered; target-specific PUT/PATCH returns 404/405 | `test_profile_update_has_no_route` (both methods; stored flags unchanged) |
+| `POST /api/v1/admin/grants` (create or replace) | `routers/admin.py:create_grant` rejects worksheet grants when disabled; compile/runbook grants confer no production execution authority because policy rechecks environment | `test_production_worksheet_grant_refused`; compile and mutating-runbook direct-request tests use fully authorized grants |
+| Manifest import, including `targets.json` | `scripts/bootstrap_targets.py:validate_manifest` rejects either unsafe production flag before storage or probing; `bootstrap` rejects stored profile drift and issues only read grants on production | `test_bootstrap_refuses_unsafe_production_before_storage_or_probe` (both flags); existing `tests/unit/test_bootstrap_targets.py:test_invalid_and_unsafe_manifest`, `test_idempotent_grants_and_drift` |
+| `POST /api/v1/worksheets` | `execution.py:open_worksheet` calls `policy.py:_check_environment`; production worksheet permission is refused even if stored flag is true | `test_production_worksheet_open_is_refused` (normal and drifted flags); existing `tests/integration/test_targets_and_access.py:test_production_is_observation_only` |
+| Existing worksheet `/execute`: query, DML, DDL, anonymous PL/SQL | `routers/worksheet.py:execute` reloads profile/grant; `execution.py:run_worksheet_statement` reauthorizes before execution records or backend execution; production worksheet permission and write risks refused | `test_existing_session_cannot_write_after_becoming_production` (query, DML, DDL, PL/SQL) |
+| Existing worksheet `/commit` | `execution.py:commit_worksheet` reloads and reauthorizes with persistent-write risk before commit intent or backend commit | Same test (commit case); backend execute/commit spies remain uncalled |
+| Transaction SQL in `/execute` | `execution.py:_risk_for_kind` classifies transaction-control SQL as persistent-write; production worksheet/write policy refuses it before execution | `test_existing_session_cannot_write_after_becoming_production` (SQL COMMIT and explicit commit endpoint); existing `tests/unit/test_statement.py` classification checks |
+| `POST /api/v1/plsql/compile` | `execution.py:compile_plsql` authorizes compile/persistent-write before execution record/connection; production check in policy is independent of flags | `test_production_compile_is_refused`; `test_production_policy_refuses_session_write_and_compile_independent_of_flags` |
+| Session-write policy independent of permission | `policy.py:_check_environment` refuses production `SESSION_WRITE` alongside persistent/admin writes | `test_production_policy_refuses_session_write_and_compile_independent_of_flags`; worksheet DML/PLSQL direct requests above |
+| `POST /api/v1/tuning/explain` | `execution.py:explain_statement` requires worksheet permission before writing session-private PLAN_TABLE rows; production worksheet gate applies | `test_production_explain_is_refused` |
+| Mutating runbook `/run`, confirmed or UI bypassed | `runbooks.py:RunbookService._run_mutation` delegates to `execution.py:run_catalog_operation`; policy refuses administrative risk even when stored flag and grant allow it | `test_production_mutating_runbooks_refused` (all current mutating runbooks: recompile and gather stats); existing integration test above |
+| Copilot requests with production `profileId`, plain or Kiwi mode | `copilot/service.py:run` calls `_check_production_access` before budget/provider/lookup; refusal audit has no execution ID | `test_production_copilot_refused_before_provider_budget_or_lookup` (both modes); updated `tests/copilot/test_kiwi.py:test_on_production_kiwi_is_refused` |
+| Copilot with only a known production reference | Same service gate matches colon-delimited reference components against production profile IDs/names, or exact ID/name references | Same parametrized test (harness and raw ID/name references, both modes) |
+| Console worksheet/session writes | `views/WorksheetView.tsx` replaces controls with an observation-only notice for production, independently of flag | `apps/web/src/App.targetSwitch.test.tsx`: production worksheet controls test |
+| Console compile/copilot/target switch | `App.tsx` blocks production drawer entry/render and hides global Ask Kiwi; `PlsqlView.tsx` disables compile/Ask Kiwi; schema and tuning views disable source/plan copilot entry | Production tests in `App.targetSwitch.test.tsx` and `views/ProductionBoundary.test.tsx` |
+| Console mutating runbooks | `views/RunbooksView.tsx` disables production mutating selection and confirmation, including a prior development preview | Production tests in `views/RunbooksView.test.tsx` |
+
+The new Python tests explicitly use the fake Oracle backend, authorized DBA grants,
+backend spies and metadata assertions: policy refusals create exactly one refused
+AuditEvent through the central refusal helper, with actor, known profile,
+action/permission and request path, and create no execution record. The global
+error handler covers direct REST refusals; caught panel/session errors and copilot
+SSE errors use the same helper and avoid duplicate rows. Audit storage failures are
+logged and preserve the original refusal response. Successful worksheet-open audit
+rows from session setup are retained. Copilot tests additionally assert no budget,
+request or tool-call record. These are stand-in
+regressions, not Oracle compatibility or production qualification evidence.
+
+Runbook catalog/preview, local copilot context preview and proposal apply-check do
+not execute Oracle or call the provider; a preview is not execution authorization.
+Rollback, cancellation and close remain available to discard pending work in an
+existing session. Reviewed production reads remain available to granted users.
+There is no profile PATCH/PUT implementation to harden in this release.
+
+`targetReference` is caller-supplied text: only references matching registered
+production IDs/names can be identified as production. Unknown external references
+and unbound editor-only questions remain allowed when copilot is enabled; the
+harness cannot infer the origin of pasted code or an unregistered adapter target.
+Do not enable copilot/Kiwi on the production deployment or attach production source
+through an unbound/external editor request. This limitation was explicitly accepted
+by the coordinator; it does not grant database access or bypass a known production
+profile refusal. Oracle 19c identity qualification belongs to P2.
+
+## Production operations
+
+Stage 1 production is observation-only and launches with copilot and Kiwi off.
+The production environment template is `deploy/production.env.example` and the
+production target manifest example is
+`databases.example/targets.production.json.example`; both are placeholders and
+must be filled in by the named owners before any real deployment. The canary
+procedure and its gates are PLAN.md G3; this section only points at the
+operational steps, it does not restate the plan.
+
+**Enabling a production target.** Register the target through the bootstrap
+manifest (`scripts/bootstrap_targets.py`) with `environment: "production"` and
+both `worksheetsEnabled` and `mutatingRunbooksEnabled` set to `false`; the
+validator refuses any other combination. Production targets receive read-only
+grants, and the Oracle 19c identity check (see Production boundary above) must
+pass before any read is authorized. Do not enable copilot or Kiwi.
+
+**Daily audit and cost check.** While the canary runs, check the audit records
+and the database cost every day and retain the evidence. The audit trail is the
+refusal and execution records described under History and audit; the cost check
+is against the database-cost budget agreed before the canary started (PLAN.md
+G3). Retain incident reports for any finding.
+
+**Disable and revoke (rollback).** On a failed gate, disable the target first,
+then have the DBA revoke the harness grants or lock the account, and verify
+access is refused. Retain the incident and recovery evidence. This is the
+PLAN.md G3 rollback order: disable, revoke/lock, verify refusal, retain
+evidence.

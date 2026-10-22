@@ -20,6 +20,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from harness_api.audit_context import audit_request
 from harness_api.config import Settings
 from harness_api.models import (
     AuditEvent,
@@ -327,10 +328,12 @@ class ExecutionService:
             return
         endpoint = f"{profile.host}:{profile.port}"
         if endpoint not in allowlist and profile.host not in allowlist:
-            raise PolicyError(
+            error = PolicyError(
                 f"The endpoint {endpoint} is not in HARNESS_ALLOWED_ENDPOINTS.",
                 detail={"endpoint": endpoint},
             )
+            error.audit_profile_id = profile.id
+            raise error
 
     def probe_target(
         self, db: Session, profile: ConnectionProfile, grant: UserTargetGrant | None
@@ -341,10 +344,18 @@ class ExecutionService:
         service still get their own proof.
         """
 
+        if profile.environment == "production":
+            # Persist invalidation before connecting: a failed refresh must not leave
+            # an earlier successful identity authorizing production reads.
+            profile.identity_json = None
+            profile.identity_checked_at = None
+            db.commit()
+
         spec = self.connection_spec(profile, grant)
         connection = self._backend.connect(spec)
         try:
             identity = connection.identity()
+            self._policy.check_production_identity(profile, identity.major_version)
             reports = [connection.probe_capability(cap) for cap in Capability]
         finally:
             connection.close()
@@ -656,22 +667,15 @@ class ExecutionService:
             if record and record.closed_at is None:
                 record.closed_at = utcnow()
                 record.close_reason = "access withdrawn"
-            self._audit(
+            self.audit_refusal(
                 db,
-                principal=principal,
+                principal,
                 profile_id=session.target_id,
                 operation_id=operation_id,
-                outcome="refused",
+                error=exc,
+                detail={"sessionId": session.session_id, "sessionClosed": True},
                 risk=risk,
-                policy_decision="refused",
-                detail={
-                    "sessionId": session.session_id,
-                    "code": exc.code,
-                    "message": exc.message,
-                    "sessionClosed": True,
-                },
             )
-            db.commit()
             raise
 
     # -- free-form worksheet statements ---------------------------------------------
@@ -709,11 +713,15 @@ class ExecutionService:
             # the same check again once it holds that lock, which is the one that
             # actually decides: another statement in this session can commit DML into
             # the gap between here and there.
-            raise PolicyError(
+            error = PolicyError(
                 "This session has uncommitted changes and the statement is DDL, which "
                 "would commit them. Commit or roll back first, then run the DDL.",
                 detail={"sessionId": session.session_id, "statementKind": kind.value},
             )
+            error.audit_profile_id = profile.id
+            error.audit_operation_id = "worksheet.execute"
+            error.audit_permission = permission
+            raise error
 
         decision = self._policy.authorize(
             principal=principal,
@@ -1377,18 +1385,37 @@ class ExecutionService:
         operation_id: str,
         profile_id: str | None,
         error: HarnessError,
+        detail: dict | None = None,
+        risk: RiskClass = RiskClass.READ,
     ) -> None:
-        self._audit(
-            db,
-            principal=principal,
-            profile_id=profile_id,
-            operation_id=operation_id,
-            outcome="refused",
-            risk=RiskClass.READ,
-            policy_decision="refused",
-            detail={"code": error.code, "message": error.message},
-        )
-        db.commit()
+        if getattr(error, "refusal_audited", False):
+            return
+        request = audit_request.get()
+        audit_detail = {
+            "code": error.code,
+            "message": error.message,
+            "permission": getattr(error, "audit_permission", error.detail.get("permission")),
+            **(detail or {}),
+        }
+        if request is not None:
+            audit_detail["requestPath"] = request.url.path
+        try:
+            self._audit(
+                db,
+                principal=principal,
+                profile_id=profile_id,
+                operation_id=operation_id,
+                outcome="refused",
+                risk=RiskClass(error.detail.get("risk", risk.value)),
+                policy_decision="refused",
+                detail=audit_detail,
+            )
+            db.commit()
+            error.refusal_audited = True
+        except Exception:
+            db.rollback()
+            logging.getLogger(__name__).exception("Failed to record refusal audit")
+            # Auditing must never replace the original refusal response.
 
 
 def _worksheet_request_digest(

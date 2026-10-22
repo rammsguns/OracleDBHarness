@@ -19,6 +19,7 @@ profile and grant, and constrained by the Oracle account itself.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import wraps
 
 from harness_api.models import AppRole, ConnectionProfile, TargetCapability, UserTargetGrant
 from harness_api.security import Principal
@@ -62,6 +63,22 @@ class PolicyDecision:
         }
 
 
+def _refusal_context(authorize):
+    """Attach internal audit context without changing the public error detail."""
+
+    @wraps(authorize)
+    def checked(self, **kwargs):
+        try:
+            return authorize(self, **kwargs)
+        except PolicyError as exc:
+            exc.audit_profile_id = kwargs["profile"].id
+            exc.audit_operation_id = kwargs.get("operation_id") or kwargs["permission"]
+            exc.audit_permission = kwargs["permission"]
+            raise
+
+    return checked
+
+
 class PolicyEngine:
     def __init__(self, *, production_environments: tuple[str, ...] = ("production",)) -> None:
         self._production = production_environments
@@ -87,6 +104,7 @@ class PolicyEngine:
 
     # -- operation authorisation ---------------------------------------------------
 
+    @_refusal_context
     def authorize(
         self,
         *,
@@ -121,9 +139,21 @@ class PolicyEngine:
             raise PolicyError(decision.reason, detail=decision.as_dict())
 
         self._check_environment(profile, permission, risk, decision)
+        self.check_production_identity(profile, target_major_version)
         self._check_capabilities(required_capabilities, target_capabilities or [], decision)
         self._check_version(min_version, target_major_version, decision, operation_id)
         return decision
+
+    def check_production_identity(
+        self, profile: ConnectionProfile, major_version: int | None
+    ) -> None:
+        """Production reads require a successfully proved Oracle 19c identity."""
+        if profile.environment in self._production and major_version != 19:
+            error = PolicyError(
+                "Production targets require a successfully probed Oracle Database 19c identity."
+            )
+            error.audit_profile_id = profile.id
+            raise error
 
     def _check_environment(
         self,
@@ -134,7 +164,7 @@ class PolicyEngine:
     ) -> None:
         production = profile.environment in self._production
 
-        if permission == PERMISSION_WORKSHEET and not profile.worksheets_enabled:
+        if permission == PERMISSION_WORKSHEET and (production or not profile.worksheets_enabled):
             decision.allowed = False
             decision.reason = (
                 f"Free-form worksheets are not enabled on {profile.name!r}. Production "
@@ -142,7 +172,11 @@ class PolicyEngine:
             )
             raise PolicyError(decision.reason, detail=decision.as_dict())
 
-        if production and risk in (RiskClass.PERSISTENT_WRITE, RiskClass.ADMINISTRATIVE):
+        if production and (
+            permission == PERMISSION_COMPILE
+            or risk
+            in (RiskClass.SESSION_WRITE, RiskClass.PERSISTENT_WRITE, RiskClass.ADMINISTRATIVE)
+        ):
             decision.allowed = False
             decision.reason = (
                 f"{profile.name!r} is a production target. Mutating operations are out "
