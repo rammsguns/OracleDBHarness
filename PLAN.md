@@ -181,7 +181,7 @@ task.
   exhaustion, cancellation, unsupported evidence and non-application-error
   controls. Preserve existing assertions; no case-specific production logic.
   **Verify:** `uv run pytest -q tests/copilot` and the standard checks.
-- [ ] **K4 Review.** Review K1–K3 with retained trial replay, new adversarial probes,
+- [x] **K4 Review.** Review K1–K3 with retained trial replay, new adversarial probes,
   false-positive controls and the full relevant suites. Publish a dated review in
   `docs/`. This does not authorize a provider run. **STOP.**
 - [ ] **K5 Rubric.** Publish `docs/k7-grounding-rubric.md` and a separate
@@ -1437,3 +1437,45 @@ only for skill guidance and coordinator communication. Untracked evaluation
 artifacts were left untouched. The clean temporary baseline worktree was removed
 with `git worktree remove` as explicitly instructed; no source or evaluation
 artifact was deleted from the main checkout.
+
+### K4 — Review — 2026-10-22 — done
+
+Independent review and completion record commit on `plan/K4-review`, branched from
+`plan/K1-bounded-answer` (`d34fdcb`). Deliverable:
+[K1–K3 review](docs/k7-k1-k3-review-2026-10-22.md), verdict **PASS WITH FINDINGS**;
+no high-severity finding. Product code, tests, contracts, historical evaluation
+artifacts and original trial grades were not changed.
+
+Offline replay under `/tmp/oracledbharness-k4/` replayed all 148 events (90 delivered
+answers, 58 intermediate stages) across Trials 25–29 against baseline `7378896`:
+**0 claim check differences**. Re-rendering fallback across cases with lookups showed
+exactly 13 case-trials with ORA-20001 gaining the intended K2 generic application error
+explanation; all other cases remain byte-identical. In `service.py`, retry disabled
+directly executes synchronous generator fallback identical to `7378896`.
+
+Ten adversarial probes verify retry bounds (at most one retry, budget insufficiency
+skips, cancellation propagation, token overrun recorded post-turn, non-forced turns
+skipped) and K2 fallback semantics (ORA-20000..20999 meaning, no raiser citation without
+explicit lookup row, no absence inference, non-application errors unchanged, injected
+instructions sanitized, zero AST string constants for case IDs). Test diff confirmed
+373 lines added, 0 lines removed/loosened.
+
+Assessment of `tests/copilot/test_k7_wave2x.py::test_an_answer_written_at_the_bound_is_reviewed_and_settled`:
+the test's 0.5s wall bound trips at step 2 when turns 1 and 2 take >= 500ms under load,
+preventing turn 3 (diagnosis) from being reached. The test remains flaky under heavy
+load; recommended fix (not applied) is increasing `kiwi_max_wall_seconds` to 2.0s–3.0s
+or using a mock timer.
+
+| Command | Exit | Result / saved output |
+| --- | ---: | --- |
+| `uv run python /tmp/oracledbharness-k4/replay_k4.py` | 0 | 148 events, 90 delivered; 0 claim review diffs; 13 K2 fallback updates; `replay_summary.json` |
+| `uv run python /tmp/oracledbharness-k4/adversarial_probes.py` | 0 | 10/10 adversarial probes passed; `adversarial_probes.log` |
+| `uv run pytest -q tests/copilot/test_k7_wave2k.py tests/copilot/test_k7_wave2l.py tests/copilot/test_k7_wave2o.py tests/copilot/test_k7_wave2r.py tests/copilot/test_k7_wave2w.py tests/copilot/test_copilot.py` | 0 | **333 passed**, 41.83s |
+| `uv run pytest -q tests/copilot` | 0 | **1911 passed, 0 failed**, 340.87s; ran **once** |
+| `git diff --check` and `git diff --cached --check` | 0 | Clean |
+
+All uv commands used `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache`. K-7 remains
+**NOT QUALIFIED**, and Kiwi remains off by default. **This review does not authorize
+a provider run.** No provider/Strata/local model calls, Oracle/database access,
+`databases/` or `OrcaServer/` content reads, deletions, push or PR occurred. K5 was
+not started.
