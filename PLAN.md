@@ -130,7 +130,7 @@ artifacts included in changes. Documentation consolidation alone does not pass i
 - [x] **P1** Verify API and console refusals for production worksheets, session
   writes, compile, mutating runbooks, copilot and Kiwi, including direct API
   requests. Add missing regression tests; do not change refusal semantics.
-- [ ] **P1a Audit refusals.** Refused direct REST calls (worksheet open, compile, tuning explain, runbook run, admin target create) raise PolicyError before any AuditEvent is written; decide whether every policy refusal must be audited and, if so, record refusals at one central point. Found by the P1 review (2026-10-22).
+- [x] **P1a Audit refusals.** Refused direct REST calls (worksheet open, compile, tuning explain, runbook run, admin target create) raise PolicyError before any AuditEvent is written; decide whether every policy refusal must be audited and, if so, record refusals at one central point. Found by the P1 review (2026-10-22).
 - [ ] **P2** Verify Oracle 19c identity checks fail closed for unsupported production
   targets (23ai/26ai, unknown banner, identity lookup failure).
 - [ ] **P3** Check the diagnostic catalog for licensed features (fixed list above)
@@ -1011,3 +1011,53 @@ Follow-up verification (all uv commands used
 No real Oracle, provider, `OrcaServer/` or `databases/` access, contract changes,
 deletions, push or PR occurred during this follow-up. Orca coordination used the
 configured CLI executable only; excluded store contents were not read.
+
+### P1a — Audit refusals — 2026-10-22 — done
+
+Implementation commit: `7640354` on `plan/P1a-audit-refusals`, branched from
+`plan/P1-production-refusals` (`bf0de57`). This completion record is a separate
+documentation commit. The coordinator decided that every policy refusal must
+leave an AuditEvent at one central point.
+
+`ExecutionService.audit_refusal` is the common refusal writer. The global
+HarnessError handler invokes it for previously unaudited PolicyErrors; internal
+authorization metadata supplies known profile, operation and permission without
+changing serialized error details. Authenticated request identity and request path
+are retained through request context; public unauthenticated refusals use an
+anonymous actor. Existing panel/toolbox catches share the helper, session
+reauthorization now shares it with a successful-write flag to avoid duplicates,
+and a common copilot SSE boundary audits policy errors without changing events.
+The earlier production-specific copilot write was removed. Storage exceptions are
+logged and the original policy refusal remains in force.
+
+Extended the boundary tests to require exactly one refused AuditEvent, refused
+policy decision, actor, action, known profile and request path for worksheet open,
+compile, tuning explain, runbook run, admin target creation, grant refusal,
+session reauthorization and production copilot. Added development missing-permission,
+panel, disabled-copilot and REST/SSE audit-write-failure coverage. Refused
+production requests still create no execution record or provider/budget work.
+
+Verification (all uv commands used `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache`):
+
+| Command | Exit | Result / saved output |
+| --- | ---: | --- |
+| `uv run pytest -q tests/unit/test_production_boundary.py` | 0 | **39 passed**, 23.08s; `/tmp/p1a-boundary.log` |
+| `uv run pytest -q tests/unit/test_production_boundary.py tests/copilot/test_copilot.py tests/copilot/test_kiwi.py` | 0 | **97 passed**, 59.44s at checkpoint before the last three boundary cases; `/tmp/p1a-focused.log` |
+| `uv run ruff format --check .` | 0 | **311 files already formatted**; `/tmp/p1a-format.log` |
+| `uv run ruff check .` | 0 | **All checks passed**; `/tmp/p1a-ruff.log` |
+| `npm --prefix apps/web run typecheck` | 0 | **tsc --noEmit clean**; `/tmp/p1a-typecheck.log` |
+| `bash scripts/secret_scan.sh` | 0 | **no findings**, including the staged new module; `/tmp/p1a-secret-scan.log` |
+| `uv run pytest -q` | 0 | **2503 passed, 83 skipped, 0 failures**, 474.99s; `/tmp/p1a-pytest-full.log` |
+| `git diff --check plan/P1-production-refusals` | 0 | **no output** |
+| `git diff plan/P1-production-refusals -- packages/contracts` | 0 | **empty**, including `openapi.json` |
+
+The full suite ran **once**, after the final code and tests were in place.
+Skips remain environment-dependent Oracle, OIDC and PostgreSQL qualification
+checks. These fake-backend and fixture-provider results do not qualify real
+Oracle or production operation. An unavailable audit store cannot retain an audit
+row; its failure is logged while the original refusal response is preserved.
+REST response bodies/statuses, SSE events and contracts are unchanged.
+
+No push, PR, real Oracle/provider/database access, excluded-store reads,
+untracked evaluation-artifact edits or deletions occurred. Orca coordination used
+only the configured CLI executable. P1a is complete; P2 was not started.

@@ -19,6 +19,7 @@ profile and grant, and constrained by the Oracle account itself.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import wraps
 
 from harness_api.models import AppRole, ConnectionProfile, TargetCapability, UserTargetGrant
 from harness_api.security import Principal
@@ -62,6 +63,22 @@ class PolicyDecision:
         }
 
 
+def _refusal_context(authorize):
+    """Attach internal audit context without changing the public error detail."""
+
+    @wraps(authorize)
+    def checked(self, **kwargs):
+        try:
+            return authorize(self, **kwargs)
+        except PolicyError as exc:
+            exc.audit_profile_id = kwargs["profile"].id
+            exc.audit_operation_id = kwargs.get("operation_id") or kwargs["permission"]
+            exc.audit_permission = kwargs["permission"]
+            raise
+
+    return checked
+
+
 class PolicyEngine:
     def __init__(self, *, production_environments: tuple[str, ...] = ("production",)) -> None:
         self._production = production_environments
@@ -87,6 +104,7 @@ class PolicyEngine:
 
     # -- operation authorisation ---------------------------------------------------
 
+    @_refusal_context
     def authorize(
         self,
         *,

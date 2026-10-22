@@ -19,6 +19,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import StreamingResponse
 
+from harness_api.audit_context import audit_request
 from harness_api.copilot import CopilotAsk, EditorReference
 from harness_api.deps import CurrentUser, Db, State, get_db, get_state
 from harness_api.schemas import ApplyCheckIn, ContextPreviewIn, CopilotRequestIn
@@ -49,8 +50,15 @@ def _resolve_principal(
             actor_is_durable=actor_is_durable,
         )
         db.commit()
+        request = audit_request.get()
+        if request is not None:
+            request.state.principal = principal
         return principal
-    return state.authenticator.authenticate(db, authorization)
+    principal = state.authenticator.authenticate(db, authorization)
+    request = audit_request.get()
+    if request is not None:
+        request.state.principal = principal
+    return principal
 
 
 @router.get("/integrations/capabilities")

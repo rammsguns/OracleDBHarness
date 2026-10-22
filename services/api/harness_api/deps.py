@@ -62,6 +62,7 @@ def get_principal(
     state = get_state(request)
     principal = state.authenticator.authenticate(db, authorization)
     db.commit()
+    request.state.principal = principal
     return principal
 
 
