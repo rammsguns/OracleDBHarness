@@ -279,6 +279,19 @@ unchanged. A numeric version from `product_component_version` or the driver's
 are descriptive and do not substitute for the numeric version. The fake-backend
 and driver-stand-in regressions are in `tests/unit/test_production_identity.py`.
 
+Diagnostic SQL and tool catalogs exclude management-pack features even when an
+account could technically read them. `tests/unit/test_licensed_features.py` scans
+tracked product SQL/scripts, SQL literals and catalog/toolbox metadata under
+`services/`, `oracle/`, `runbooks/` and `kiwi/`; it also checks planted forbidden
+references. Prose documenting exclusions is allowed. Missing/revoked diagnostic
+grants must remain explicit: panel `available: false` with an error, failed
+execution history, and an error result from Kiwi. ORA-00942/ORA-01031 injected after
+capability probing cover every read catalog panel in
+`tests/unit/test_diagnostic_permissions.py`; a stale successful capability probe
+must never turn an unavailable lookup into an empty healthy result. The real
+adapter maps these Oracle codes to `capability_unavailable`; a raw Oracle error
+from the stand-in also remains unavailable and retains its code.
+
 The P1 audit found that production copilot/Kiwi bindings were accepted, console
 controls remained available, and worksheet policy depended solely on stored flags.
 The coordinator approved the minimal server and console fixes on 2026-10-22.

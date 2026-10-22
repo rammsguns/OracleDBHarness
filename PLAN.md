@@ -133,7 +133,7 @@ artifacts included in changes. Documentation consolidation alone does not pass i
 - [x] **P1a Audit refusals.** Refused direct REST calls (worksheet open, compile, tuning explain, runbook run, admin target create) raise PolicyError before any AuditEvent is written; decide whether every policy refusal must be audited and, if so, record refusals at one central point. Found by the P1 review (2026-10-22).
 - [x] **P2** Verify Oracle 19c identity checks fail closed for unsupported production
   targets (23ai/26ai, unknown banner, identity lookup failure).
-- [ ] **P3** Check the diagnostic catalog for licensed features (fixed list above)
+- [x] **P3** Check the diagnostic catalog for licensed features (fixed list above)
   and verify restricted grants degrade to explicit permission states rather than
   false healthy results.
 - [ ] **P4 Pin the driver.** `services/worker/pyproject.toml` declares
@@ -1111,3 +1111,65 @@ Oracle/OIDC/PostgreSQL qualification checks; stand-ins do not qualify live Oracl
 No real Oracle/provider/database access, excluded-store reads, contract changes,
 deletions, untracked artifact edits, push or PR occurred. Orca coordination used
 only the configured CLI executable. P2 is complete; P3 follows on its own branch.
+
+
+### P3 — Licensed features and restricted grants — 2026-10-22 — done
+
+Implementation commit: `8d4d9df` on `plan/P3-licensed-features`, branched from
+`plan/P2-19c-identity` (`04d5c91`). This completion record is a separate commit.
+No product-code gap was found, so no product code or contract changed and no
+additional fix approval was needed.
+
+The scan covered **100 tracked product files**, including **44 SQL files**, under
+`services/`, `oracle/`, `runbooks/` and `kiwi/` (the latter two are optional roots;
+current runbooks are under `oracle/runbooks/` and Kiwi is under the API copilot).
+It includes all Oracle diagnostics, runbooks, grants, qualification/capacity SQL,
+backend SQL literals and catalog/toolbox metadata. **Zero forbidden references**
+were found in SQL/catalog content. The source matches in router prose and the
+copilot safety prompt document exclusions; they do not access these features.
+`tests/unit/test_licensed_features.py` makes the scan repeatable, with 34 planted
+SQL/Python cases for the fixed feature list, case variations and V_$/GV_$ grant
+names, plus the repository-wide check (**35 tests**). Markdown documentation and
+the test itself are outside the product scan. This is a static source scan, not
+runtime analysis of constructed SQL or a real-database license qualification.
+Inventory and panel/grant mapping: `/tmp/p3-inventory.log`.
+
+Added **66 permission regressions** in `tests/unit/test_diagnostic_permissions.py`:
+ORA-00942 and ORA-01031 for every one of the **32 read catalog entries**, plus two
+HTTP DBA-overview cases. Errors are injected into `FakeOracleConnection.execute`
+after successful capability probing to model grants revoked after the probe.
+Every panel reports `available: false`, empty rows with an explicit Oracle error,
+a collection timestamp and failed execution history (no returned-row success).
+All **31 Kiwi read tools** additionally return failed/error outcomes preserving the
+Oracle code, without the successful empty-result message. The remaining read entry
+is `tuning.explain_plan_rows`, which is a panel but not offered to Kiwi. HTTP
+responses list the unavailable panels explicitly. The two mutating runbooks are
+outside this diagnostic-panel set and remain production-refused under P1.
+
+Existing behavior is sufficient: `_panel` preserves caught HarnessErrors and
+failed execution outcomes; Kiwi preserves failed outcomes; the engine persists
+failure instead of healthy zero rows. Existing Oracle-adapter tests verify that
+both codes translate to `capability_unavailable`, and the integration suite checks
+a missing pre-probed capability. The new raw-OracleError injections verify the
+fallback error path is also explicit. Operations documentation records the scan
+and permission-state expectations.
+
+| Command | Exit | Result / saved output |
+| --- | ---: | --- |
+| `uv run pytest -q tests/unit/test_licensed_features.py tests/unit/test_diagnostic_permissions.py tests/integration/test_targets_and_access.py tests/unit/test_oracle_adapter.py` | 0 | **216 passed**, 47.15s; `/tmp/p3-focused.log` |
+| `uv run ruff format --check .` | 0 | **314 files already formatted**; `/tmp/p3-format.log` |
+| `uv run ruff check .` | 0 | **All checks passed**; `/tmp/p3-ruff.log` |
+| `npm --prefix apps/web run typecheck` | 0 | **tsc --noEmit clean**; `/tmp/p3-typecheck.log` |
+| `bash scripts/secret_scan.sh` | 0 | **no findings**, including staged tests; `/tmp/p3-secret-scan.log` |
+| `uv run pytest -q` | 0 | **2628 passed, 83 skipped, 0 failures**, 531.16s; `/tmp/p3-pytest-full.log` |
+| `git diff --check` and `git diff --cached --check` | 0 | **no output** |
+| `git diff plan/P2-19c-identity -- packages/contracts` | 0 | **empty** |
+
+All uv commands used `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache`. Full suite ran
+**once**, after the final code/tests were in place. The 83 skips remain
+Oracle/OIDC/PostgreSQL environment-dependent qualification checks. Fake targets
+and driver stand-ins do not qualify real Oracle grants or production operation.
+No real Oracle/provider/database access, excluded-store reads, contract changes,
+deletions, untracked evaluation-artifact edits, push or PR occurred. Orca
+coordination used only the configured CLI executable. P3 is complete; P4 was not
+started.
