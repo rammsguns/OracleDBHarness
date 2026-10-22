@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "authMode": "oidc",
+  "users": [
+    {
+      "subject": "viewer@example.internal",
+      "oidcSub": "viewer@example.internal",
+      "displayName": "Production Viewer",
+      "roles": [
+        "viewer"
+      ]
+    },
+    {
+      "subject": "dba@example.internal",
+      "oidcSub": "dba@example.internal",
+      "displayName": "Production DBA",
+      "roles": [
+        "dba"
+      ]
+    }
+  ],
+  "targets": [
+    {
+      "name": "prod-19c-primary",
+      "host": "203.0.113.10",
+      "port": 1521,
+      "serviceName": "ORCL",
+      "username": "HARNESS_APP",
+      "defaultSchema": "HARNESS_APP",
+      "environment": "production",
+      "secretReference": "prod_harness_app",
+      "passwordFile": "prod_harness_app.pw",
+      "worksheetsEnabled": false,
+      "mutatingRunbooksEnabled": false
+    },
+    {
+      "name": "prod-19c-secondary",
+      "host": "oracle-prod.example.internal",
+      "port": 1521,
+      "serviceName": "ORCL",
+      "username": "HARNESS_APP",
+      "defaultSchema": "HARNESS_APP",
+      "environment": "production",
+      "secretReference": "prod_harness_app",
+      "passwordFile": "prod_harness_app.pw",
+      "worksheetsEnabled": false,
+      "mutatingRunbooksEnabled": false
+    }
+  ]
+}
