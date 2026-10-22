@@ -127,7 +127,7 @@ artifacts included in changes. Documentation consolidation alone does not pass i
 
 ## 2. Enforce the production boundary
 
-- [ ] **P1** Verify API and console refusals for production worksheets, session
+- [x] **P1** Verify API and console refusals for production worksheets, session
   writes, compile, mutating runbooks, copilot and Kiwi, including direct API
   requests. Add missing regression tests; do not change refusal semantics.
 - [ ] **P2** Verify Oracle 19c identity checks fail closed for unsupported production
@@ -909,3 +909,81 @@ No provider, database or Oracle access was performed; no environment variables
 enabling a real Oracle target, database or provider were set. B0, B1 and B2
 checkboxes are marked done with their open PRs (#41, #42, #43) noted above.
 P1 was not started.
+
+
+### P1 — Production boundary — 2026-10-22 — done
+
+Implementation commit: `67f0c99` on `plan/P1-production-refusals`, branched from
+`plan/B3-record-checks` (`fa58de6`). This completion record is a second commit.
+The new **Production boundary** section in `docs/operations.md` maps each API,
+manifest, policy and console path to enforcement and named regression coverage.
+The audit covers profile creation, absent PUT/PATCH routes, grant replacement,
+bootstrap validation/drift/read-only grants, worksheet open and existing sessions,
+DML/DDL/PLSQL/SQL COMMIT/explicit commit, compile, explain-plan session writes,
+all current mutating runbooks, copilot/Kiwi and target-reference bindings, plus
+console controls and target switching.
+
+**Gaps and coordinator-approved resolutions:**
+
+- `copilot/service.py:run` previously permitted authorized production `profileId`
+  requests to reach plain copilot or Kiwi; `_check_kiwi_access` checked only grants.
+  The service now refuses known production IDs/names (including colon-delimited
+  `targetReference` bindings) before provider work, budget consumption or lookup,
+  preserving the PolicyError/SSE shape and recording a refusal audit.
+- `policy.py:_check_environment` previously relied on the worksheet enablement
+  flag and omitted SESSION_WRITE from production risks. Production now hard-refuses
+  worksheet and compile permissions plus session/persistent/administrative writes,
+  independently of stored flags. Existing compile already used persistent-write
+  policy; its explicit permission gate is covered too.
+- Console actions previously allowed production Kiwi entry, compilation and
+  mutating runbook selection/confirmation; worksheet visibility trusted its flag.
+  These controls now hide/disable on production, with a drawer-render guard and
+  tests covering a switch from development and enabled stored flags.
+- The coordinator approved these product changes through the dispatch question on
+  2026-10-22. No contract/schema changes were needed. No unresolved enforcement
+  gap remains within the agreed scope.
+
+**Tests:** added `tests/unit/test_production_boundary.py` with **32 cases** using
+an explicitly fake Oracle backend, authorized users, backend spies and checks for
+no execution records or successful execution audit. Copilot cases also verify no
+provider call, budget/request/tool-call record, and an explicit refusal audit.
+Added **six console regressions** across `App.targetSwitch.test.tsx`,
+`views/RunbooksView.test.tsx` and new `views/ProductionBoundary.test.tsx`.
+The one existing assertion that described the approved gap was replaced:
+`tests/copilot/test_kiwi.py:test_on_production_kiwi_only_observes` expected a
+successful production lookup; it is now `test_on_production_kiwi_is_refused`,
+asserting only a policy error, no provider conversation and no execution record.
+The invariant map in `test_kiwi_evaluation.py` follows that rename; no other
+existing assertions were changed.
+
+| Command | Exit | Result / saved output |
+| --- | ---: | --- |
+| `uv run pytest -q tests/unit/test_production_boundary.py` | 0 | **32 passed**, 16.73s; `/tmp/p1-boundary.log` |
+| `uv run pytest -q tests/unit/test_production_boundary.py tests/copilot/test_kiwi.py` | 0 | **61 passed** at that checkpoint; `/tmp/p1-focused.log` |
+| `npm --prefix apps/web test -- --run` | 0 | **77 passed, 3 skipped**, seven files passed and one skipped; `/tmp/p1-web.log` |
+| `uv run ruff format --check .` | 0 | **310 files already formatted**; `/tmp/p1-format.log` |
+| `uv run ruff check .` | 0 | **All checks passed**; `/tmp/p1-ruff.log` |
+| `uv run pytest -q` | 0 | **2494 passed, 83 skipped**, 463.30s; `/tmp/p1-pytest-full.log` |
+| `npm --prefix apps/web run typecheck` | 0 | **tsc --noEmit clean**; `/tmp/p1-typecheck.log` |
+| `bash scripts/secret_scan.sh` | 0 | **no findings**, including newly staged files; `/tmp/p1-secret-scan.log` |
+| `git diff --check` and `git diff --cached --check` | 0 | **no output** |
+
+All uv invocations used `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache`. The full
+pytest suite ran **once**; it collected the first 30 new boundary cases. Final
+review added the SQL COMMIT and tuning-explain regressions after that collection;
+the final focused run passed all 32 cases. Product behavior was unchanged during
+the full run. Python skips remain the existing environment-dependent Oracle/OIDC/
+PostgreSQL checks; web skips require Keycloak. Existing React act warnings remain
+non-failing in copilot drawer tests. These are stand-in results, not evidence of
+Oracle compatibility or production qualification.
+
+**Accepted limitation:** arbitrary pasted code and unknown external editor target
+references cannot be classified as production. Unbound editor-only copilot remains
+available when globally enabled; matching known production IDs/names is refused.
+The coordinator explicitly accepted documenting this limit. Production deployment
+must keep copilot/Kiwi off; defaults remain off. Local preview/apply-check and
+rollback/cancel/close remain non-provider or discard-only paths.
+
+No push, PR, provider run, real Oracle/database access, excluded-store access or
+untracked evaluation-artifact edits occurred. Nothing was deleted. P1 is marked
+done; P2 was not started.
