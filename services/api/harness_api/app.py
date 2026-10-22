@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from harness_api import __version__
+from harness_api.audit_context import audit_request
 from harness_api.config import Settings, get_settings
 from harness_api.copilot import CopilotService
 from harness_api.db import build_engine, build_session_factory, initialize_schema
@@ -38,8 +39,8 @@ from harness_api.routers import (
     worksheet,
 )
 from harness_api.runbooks import RunbookService, register_definitions
-from harness_api.security import Authenticator
-from harness_worker.errors import HarnessError
+from harness_api.security import Authenticator, Principal
+from harness_worker.errors import HarnessError, PolicyError
 
 log = logging.getLogger("harness.api")
 
@@ -122,10 +123,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_headers=["*"],
         )
 
+    @app.middleware("http")
+    async def refusal_request_context(request: Request, call_next):
+        token = audit_request.set(request)
+        try:
+            return await call_next(request)
+        finally:
+            audit_request.reset(token)
+
     @app.exception_handler(HarnessError)
     async def harness_error_handler(request: Request, exc: HarnessError) -> JSONResponse:
         # Every failure the caller sees carries a stable code, so the console and IDE
         # adapters can react without parsing message text.
+        if isinstance(exc, PolicyError) and not getattr(exc, "refusal_audited", False):
+            principal = getattr(request.state, "principal", Principal(subject="anonymous"))
+            try:
+                with request.app.state.harness.session_factory() as db:
+                    request.app.state.harness.execution.audit_refusal(
+                        db,
+                        principal,
+                        operation_id=getattr(
+                            exc,
+                            "audit_operation_id",
+                            request.method + " " + request.scope["route"].name,
+                        ),
+                        profile_id=getattr(exc, "audit_profile_id", exc.detail.get("profileId")),
+                        error=exc,
+                    )
+            except Exception:
+                log.exception("Failed to open refusal audit session")
         status = exc.http_status
         if status == 499:  # a client-cancel code nginx understands but HTTP does not
             status = 408

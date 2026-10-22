@@ -296,10 +296,14 @@ contract changed.
 | Console mutating runbooks | `views/RunbooksView.tsx` disables production mutating selection and confirmation, including a prior development preview | Production tests in `views/RunbooksView.test.tsx` |
 
 The new Python tests explicitly use the fake Oracle backend, authorized DBA grants,
-backend spies and metadata assertions: refused operations create no execution record
-and no audit claiming an execution succeeded. Successful worksheet-open audit rows
-from session setup are retained. Copilot tests additionally assert no budget,
-request or tool-call record and an explicit refusal audit. These are stand-in
+backend spies and metadata assertions: policy refusals create exactly one refused
+AuditEvent through the central refusal helper, with actor, known profile,
+action/permission and request path, and create no execution record. The global
+error handler covers direct REST refusals; caught panel/session errors and copilot
+SSE errors use the same helper and avoid duplicate rows. Audit storage failures are
+logged and preserve the original refusal response. Successful worksheet-open audit
+rows from session setup are retained. Copilot tests additionally assert no budget,
+request or tool-call record. These are stand-in
 regressions, not Oracle compatibility or production qualification evidence.
 
 Runbook catalog/preview, local copilot context preview and proposal apply-check do

@@ -30,6 +30,7 @@ import json
 import re
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from contextlib import aclosing
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
@@ -474,6 +475,27 @@ class CopilotService:
     # -- the request ----------------------------------------------------------------
 
     async def run(
+        self, principal: Principal, ask: CopilotAsk
+    ) -> AsyncGenerator[tuple[str, dict[str, Any]], None]:
+        """Audit policy refusals carried by the existing SSE error transport."""
+        async with aclosing(self._run(principal, ask)) as events:
+            async for name, payload in events:
+                if name == "error" and payload.get("code") == PolicyError.code:
+                    if self._execution is not None:
+                        error = PolicyError(payload["message"], detail=payload.get("detail"))
+                        with self._sessions() as db:
+                            self._execution.audit_refusal(
+                                db,
+                                principal,
+                                operation_id="copilot.kiwi"
+                                if self.kiwi_enabled and ask.profile_id
+                                else "copilot.request",
+                                profile_id=error.detail.get("profileId") or ask.profile_id or None,
+                                error=error,
+                            )
+                yield name, payload
+
+    async def _run(
         self, principal: Principal, ask: CopilotAsk
     ) -> AsyncGenerator[tuple[str, dict[str, Any]], None]:
         """Yield (event name, payload) pairs for the caller to serialise as SSE."""
@@ -1001,17 +1023,6 @@ class CopilotService:
                     "Copilot and Kiwi are disabled on production targets.",
                     detail={"profileId": profile.id},
                 )
-                if self._execution is not None:
-                    self._execution.audit_refusal(
-                        db,
-                        principal,
-                        operation_id="copilot.kiwi"
-                        if self.kiwi_enabled and ask.profile_id
-                        else "copilot.request",
-                        profile_id=profile.id,
-                        error=error,
-                    )
-                    db.commit()
                 raise error
 
     def _check_kiwi_access(self, principal: Principal, profile_id: str) -> None:

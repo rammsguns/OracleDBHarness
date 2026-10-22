@@ -45,6 +45,19 @@ def production(client, targets):
     return profile_id
 
 
+def assert_one_refusal(client, path, profile_id=None):
+    with client.app.state.harness.session_factory() as db:
+        rows = list(db.scalars(select(AuditEvent).where(AuditEvent.outcome == "refused")))
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.policy_decision == "refused"
+        assert row.actor_subject
+        assert row.operation_id
+        assert row.profile_id == profile_id
+        assert row.detail["requestPath"] == path
+        assert row.execution_id is None
+
+
 def assert_no_execution(client):
     with client.app.state.harness.session_factory() as db:
         assert list(db.scalars(select(Execution))) == []
@@ -67,6 +80,7 @@ def test_production_worksheet_open_is_refused(client, dba, production, monkeypat
     assert response.json()["error"]["code"] == "policy_refused"
     connect.assert_not_called()
     assert_no_execution(client)
+    assert_one_refusal(client, "/api/v1/worksheets", production)
 
 
 def test_production_compile_is_refused(client, dba, production, monkeypatch):
@@ -84,6 +98,7 @@ def test_production_compile_is_refused(client, dba, production, monkeypatch):
     assert response.json()["error"]["code"] == "policy_refused"
     connect.assert_not_called()
     assert_no_execution(client)
+    assert_one_refusal(client, "/api/v1/plsql/compile", production)
 
 
 @pytest.mark.parametrize("action", ["commit", "sql_commit", "dml", "ddl", "plsql", "query"])
@@ -120,6 +135,7 @@ def test_existing_session_cannot_write_after_becoming_production(
     execute.assert_not_called()
     commit.assert_not_called()
     assert_no_execution(client)
+    assert_one_refusal(client, response.request.url.path, profile_id)
 
 
 @pytest.mark.parametrize("flag", ["worksheetsEnabled", "mutatingRunbooksEnabled"])
@@ -147,6 +163,7 @@ def test_production_create_refuses_mutating_flags(client, administrator, flag):
             is None
         )
     assert_no_execution(client)
+    assert_one_refusal(client, "/api/v1/admin/targets", None)
 
 
 @pytest.mark.parametrize("method", ["put", "patch"])
@@ -177,6 +194,7 @@ def test_production_worksheet_grant_refused(client, administrator, production):
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "policy_refused"
     assert_no_execution(client)
+    assert_one_refusal(client, "/api/v1/admin/grants", production)
 
 
 @pytest.mark.parametrize("runbook", ["runbook.recompile_object", "runbook.gather_table_stats"])
@@ -206,6 +224,7 @@ def test_production_mutating_runbooks_refused(client, dba, production, monkeypat
     assert response.json()["error"]["code"] == "policy_refused"
     connect.assert_not_called()
     assert_no_execution(client)
+    assert_one_refusal(client, f"/api/v1/runbooks/{runbook}/run", production)
 
 
 @pytest.mark.parametrize("kiwi", [False, True])
@@ -238,6 +257,7 @@ def test_production_copilot_refused_before_provider_budget_or_lookup(
         refusal = db.scalar(select(AuditEvent).where(AuditEvent.profile_id == production))
         assert refusal.policy_decision == "refused"
     assert_no_execution(client)
+    assert_one_refusal(client, "/api/v1/copilot/requests", production)
 
 
 @pytest.mark.parametrize("schema_binding", ["id", "name"])
@@ -319,4 +339,63 @@ def test_production_explain_is_refused(client, dba, production, monkeypatch):
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "policy_refused"
     connect.assert_not_called()
+    assert_no_execution(client)
+    assert_one_refusal(client, "/api/v1/tuning/explain", production)
+
+
+def test_missing_permission_refusal_is_audited(client, dba, targets):
+    profile_id = targets["development"]["id"]
+    with client.app.state.harness.session_factory() as db:
+        for grant in db.scalars(
+            select(UserTargetGrant).where(UserTargetGrant.profile_id == profile_id)
+        ):
+            grant.permissions = ["read"]
+        db.commit()
+    response = client.post("/api/v1/worksheets", headers=dba, json={"profileId": profile_id})
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "policy_refused"
+    with client.app.state.harness.session_factory() as db:
+        row = db.scalar(select(AuditEvent).where(AuditEvent.outcome == "refused"))
+        assert row.detail["permission"] == "worksheet"
+    assert_no_execution(client)
+    assert_one_refusal(client, "/api/v1/worksheets", profile_id)
+
+
+def test_audit_failure_preserves_policy_refusal(client, dba, production, monkeypatch):
+    audit = Mock(side_effect=RuntimeError("stand-in audit failure"))
+    monkeypatch.setattr(client.app.state.harness.execution, "_audit", audit)
+    response = client.post("/api/v1/worksheets", headers=dba, json={"profileId": production})
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "policy_refused"
+    audit.assert_called_once()
+    assert_no_execution(client)
+
+
+def test_panel_policy_refusal_is_audited_once(client, dba, targets):
+    profile_id = targets["development"]["id"]
+    with client.app.state.harness.session_factory() as db:
+        for grant in db.scalars(
+            select(UserTargetGrant).where(UserTargetGrant.profile_id == profile_id)
+        ):
+            grant.permissions = []
+        db.commit()
+    path = f"/api/v1/targets/{profile_id}/schemas"
+    response = client.get(path, headers=dba)
+    assert response.status_code == 200
+    assert response.json()["error"]["code"] == "policy_refused"
+    assert_one_refusal(client, path, profile_id)
+    assert_no_execution(client)
+
+
+@pytest.mark.parametrize("audit_failure", [False, True])
+def test_disabled_copilot_refusal_is_audited(client, dba, monkeypatch, audit_failure):
+    state = client.app.state.harness
+    state.copilot._settings = state.copilot._settings.model_copy(update={"copilot_enabled": False})
+    if audit_failure:
+        monkeypatch.setattr(state.execution, "_audit", Mock(side_effect=RuntimeError("stand-in")))
+    events = sse(client, dba, base_payload())
+    assert [name for name, _ in events] == ["error"]
+    assert events[0][1]["code"] == "policy_refused"
+    if not audit_failure:
+        assert_one_refusal(client, "/api/v1/copilot/requests")
     assert_no_execution(client)
