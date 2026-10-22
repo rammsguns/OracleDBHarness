@@ -986,15 +986,16 @@ class CopilotService:
     def _check_production_access(self, principal: Principal, ask: CopilotAsk) -> None:
         """Refuse known production bindings before provider work or budget consumption."""
 
-        references = set(ask.target_reference.split(":"))
+        # CopilotDrawer builds harness:<target id>:<default schema> references.
+        target_token = ask.target_reference
+        if target_token.startswith("harness:"):
+            target_token = target_token.split(":", 2)[1]
         with self._sessions() as db:
             profiles = db.scalars(
                 select(ConnectionProfile).where(ConnectionProfile.environment == "production")
             )
             for profile in profiles:
-                if ask.profile_id != profile.id and not references.intersection(
-                    {profile.id, profile.name}
-                ):
+                if ask.profile_id != profile.id and target_token not in {profile.id, profile.name}:
                     continue
                 error = PolicyError(
                     "Copilot and Kiwi are disabled on production targets.",

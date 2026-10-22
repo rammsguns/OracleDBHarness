@@ -240,6 +240,23 @@ def test_production_copilot_refused_before_provider_budget_or_lookup(
     assert_no_execution(client)
 
 
+@pytest.mark.parametrize("schema_binding", ["id", "name"])
+def test_development_copilot_allows_schema_matching_production(
+    client, dba, targets, production, schema_binding
+):
+    profile_id = targets["development"]["id"]
+    schema = production if schema_binding == "id" else "production"
+    events = sse(
+        client,
+        dba,
+        base_payload(targetReference=f"harness:{profile_id}:{schema}"),
+    )
+    assert "done" in [name for name, _ in events]
+    assert "error" not in [name for name, _ in events]
+    with client.app.state.harness.session_factory() as db:
+        assert db.scalar(select(AuditEvent).where(AuditEvent.profile_id == production)) is None
+
+
 def test_unbound_editor_only_copilot_remains_available(client, dba):
     events = sse(client, dba, base_payload(targetReference=""))
     assert "done" in [name for name, _ in events]
