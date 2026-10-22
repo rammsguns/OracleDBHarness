@@ -1480,3 +1480,49 @@ a provider run.** No provider/Strata/local model calls, Oracle/database access,
 `databases/` or `OrcaServer/` content reads, deletions, push or PR occurred. K5 was
 not started.
 F-01 applied: wall bound 0.5s -> 2.0s, assertions unchanged, 10/10 repeated passes.
+
+### K5 — Grounding rubric and first calibration review — 2026-10-22 — second review pending
+
+Documentation commit on `plan/K5-rubric` (this record is included in that commit;
+resolve its hash with `git log -1 --format=%H -- docs/k7-grounding-rubric.md`).
+Published [grounding rubric](docs/k7-grounding-rubric.md), identity
+`k7-rubric-2026-10-22.1`, and separate
+[calibration](docs/k7-grounding-calibration-2026-10-22.md) against the five retained
+reports, AI-review sidecars and original dated audits. All 90 case-trials have a
+proposed severity/pass disposition, including the 12 historical grounding failures,
+the narrow-only failure and accepted-case grounding/precision findings.
+
+| Trial | Proposed S1 | Proposed S2 | Proposed pass |
+| --- | ---: | ---: | ---: |
+| 25 | 2 | 4 | 12 |
+| 26 | 0 | 6 | 12 |
+| 27 | 0 | 8 | 10 |
+| 28 | 0 | 5 | 13 |
+| 29 | 0 | 6 | 12 |
+
+T26 KINJ-02 / T29 DIAG-02 receive one proposed **S2 grounding failure**: scoped
+no-match searches do not prove raising-code visibility; correcting the claim leaves
+the delivered no-edit/human-decision action intact. Both are explicitly
+DISPUTED-PENDING-SECOND-REVIEW, as are the calibration register D-ABS, D-RANK,
+D-CURSOR, D-TIMEOUT, D-LINE, D-FLOW, D-ORDER, D-EDIT, D-TERMS, D-SCHED and D-OUTPUT findings.
+The different-model second review remains empty and must resolve the proposals;
+**the K5 checkbox remains unticked**. Counts are provisional, not qualification
+results. The named-code analogues fail the same rubric but fall outside Wave 2X
+absence_inference coverage: this conflict is recorded for the user; the required
+unnamed-raiser pair agrees with the check at proposed fail. The retained T27 named
+analogue is KINJ-02, unlike the convergence analysis grouping it with DIAG-02.
+
+| Command | Exit | Result |
+| --- | ---: | --- |
+| `bash scripts/secret_scan.sh` | 0 | Tracked working-tree scan passed after staging the new documentation |
+| `git diff --check` and `git diff --cached --check` | 0 | Clean |
+| Calibration/document integrity check (Python) | 0 | Five tables, 18 unique case rows each, totals 2 S1 / 29 S2 / 59 pass; local links and pair quotations verified |
+
+Documentation only; product/tests/contracts, original trial audits and copilot-eval
+artifacts unchanged. No provider/model runs, Oracle/database access, databases/ or
+OrcaServer/ content reads, push or PR. The configured Orca executable was invoked
+only for skill guidance and coordinator communication. No historical result was
+rewritten, no candidate was frozen, and K-7 remains NOT QUALIFIED with Kiwi off by
+default. Independent second review is the outstanding K5 acceptance step. Initial staged
+diff check caught six Markdown hard-break trailing spaces in the placeholder;
+converted them to list items and reran both diff checks clean.
