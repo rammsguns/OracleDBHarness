@@ -60,7 +60,7 @@
     },
     {
       "name": "d4-19c-remote",
-      "host": "172.99.188.64",
+      "host": "203.0.113.10",
       "port": 3603,
       "serviceName": "ORCL",
       "username": "HARNESS_APP",
@@ -73,9 +73,9 @@
     },
     {
       "name": "d3-26ai-adb",
-      "host": "adb.mx-queretaro-1.oraclecloud.com",
+      "host": "adb.<region>.oraclecloud.com",
       "port": 1522,
-      "serviceName": "g455001ab0656db_oracle26ialwaysfree_medium.adb.oraclecloud.com",
+      "serviceName": "<tenancy>_<db>_medium.adb.oraclecloud.com",
       "username": "HARNESS_APP",
       "defaultSchema": "HARNESS_APP",
       "environment": "production",
@@ -84,7 +84,7 @@
       "worksheetsEnabled": false,
       "mutatingRunbooksEnabled": false,
       "protocol": "tcps",
-      "walletDir": "/home/kiwi/oracle26i-always-free/wallet",
+      "walletDir": "./databases/wallets/<target>",
       "walletSecretReference": "d3_wallet",
       "walletPasswordFile": "d3_wallet.pw"
     },

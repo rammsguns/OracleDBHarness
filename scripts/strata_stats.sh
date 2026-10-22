@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-STRATA_DIR="/home/kiwi/llm-rig/strata"
+STRATA_DIR="${HOME}/llm-rig/strata"
 KEY_FILE="$STRATA_DIR/.config/strata/api-key"
 
 if [[ ! -f "$KEY_FILE" ]]; then

@@ -27,9 +27,9 @@ watch -n 1 ./scripts/strata_stats.sh
 For instant access from any directory without typing full paths:
 
 ```bash
-alias strata-stats='/home/kiwi/OracleDBHarness/scripts/strata_stats.sh'
-alias strata-restart='/home/kiwi/OracleDBHarness/scripts/restart_strata.sh'
-alias strata-live='watch -n 1 /home/kiwi/OracleDBHarness/scripts/strata_stats.sh'
+alias strata-stats='${HOME}/OracleDBHarness/scripts/strata_stats.sh'
+alias strata-restart='${HOME}/OracleDBHarness/scripts/restart_strata.sh'
+alias strata-live='watch -n 1 ${HOME}/OracleDBHarness/scripts/strata_stats.sh'
 ```
 
 ---
@@ -39,7 +39,7 @@ alias strata-live='watch -n 1 /home/kiwi/OracleDBHarness/scripts/strata_stats.sh
 Strata listens on `http://127.0.0.1:8080` (and `0.0.0.0:8080`).
 
 ```bash
-API_KEY=$(cat /home/kiwi/llm-rig/strata/.config/strata/api-key)
+API_KEY=$(cat ${HOME}/llm-rig/strata/.config/strata/api-key)
 ```
 
 ### A. Health & Service State (No Auth Required)
@@ -85,5 +85,5 @@ nvidia-smi --query-gpu=index,name,memory.used,memory.total,utilization.gpu,tempe
 
 Strata also provides an integrated real-time web UI:
 - Local URL: **`http://127.0.0.1:8080`**
-- LAN URL: **`http://192.168.3.36:8080`**
+- LAN URL: **`http://192.0.2.10:8080`**
 - API Monitor: **`http://127.0.0.1:8080/api-monitor`**
