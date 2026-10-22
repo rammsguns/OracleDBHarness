@@ -352,7 +352,7 @@ Verification after the consolidation commit:
 - `uv run ruff check .`: `All checks passed!`, exit 0 (pass).
 
 Limitations: the two initial uv invocations exited 2 because the default
-`/home/kiwi/.cache/uv/CACHEDIR.TAG` was not writable; rerunning with
+`~/.cache/uv/CACHEDIR.TAG` was not writable; rerunning with
 `UV_CACHE_DIR=/tmp/oracledbharness-b0-uv-cache` passed both checks above. No
 `copilot-eval/` or `OrcaServer/` files were staged. Dated reviews, compatibility
 run records and decision history remain unchanged. The dispatch explicitly
@@ -715,3 +715,65 @@ Remaining limitations: 40 cited raw reports/snapshots were deliberately excluded
 by the requested conservative scan policy, and 15 uncited files remain visible.
 Historical verdicts remain unchanged; retaining summaries does not qualify K-7.
 No push, PR, provider run or database access occurred. B2 was not started.
+
+### B2 — Secret scan — 2026-10-22 — STOP / failed
+
+Implementation commit: `5dd58dc` on `plan/B2-secret-scan`, branched from
+`plan/B1-triage-eval-output`. Added the Bash/Python 3 tracked-file scanner,
+commented allowlist format, four temporary-repository regression tests and a short
+operations section. No B3 work, history rewrite, push, PR, provider run or database
+access occurred.
+
+**STOP findings (values deliberately omitted):**
+
+- `.env.real.example:8:cloud-host`
+- `.env.real.example:8:ipv4`
+- `strata_utils.md:88:ipv4`
+
+These are configured endpoint/LAN identifiers, not documentation-address
+placeholders. Preserved their contents and escalated to the coordinator; no
+allowlist entries suppress them. Additional cloud candidates remain at
+`databases.example/targets.json.example:76:cloud-host` and
+`databases.example/targets.json.example:78:cloud-host`; their authenticity has
+not been established. Remaining candidates include code expressions, synthetic
+test values, historical paths and emails and are not fully triaged because actual
+endpoint findings trigger STOP.
+
+| Rule | Initial candidate hits | After implementation |
+| --- | ---: | ---: |
+| private-key | 0 | 0 |
+| credential-assignment | 513 | 513 |
+| oracle-connect | 22 | 22 |
+| wallet-path | 0 | 0 |
+| cloud-host | 3 | 3 |
+| ipv4 | 4 | 4 |
+| home-path | 115 | 115 |
+| email | 90 | 90 |
+
+Counts above are from the initial scan and the final implementation scan before
+this completion record; they are candidate line/rule hits, not confirmed secrets.
+Allowlist entries: **none**; only format guidance is present. Coordinator
+clarification treats historical local home paths as reviewed exceptions rather
+than secrets; that alone cannot resolve the confirmed non-home STOP findings.
+The earlier B1 completion record's repository-root home path was made relative
+in this record commit as requested; historical source documents remain unchanged.
+
+Verification:
+
+- `bash scripts/secret_scan.sh ; echo exit=$?`: **exit=1**, tree not clean.
+- `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache uv run pytest -q tests/test_secret_scan.py`:
+  **4 passed**; planted key/IP exit 1, placeholders exit 0, explicit selection,
+  untracked rejection, allowlist validation and excluded directories covered.
+- `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache uv run ruff format --check .`:
+  **308 files already formatted**, exit 0.
+- `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache uv run ruff check .`:
+  **All checks passed**, exit 0.
+- `git diff --check HEAD~1` after implementation commit: no output, exit 0.
+
+B1 reconciliation: its 40 endpoint-bearing raw reports/snapshots remain untracked
+and were never opened by the scanner; the 15 other visible scratch files likewise
+remain untracked. The scanner enumerates only `git ls-files -z`, and explicitly
+excludes tracked entries beneath `OrcaServer/` and `databases/` as a safeguard.
+This is a heuristic UTF-8 working-tree scan, not an index/blob or binary scanner.
+B2 remains incomplete and failed until the coordinator resolves actual identifiers
+and the remaining candidates are reviewed; do not start B3.
