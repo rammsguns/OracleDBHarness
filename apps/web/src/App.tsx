@@ -113,11 +113,13 @@ export function App() {
 
   // Views pass the code to ask about, or a full seed with an action and error text.
   const askCopilot = (seed: string | CopilotSeed) =>
+    selected?.environment !== "production" &&
     setCopilot({ targetId: selectedId, seed: typeof seed === "string" ? { text: seed } : seed });
   // Checked at render, not left to the effect above: the effect runs after a render,
   // and that render would show the drawer against the new target with the old
   // target's source still in it.
-  const copilotHere = copilot?.targetId === selectedId ? copilot : null;
+  const copilotHere =
+    selected?.environment !== "production" && copilot?.targetId === selectedId ? copilot : null;
 
   return (
     <div className="app">
@@ -140,11 +142,13 @@ export function App() {
           ))}
         </nav>
         <div className="spacer" />
-        {info?.copilotEnabled ? (
+        {info?.copilotEnabled && selected?.environment !== "production" ? (
           <button onClick={() => askCopilot("")}>Ask Kiwi</button>
         ) : (
           <p className="muted" style={{ fontSize: 12 }}>
-            Kiwi is disabled on this harness.
+            {selected?.environment === "production"
+              ? "Kiwi is disabled on production targets."
+              : "Kiwi is disabled on this harness."}
           </p>
         )}
         <button

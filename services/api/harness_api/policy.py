@@ -134,7 +134,7 @@ class PolicyEngine:
     ) -> None:
         production = profile.environment in self._production
 
-        if permission == PERMISSION_WORKSHEET and not profile.worksheets_enabled:
+        if permission == PERMISSION_WORKSHEET and (production or not profile.worksheets_enabled):
             decision.allowed = False
             decision.reason = (
                 f"Free-form worksheets are not enabled on {profile.name!r}. Production "
@@ -142,7 +142,11 @@ class PolicyEngine:
             )
             raise PolicyError(decision.reason, detail=decision.as_dict())
 
-        if production and risk in (RiskClass.PERSISTENT_WRITE, RiskClass.ADMINISTRATIVE):
+        if production and (
+            permission == PERMISSION_COMPILE
+            or risk
+            in (RiskClass.SESSION_WRITE, RiskClass.PERSISTENT_WRITE, RiskClass.ADMINISTRATIVE)
+        ):
             decision.allowed = False
             decision.reason = (
                 f"{profile.name!r} is a production target. Mutating operations are out "

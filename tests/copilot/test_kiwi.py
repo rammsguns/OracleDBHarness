@@ -433,25 +433,14 @@ def test_a_grant_revoked_mid_request_refuses_the_next_lookup(
 # -- invariant 4: production stays observation-only --------------------------------
 
 
-def test_on_production_kiwi_only_observes(client: TestClient, dba, targets) -> None:
-    use_script(
-        client,
-        ScriptedTurn(
-            tool_calls=(
-                status_call("c1"),
-                ToolCall(id="c2", name="runbook__recompile_invalid", input={}),
-            )
-        ),
-        ScriptedTurn(text="Looked, changed nothing."),
-    )
+def test_on_production_kiwi_is_refused(client: TestClient, dba, targets) -> None:
+    provider = use_script(client, ScriptedTurn(text="should not run"))
     events = sse(client, dba, kiwi_payload(targets["production"]["id"]))
-    results = [data for name, data in events if name == "tool_result"]
-    assert results[0]["status"] == "succeeded", results[0]
-    assert results[1]["status"] == "refused"
+    assert names(events) == ["error"]
+    assert events[0][1]["code"] == "policy_refused"
+    assert provider.conversations == []
     with db_session(client) as db:
-        for row in db.scalars(select(Execution)).all():
-            assert row.risk_class == "read"
-            assert row.statement_kind in ("query", "select", "unknown")
+        assert list(db.scalars(select(Execution))) == []
 
 
 # -- invariant 5: results are data, and capped --------------------------------------

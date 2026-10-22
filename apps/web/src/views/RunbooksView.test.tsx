@@ -284,3 +284,26 @@ describe("the evidence a run is judged on", () => {
     expect(screen.getByText(new RegExp(`Requires: ${REQUIREMENT}`))).toBeTruthy();
   });
 });
+
+describe("production runbooks", () => {
+  const production = makeTarget({ environment: "production", mutatingRunbooksEnabled: true });
+
+  it("disables mutating selection despite an enabled stored flag", async () => {
+    render(<RunbooksView target={production} />);
+    const select = await screen.findByRole("button", { name: /select/i });
+    expect(select.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(select);
+    expect(screen.queryByRole("button", { name: /confirm and run/i })).toBeNull();
+    expect(previewRunbook).not.toHaveBeenCalled();
+    expect(runRunbook).not.toHaveBeenCalled();
+  });
+
+  it("disables an existing confirmation after switching to production", async () => {
+    const view = await selectRunbook();
+    await previewAsShown();
+    view.rerender(<RunbooksView target={production} />);
+    expect(confirmButton().hasAttribute("disabled")).toBe(true);
+    fireEvent.click(confirmButton());
+    expect(runRunbook).not.toHaveBeenCalled();
+  });
+});

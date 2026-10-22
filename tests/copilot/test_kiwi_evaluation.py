@@ -38,7 +38,7 @@ INVARIANT_TESTS: dict[int, tuple[str, ...]] = {
         "test_an_integration_credential_cannot_make_lookups",
         "test_a_grant_revoked_mid_request_refuses_the_next_lookup",
     ),
-    4: ("test_on_production_kiwi_only_observes",),
+    4: ("test_on_production_kiwi_is_refused",),
     5: ("test_injected_text_in_a_result_stays_inside_the_markers",),
     6: ("test_a_kiwi_proposal_applies_to_the_editor_only",),
     7: (

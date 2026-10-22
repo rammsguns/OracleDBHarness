@@ -178,6 +178,7 @@ export function SchemaView({
             <button onClick={() => setDetail(null)}>Close</button>
             {detail.panels.source?.available && (
               <button
+                disabled={target.environment === "production"}
                 onClick={() =>
                   onAsk(
                     detail.panels.source.rows.map((row) => String(row[1])).join("\n"),

@@ -82,6 +82,7 @@ export function TuningView({
           </button>
           {estimated && (
             <button
+              disabled={target.environment === "production"}
               onClick={() =>
                 onAsk(
                   `Explain this plan.\n\nStatement:\n${statement}\n\nPlan rows:\n` +

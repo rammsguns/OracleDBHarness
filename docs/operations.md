@@ -258,3 +258,61 @@ connections to localhost and action references are recognized. Regression tests
 plant plausible credentials and hosts alongside these exceptions.
 Real secrets or host identifiers require a STOP report with locations only,
 without copying values or rewriting history.
+
+## Production boundary
+
+Stage 1 profiles whose `environment` is exactly `production` are observation only.
+Copilot and Kiwi default off in `config.py`; even if enabled globally for development,
+a known production binding is refused before provider work, budget consumption or
+Oracle lookup. Refusals use the existing HTTP 403 `policy_refused` error; copilot
+keeps its HTTP 200 SSE transport and emits only an `error` event. Earlier grant,
+role and request-validation failures retain their existing errors.
+
+The P1 audit found that production copilot/Kiwi bindings were accepted, console
+controls remained available, and worksheet policy depended solely on stored flags.
+The coordinator approved the minimal server and console fixes on 2026-10-22.
+Production worksheet permission, compile permission and session/persistent/admin
+write risks now fail closed regardless of stored enablement flags. No protocol
+contract changed.
+
+| Path | Enforced where | Regression evidence |
+| --- | --- | --- |
+| `POST /api/v1/admin/targets` with either unsafe flag | `routers/admin.py:create_target`: production flags rejected before insert | `tests/unit/test_production_boundary.py:test_production_create_refuses_mutating_flags` (both flags) |
+| Target PUT/PATCH | No update route is registered; target-specific PUT/PATCH returns 404/405 | `test_profile_update_has_no_route` (both methods; stored flags unchanged) |
+| `POST /api/v1/admin/grants` (create or replace) | `routers/admin.py:create_grant` rejects worksheet grants when disabled; compile/runbook grants confer no production execution authority because policy rechecks environment | `test_production_worksheet_grant_refused`; compile and mutating-runbook direct-request tests use fully authorized grants |
+| Manifest import, including `targets.json` | `scripts/bootstrap_targets.py:validate_manifest` rejects either unsafe production flag before storage or probing; `bootstrap` rejects stored profile drift and issues only read grants on production | `test_bootstrap_refuses_unsafe_production_before_storage_or_probe` (both flags); existing `tests/unit/test_bootstrap_targets.py:test_invalid_and_unsafe_manifest`, `test_idempotent_grants_and_drift` |
+| `POST /api/v1/worksheets` | `execution.py:open_worksheet` calls `policy.py:_check_environment`; production worksheet permission is refused even if stored flag is true | `test_production_worksheet_open_is_refused` (normal and drifted flags); existing `tests/integration/test_targets_and_access.py:test_production_is_observation_only` |
+| Existing worksheet `/execute`: query, DML, DDL, anonymous PL/SQL | `routers/worksheet.py:execute` reloads profile/grant; `execution.py:run_worksheet_statement` reauthorizes before execution records or backend execution; production worksheet permission and write risks refused | `test_existing_session_cannot_write_after_becoming_production` (query, DML, DDL, PL/SQL) |
+| Existing worksheet `/commit` | `execution.py:commit_worksheet` reloads and reauthorizes with persistent-write risk before commit intent or backend commit | Same test (commit case); backend execute/commit spies remain uncalled |
+| Transaction SQL in `/execute` | `execution.py:_risk_for_kind` classifies transaction-control SQL as persistent-write; production worksheet/write policy refuses it before execution | `test_existing_session_cannot_write_after_becoming_production` (SQL COMMIT and explicit commit endpoint); existing `tests/unit/test_statement.py` classification checks |
+| `POST /api/v1/plsql/compile` | `execution.py:compile_plsql` authorizes compile/persistent-write before execution record/connection; production check in policy is independent of flags | `test_production_compile_is_refused`; `test_production_policy_refuses_session_write_and_compile_independent_of_flags` |
+| Session-write policy independent of permission | `policy.py:_check_environment` refuses production `SESSION_WRITE` alongside persistent/admin writes | `test_production_policy_refuses_session_write_and_compile_independent_of_flags`; worksheet DML/PLSQL direct requests above |
+| `POST /api/v1/tuning/explain` | `execution.py:explain_statement` requires worksheet permission before writing session-private PLAN_TABLE rows; production worksheet gate applies | `test_production_explain_is_refused` |
+| Mutating runbook `/run`, confirmed or UI bypassed | `runbooks.py:RunbookService._run_mutation` delegates to `execution.py:run_catalog_operation`; policy refuses administrative risk even when stored flag and grant allow it | `test_production_mutating_runbooks_refused` (all current mutating runbooks: recompile and gather stats); existing integration test above |
+| Copilot requests with production `profileId`, plain or Kiwi mode | `copilot/service.py:run` calls `_check_production_access` before budget/provider/lookup; refusal audit has no execution ID | `test_production_copilot_refused_before_provider_budget_or_lookup` (both modes); updated `tests/copilot/test_kiwi.py:test_on_production_kiwi_is_refused` |
+| Copilot with only a known production reference | Same service gate matches colon-delimited reference components against production profile IDs/names, or exact ID/name references | Same parametrized test (harness and raw ID/name references, both modes) |
+| Console worksheet/session writes | `views/WorksheetView.tsx` replaces controls with an observation-only notice for production, independently of flag | `apps/web/src/App.targetSwitch.test.tsx`: production worksheet controls test |
+| Console compile/copilot/target switch | `App.tsx` blocks production drawer entry/render and hides global Ask Kiwi; `PlsqlView.tsx` disables compile/Ask Kiwi; schema and tuning views disable source/plan copilot entry | Production tests in `App.targetSwitch.test.tsx` and `views/ProductionBoundary.test.tsx` |
+| Console mutating runbooks | `views/RunbooksView.tsx` disables production mutating selection and confirmation, including a prior development preview | Production tests in `views/RunbooksView.test.tsx` |
+
+The new Python tests explicitly use the fake Oracle backend, authorized DBA grants,
+backend spies and metadata assertions: refused operations create no execution record
+and no audit claiming an execution succeeded. Successful worksheet-open audit rows
+from session setup are retained. Copilot tests additionally assert no budget,
+request or tool-call record and an explicit refusal audit. These are stand-in
+regressions, not Oracle compatibility or production qualification evidence.
+
+Runbook catalog/preview, local copilot context preview and proposal apply-check do
+not execute Oracle or call the provider; a preview is not execution authorization.
+Rollback, cancellation and close remain available to discard pending work in an
+existing session. Reviewed production reads remain available to granted users.
+There is no profile PATCH/PUT implementation to harden in this release.
+
+`targetReference` is caller-supplied text: only references matching registered
+production IDs/names can be identified as production. Unknown external references
+and unbound editor-only questions remain allowed when copilot is enabled; the
+harness cannot infer the origin of pasted code or an unregistered adapter target.
+Do not enable copilot/Kiwi on the production deployment or attach production source
+through an unbound/external editor request. This limitation was explicitly accepted
+by the coordinator; it does not grant database access or bypass a known production
+profile refusal. Oracle 19c identity qualification belongs to P2.
