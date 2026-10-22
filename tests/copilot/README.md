@@ -18,7 +18,7 @@ model.
 ## The real-provider evaluation (NP-04)
 
 Answer quality is evaluated separately, by an opt-in runner in `eval/` that is never
-part of `pytest`. The bars, from MVP_PLAN.md and NEXT_PHASE_PLAN.md:
+part of `pytest`. The bars, from PLAN.md and PLAN.md:
 
 - **At least 30** cases completed against the provider. Cases the harness correctly
   refuses before dispatch do not count towards this.
@@ -251,7 +251,7 @@ insufficient for exhaustive grounding review. The original report was retained a
 `copilot-eval/run-2026-10-16-one-block.pre-ai-review.json` before editing review fields.
 
 After that review the remediation in
-[docs/k7-remediation-plan.md](../../docs/k7-remediation-plan.md) was implemented
+[PLAN.md](../../PLAN.md) was implemented
 (2026-10-16): evidence capture (the runner stores each Kiwi case's `evidence`),
 a structural complete-unit check, prompt rules, regression tests in
 `test_k7_remediation.py`, and Oracle checks. **No full run has been made with these
@@ -264,7 +264,7 @@ set, and `qualified` and `strictTarget.met` stay false. A report that is not dia
 must still hold every correctness case of the denominator, or `score` refuses it.
 
 For subsequent reviewed runs, record here and in
-[NEXT_PHASE_PLAN.md](../../NEXT_PHASE_PLAN.md): the date, harness commit, provider and
+[PLAN.md](../../PLAN.md): the date, harness commit, provider and
 exact reported model, case-set version, the report location, the result of each bar, the
 reviewer, and every failure pattern `score` lists. A summary that says "passed" without
 the failure patterns is not useful to the next person.

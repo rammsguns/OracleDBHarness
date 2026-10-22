@@ -1,6 +1,6 @@
 # OracleDataForge integration plan
 
-Status: Proposed design, not implemented or compatibility-certified. Companion to [MVP_PLAN.md](MVP_PLAN.md).
+Status: Proposed design, not implemented or compatibility-certified. Companion to [PLAN.md](PLAN.md).
 
 ## Objective
 

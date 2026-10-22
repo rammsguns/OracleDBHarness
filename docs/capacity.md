@@ -1,7 +1,7 @@
 # Capacity runbook
 
 The pilot target is **ten concurrent users across three independent databases** (NP-07 in
-NEXT_PHASE_PLAN.md). `python -m tests.capacity` measures that: many virtual users working
+PLAN.md). `python -m tests.capacity` measures that: many virtual users working
 through the API the way the console does, a steady phase, a saturation phase and a
 recovery phase, and a check afterwards that no user's or target's work turned up anywhere
 it should not.

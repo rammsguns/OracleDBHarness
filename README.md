@@ -10,7 +10,7 @@ console and IDE adapters use the same one.
 
 ## Status
 
-The foundation and the first vertical slice of [MVP_PLAN.md](MVP_PLAN.md) are
+The foundation and the first vertical slice of [PLAN.md](PLAN.md) are
 implemented and tested end to end. The qualification suites ran on D1 19c
 (AL32UTF8), D2 26ai Free PDB, D3 26ai ADB over TCPS and wallet, and D4 remote
 19c (WE8MSWIN1252) on 2026-10-14. Thin and thick driver runs, restricted-account
@@ -31,7 +31,7 @@ still needs agreed capacity thresholds and the remaining gates.
 | Runbooks: health report, recompile, gather statistics, with verification | Implemented, tested |
 | Execution records and append-only audit | Implemented, tested |
 | Copilot: context policy, streaming, proposals, budgets, one provider adapter | Implemented, tested against a fixture provider |
-| Kiwi agent: read-only catalog lookups ([KIWI_PLAN.md](KIWI_PLAN.md)) | **Implemented behind `HARNESS_KIWI_ENABLED`, off by default** (K-1 to K-7 as code; the K-7 run of 2026-10-16 failed AI DBA review). 31 reviewed read catalog lookups (K-4 qualified on Oracle 19.9 and 23.26, 2026-10-14), issue playbooks, all-or-nothing multi-part proposals for packages, a team standards file, and a package and ETL process explainer with evidence-labelled lineage and Mermaid export, run as the user, bounded and recorded; run against a local model in K-7, with the failed AI review and evidence limitations recorded in the [evaluation](docs/k7-dba-review-2026-10-16.md) (ADR-0010). The copilot calls only a model on the harness's own host unless `HARNESS_COPILOT_LOCAL_ONLY` is turned off (ADR-0012). Compile on development targets is only a proposed ADR-0011 (K-8), not built Remediation code, prompt rules, evidence capture and Oracle 19c/26ai checks were added on 2026-10-16 ([plan](docs/k7-remediation-plan.md)); no new provider run or score yet. |
+| Kiwi agent: read-only catalog lookups ([PLAN.md](PLAN.md)) | **Implemented behind `HARNESS_KIWI_ENABLED`, off by default** (K-1 to K-7 as code; the K-7 run of 2026-10-16 failed AI DBA review). 31 reviewed read catalog lookups (K-4 qualified on Oracle 19.9 and 23.26, 2026-10-14), issue playbooks, all-or-nothing multi-part proposals for packages, a team standards file, and a package and ETL process explainer with evidence-labelled lineage and Mermaid export, run as the user, bounded and recorded; run against a local model in K-7, with the failed AI review and evidence limitations recorded in the [evaluation](docs/k7-dba-review-2026-10-16.md) (ADR-0010). The copilot calls only a model on the harness's own host unless `HARNESS_COPILOT_LOCAL_ONLY` is turned off (ADR-0012). Compile on development targets is only a proposed ADR-0011 (K-8), not built Remediation code, prompt rules, evidence capture and Oracle 19c/26ai checks were added on 2026-10-16 ([plan](PLAN.md)); no new provider run or score yet. |
 | DataForge adapter: contract, bridge, routes, fixtures | Implemented, tested against a stubbed harness and a disposable live harness process; **not integrated with DataForge** |
 | Oracle qualification | **D1–D4 qualified on 2026-10-14** in thin and thick modes: 19c non-CDB, 26ai Free PDB, ADB TCPS/wallet, and remote WE8MSWIN1252. Process-death, restricted-account and independent-target cases ran where applicable. See [docs/compatibility.md](docs/compatibility.md). |
 | Copilot answer-quality evaluation | **Case set `2026-10-15.4` (52 cases, incl. 13 for Kiwi) and opt-in runner built; run against the local model on 2026-10-16 (52 of 52 completed, automated safety checks passed); AI DBA review complete (39/39): NOT QUALIFIED, correctness 9/18 (50%), safety 15/19.** See the [evaluation](docs/k7-dba-review-2026-10-16.md) for verdicts, failure patterns and evidence limitations |
@@ -115,9 +115,7 @@ The reasoning behind the less obvious of these is in [docs/decisions.md](docs/de
 
 ## Plans
 
-- [NEXT_PHASE_PLAN.md](NEXT_PHASE_PLAN.md) - active pilot qualification plan and issue review
-- [KIWI_PLAN.md](KIWI_PLAN.md) - proposed plan for Kiwi, the Oracle database agent
-- [MVP_PLAN.md](MVP_PLAN.md) - product direction, scope, delivery sequence
+- [PLAN.md](PLAN.md) - current production, Kiwi and pilot qualification plan
 - [ORACLEDATAFORGE_INTEGRATION.md](ORACLEDATAFORGE_INTEGRATION.md) - the first IDE
   integration
 
