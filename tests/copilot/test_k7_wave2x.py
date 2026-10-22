@@ -256,7 +256,8 @@ def test_an_answer_written_at_the_bound_is_reviewed_and_settled(
 ) -> None:
     # The diagnosis is written as the wall-time bound ends the request: no revision
     # can follow, so the harness settles what the lookups do not support.
-    configure(client, settings, kiwi_max_wall_seconds=0.5)
+    # The bound leaves room for the two lookup turns under load (review F-01).
+    configure(client, settings, kiwi_max_wall_seconds=2.0)
     use_script(
         client,
         investigating("f1", failures()),

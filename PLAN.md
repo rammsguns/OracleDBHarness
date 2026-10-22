@@ -1479,3 +1479,4 @@ All uv commands used `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache`. K-7 remains
 a provider run.** No provider/Strata/local model calls, Oracle/database access,
 `databases/` or `OrcaServer/` content reads, deletions, push or PR occurred. K5 was
 not started.
+F-01 applied: wall bound 0.5s -> 2.0s, assertions unchanged, 10/10 repeated passes.
