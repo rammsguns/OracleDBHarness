@@ -1308,3 +1308,22 @@ remain explicit in the review. K-7 remains NOT QUALIFIED; Kiwi remains off by
 default. **This review does not authorize a provider run.** No provider/Strata/local
 model calls, Oracle/database access, excluded-store content reads, deletions,
 evaluation-artifact changes, push or PR occurred. K1 was not started.
+
+### K1 — Bounded answer retry — 2026-10-22 — implementation
+
+Implemented on `plan/K1-bounded-answer` from `plan/K0-wave2x-review`; this task's
+commit contains the retry, setting and documentation. One completed forced-answer
+turn without a diagnosis may request one additional no-tools answer, then uses
+`_bounded_fallback` / `_bound_answer` for checks and settlement. Cancellation is
+not caught; failed/empty retries fall back. Defaults and contracts are unchanged.
+`HARNESS_KIWI_ANSWER_RETRY=false` awaits the user decision after K4.
+
+Coordinator approved retaining existing token-accounting semantics: admission
+requires the previous measured prompt plus a named 512-token answer allowance;
+unknown usage skips retry, actual usage overruns are recorded. Time admission
+uses the existing 20-second minimum plus 5-second settlement margin. Existing
+revision (empty findings) and plan-step events identify the retry without a
+contract change. Provider adapters are outside scope and cannot cap next-prompt
+usage exactly. `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache uv run pytest -q
+tests/copilot/test_k7_bounded_answer.py`: **20 passed**, exit 0; ruff format on
+both changed Python files: unchanged, exit 0. K3 records final combined checks.
