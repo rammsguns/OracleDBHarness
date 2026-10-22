@@ -3065,7 +3065,8 @@ _VISIBILITY_SUBJECT = re.compile(
 _UNSEEN = re.compile(
     r"\b(?:is|are|was|were|remains?|stays?)\s+(?:not|never)\s+(?:visible|accessible|readable|"
     r"available)\b|\b(?:isn['’]t|aren['’]t|wasn['’]t|weren['’]t)\s+(?:visible|accessible|"
-    r"readable|available)\b|\b(?:is|are|was|were)\s+(?:invisible|inaccessible|unreadable|"
+    r"readable|available)\b|\b(?:is|are|was|were|remains?|stays?|remained)\s+"
+    r"(?:invisible|inaccessible|unreadable|"
     r"hidden|absent)\b|\b(?:is|are|lies|sits)\s+(?:outside|beyond)\s+(?:what\s+)?(?:this|the)\s+"
     r"account\b|\b(?:does|do|did)\s+not\s+exist\b|\b(?:doesn['’]t|don['’]t)\s+exist\b"
     r"|\b(?:is|are|was|were)\s+not\s+in\s+any\s+(?:readable\s+source|"
@@ -3078,7 +3079,8 @@ _UNSEEN = re.compile(
 )
 # The claim left open, or narrowed to what was searched, before the predicate ends.
 _ABSENCE_OPEN = re.compile(
-    r"\b(?:whether|unknown|unclear|may|might|could(?!\s+not)|possibly|perhaps|hypothes\w*|if|unless|"
+    r"\b(?:whether|unknown|unclear|may|might|could(?!\s+not)|possible|possibility|possibly|"
+    r"likely|appears?\s+to|seems?|perhaps|hypothes\w*|if|unless|"
     r"not\s+(?:established|shown|proven|known|necessarily|that)|only\s+that|"
     r"(?:does|do|did)\s+not\s+(?:show|prove|establish|mean)|(?:doesn['’]t|don['’]t)\s+"
     r"(?:show|prove|establish|mean))\b",
@@ -3151,8 +3153,12 @@ def _absence_inferences(answer: str, facts: Sequence[LookupFacts]) -> list[Claim
                 subject = _SEARCHED_FOR.search(part) or _VISIBILITY_SUBJECT.search(part)
                 if subject is None:
                     continue
-                # Inline catalog errors are quoted evidence, not absence claims.
-                predicates = re.sub(r"`[^`\n]+`", lambda m: " " * len(m[0]), part)
+                # Inline errors and quoted statements are evidence, not absence claims.
+                predicates = re.sub(
+                    r'`[^`\n]+`|"[^"\n]+"|“[^”\n]+”',
+                    lambda m: " " * len(m[0]),
+                    part,
+                )
                 unseen = _UNSEEN.search(predicates)
                 if unseen is None or unseen.start() - subject.end() > 180:
                     continue

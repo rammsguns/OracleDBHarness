@@ -1831,5 +1831,7 @@ Verified:
 - Verification: 100/100 targeted pytest passed, ruff check and format clean, CI mypy
   clean (85 files), secret scan clean, git diff check clean.
 
+Follow-up: findings 1–3 applied with positive/negative tests; finding 4 accepted as existing conservative behaviour.
+
 K-7 remains **NOT QUALIFIED**, Kiwi remains off by default, and no provider run is
 authorized.

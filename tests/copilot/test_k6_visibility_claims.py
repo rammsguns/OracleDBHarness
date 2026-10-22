@@ -99,3 +99,36 @@ def test_complete_listing_supports_scoped_named_absence_only() -> None:
     )
     assert flags("`MISSING` is not visible to this account.", [*SEARCHED, listing])
     assert flags("The raising routine does not exist.", [*SEARCHED, listing])
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "It is possible that",
+        "There is a possibility that",
+        "It is likely that",
+        "It appears to be the case that",
+        "It seems that",
+    ],
+)
+def test_visibility_hedges_leave_the_claim_open(prefix: str) -> None:
+    assert flags(f"{prefix} the package is not visible to this account.") == []
+    assert flags("The package is not visible to this account.") == ["absence_inference"]
+
+
+@pytest.mark.parametrize("verb", ["remains", "stays", "remained"])
+@pytest.mark.parametrize(
+    "adjective", ["invisible", "inaccessible", "unreadable", "hidden", "absent"]
+)
+def test_persistent_visibility_claims_need_evidence(verb: str, adjective: str) -> None:
+    assert flags(f"The table {verb} {adjective}.") == ["absence_inference"]
+    assert flags(f"Whether the table {verb} {adjective} is unknown.") == []
+
+
+@pytest.mark.parametrize("opening,closing", [('"', '"'), ("“", "”"), ("`", "`")])
+def test_quoted_predicates_are_not_claims(opening: str, closing: str) -> None:
+    assert flags(f"User prompt states: {opening}The table does not exist{closing}") == []
+    assert flags(f"The table {opening}ARCHIVE{closing} does not exist.") == ["absence_inference"]
+    assert flags(
+        f"User prompt states: {opening}The table does not exist{closing}. The package is invisible."
+    ) == ["absence_inference"]
