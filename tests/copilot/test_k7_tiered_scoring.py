@@ -167,6 +167,8 @@ def test_invalid_grounding_fields(field, value):
 
 def test_historical_rendering_byte_identity(tmp_path):
     path = Path("copilot-eval/strata-k7-focused-20261020T155124Z.json")
+    if not path.exists():
+        pytest.skip("no saved trial reports in this checkout")
     report = json.loads(path.read_text())
     assert render_markdown(report, score(report)).encode() == path.with_suffix(".md").read_bytes()
     assert main(["score", str(path), "--markdown", str(tmp_path / "historical.md")]) == 1
