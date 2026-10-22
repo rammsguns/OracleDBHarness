@@ -119,6 +119,25 @@ before and the model is offered no tool. So, when it is on:
 - **Still never:** free-form SQL, application table rows, bind values, runbooks,
   compile, commit or deploy. The categories under *What never leaves* stay refused.
 
+`HARNESS_KIWI_ANSWER_RETRY` defaults to `false`, pending the user's decision after
+K4 review. When enabled, a completed forced no-tools answer turn that writes no
+diagnosis gets at most one additional no-tools request. It uses an existing step
+and the remaining request time and tokens; defaults do not increase. Admission
+requires at least 25 seconds (the existing 20-second revision minimum plus a
+5-second settlement margin), and remaining tokens covering the previous turn's
+measured prompt tokens plus a named 512-token minimal-answer allowance. Missing
+prompt usage skips the retry. This is an admission estimate: adapters provide no
+exact next-prompt estimate or per-turn request-budget cap. Actual usage is counted
+as for every turn; overruns are recorded and the answer is checked and settled,
+or replaced by the bounded fallback. Cancellation propagates without another turn.
+
+For clients supporting revisions, the existing `revision` event with empty
+`findings` and the following `plan_step`, without a preceding claim revision,
+identify this answer retry and retain the discarded notes as `draft`. Its output
+passes the same claim checks and settlement as any answer written at a bound;
+no further model retry or claim revision follows. Earlier clients keep the notes
+and receive the additional step and answer, with the existing protocol limitations.
+
 ### Stream events and existing adapters
 
 Protocol 1.1 adds `plan_step`, `tool_call`, `tool_result` and `budget`, and

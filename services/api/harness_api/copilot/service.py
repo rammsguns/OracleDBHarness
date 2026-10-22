@@ -165,6 +165,7 @@ _BUDGET_REFUSAL = "Not run: this request has used its lookup budget."
 # Neither ends a completed diagnosis as partial: the budgets are not reached.
 _REVISION_SETTLE_SECONDS = 5.0
 _MIN_REVISION_SECONDS = 20.0
+_MIN_ANSWER_RETRY_TOKENS = 512
 _WITHHELD = {
     "skipped:revisions": "no revision was left",
     "unresolved": "its one revision still made claims the lookups do not support",
@@ -1173,10 +1174,17 @@ class CopilotService:
                     # call it was not offered after more interim notes (trial 21, DIAG-02),
                     # notes ending in a normal stop, or a Finding heading with nothing in it
                     # (Sync Point 2B). However the turn ended, only a diagnosis answers.
-                    for settled in self._bounded_fallback(
-                        state, lookups, refused, "".join(streamed), revisable, answered=False
-                    ):
-                        yield settled
+                    if self._settings.kiwi_answer_retry:
+                        async for settled in self._retry_bounded_answer(
+                            conversation, state, lookups, refused, "".join(streamed), revisable
+                        ):
+                            yield settled
+                    else:
+                        # Keep the disabled path synchronous, exactly as before K1.
+                        for settled in self._bounded_fallback(
+                            state, lookups, refused, "".join(streamed), revisable, answered=False
+                        ):
+                            yield settled
                     yield ("budget", state.event())
                     return
                 if not end.wants_tools:
@@ -1617,6 +1625,80 @@ class CopilotService:
         """1 when a revision of the answer is still possible, so its step is kept."""
 
         return int(revisable and state.revisions < self._settings.kiwi_max_revisions)
+
+    async def _retry_bounded_answer(
+        self,
+        conversation: ToolConversation,
+        state: _KiwiRun,
+        lookups: list[LookupFacts],
+        refused: list[tuple[str, str]],
+        streamed: str,
+        revisable: bool,
+    ) -> AsyncGenerator[tuple[str, dict[str, Any]], None]:
+        """One no-tools retry of a completed forced turn, within this request's bounds.
+
+        Admission uses the last prompt's measured tokens plus a minimal answer allowance.
+        As with other turns, actual cumulative usage is counted afterwards; providers do
+        not expose a next-prompt estimate or a per-turn request-budget cap here. A timed
+        out or cancelled conversation is never reopened. Retry output follows exactly
+        the bound-answer checks and settlement, without another model revision.
+        """
+
+        usage = conversation.turn_usage()
+        prompt = usage[-1].prompt_tokens if usage else None
+        eligible = (
+            self._settings.kiwi_answer_retry
+            and conversation.answer_only
+            and state.out_of_turns() is None
+            and state.remaining >= _MIN_REVISION_SECONDS + _REVISION_SETTLE_SECONDS
+            and prompt is not None
+            and state.max_tokens - state.tokens >= prompt + _MIN_ANSWER_RETRY_TOKENS
+        )
+        if eligible:
+            conversation.request_revision(
+                "[harness] Bounded answer retry (one only): the last turn did not write "
+                "a diagnosis. No tools are offered. Write Finding, Evidence, Unknown, "
+                "Remedy and Next steps now, using only the lookups already returned."
+            )
+            state.steps += 1
+            if revisable:
+                # Empty findings distinguish this answer retry from a claim revision;
+                # the draft preserves all notes while removing them from the answer.
+                yield ("revision", {"draft": streamed, "findings": []})
+                streamed = ""
+            yield ("plan_step", {"step": state.steps, "maxSteps": state.max_steps})
+            text: list[str] = []
+            end: TurnEnd | None = None
+            try:
+                async with contextlib.aclosing(
+                    _timed_turn(conversation, state.remaining - _REVISION_SETTLE_SECONDS)
+                ) as turn:
+                    async for event in turn:
+                        if isinstance(event, TextDelta):
+                            text.append(event.text)
+                            yield ("delta", {"text": event.text})
+                        else:
+                            end = event
+            except TimeoutError:
+                state.exhaust("wall_time")
+            except ProviderError:
+                # A failed retry still has the original retained lookups to report.
+                pass
+            self._count_tokens(state, conversation)
+            state.final_text = "".join(text)
+            streamed += state.final_text
+            spent = state.out_of_turns()
+            if spent is not None:
+                state.exhaust(spent)
+            if end is not None and end.truncated:
+                state.exhaust("max_output_tokens")
+            answered = is_diagnosis(state.final_text) and end is not None
+        else:
+            answered = False
+        for settled in self._bounded_fallback(
+            state, lookups, refused, streamed, revisable, answered=answered
+        ):
+            yield settled
 
     def _bounded_fallback(
         self,

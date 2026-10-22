@@ -87,6 +87,8 @@ class Settings(BaseSettings):
     # Kiwi's read-only catalog lookups (ADR-0010, KIWI_PLAN.md K-3). Off by default:
     # turning it on widens what leaves the harness, see docs/copilot.md.
     kiwi_enabled: bool = False
+    # One bounded no-tools answer retry; default awaits the user decision after K4.
+    kiwi_answer_retry: bool = False
     # Per request. A step is one model turn; tokens are prompt plus completion summed
     # over every turn; bytes are what tool results add to the context.
     kiwi_max_steps: int = 8
