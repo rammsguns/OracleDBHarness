@@ -147,6 +147,7 @@ def render(
             "before the model wrote a diagnosis. It repeats what the lookups returned and "
             "concludes no cause."
         )
+    application_errors = _application_errors(ordered)
     planted = untrusted_instructions(ordered)
     if errors:
         finding += " The lookups returned " + "; ".join(
@@ -155,6 +156,17 @@ def render(
         finding += "."
     elif not any(lookup.succeeded and _row_count(lookup) for lookup in ordered):
         finding += " No lookup returned rows, so there is nothing to report as found."
+
+    if application_errors:
+        finding += (
+            " "
+            + "; ".join(
+                f"{code} ({_cite(numbers)})" for code, numbers in application_errors.items()
+            )
+            + " are application errors raised by application code via "
+            "RAISE_APPLICATION_ERROR. Their number and text are defined by that code, "
+            "not by Oracle."
+        )
 
     if planted:
         finding += (
@@ -382,6 +394,36 @@ def _returned_errors(lookups: Sequence[LookupFacts]) -> dict[str, list[int]]:
                     continue
                 for message in error_messages(row[index])[0]:
                     numbers = found.setdefault(message, [])
+                    if lookup.sequence not in numbers:
+                        numbers.append(lookup.sequence)
+    return found
+
+
+def _application_errors(lookups: Sequence[LookupFacts]) -> dict[str, list[int]]:
+    """Application error codes actually returned, never a guess at their raiser.
+
+    Scheduler history below already cites a job only beside its own retained run's
+    error. An action naming a program or a filtered source search cannot establish
+    which code raised an error, so neither supplies a source claim here.
+    """
+
+    found: dict[str, list[int]] = {}
+    for lookup in lookups:
+        if not lookup.succeeded:
+            continue
+        columns = [str(column).upper() for column in lookup.columns]
+        for row in lookup.rows:
+            codes: set[int] = set()
+            for column, value in zip(columns, row, strict=False):
+                if column == "ERROR_NUMBER" and re.fullmatch(r"-?20[0-9]{3}", str(value)):
+                    codes.add(abs(int(value)))
+                elif column in _ERROR_COLUMNS:
+                    # Read only the sanitized error messages, never appended free text.
+                    for message in error_messages(value)[0]:
+                        codes.add(int(message[4:9]))
+            for code in sorted(codes):
+                if 20000 <= code <= 20999:
+                    numbers = found.setdefault(f"ORA-{code:05d}", [])
                     if lookup.sequence not in numbers:
                         numbers.append(lookup.sequence)
     return found

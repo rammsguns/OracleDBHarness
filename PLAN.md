@@ -1327,3 +1327,16 @@ contract change. Provider adapters are outside scope and cannot cap next-prompt
 usage exactly. `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache uv run pytest -q
 tests/copilot/test_k7_bounded_answer.py`: **20 passed**, exit 0; ruff format on
 both changed Python files: unchanged, exit 0. K3 records final combined checks.
+
+### K2 — Application-error fallback — 2026-10-22 — implementation
+
+The K2 commit on `plan/K1-bounded-answer` adds a generic explanation for retained
+ORA-20000 through ORA-20999 messages or ERROR_NUMBER values: application code
+raises them via RAISE_APPLICATION_ERROR and defines their number and text.
+Only successful lookup rows contribute; explanations cite those lookups. Existing
+scheduler evidence associates a job with its own retained run/error, never an
+unread program named by JOB_ACTION. No source or source-absence inference is
+added; non-application errors take the unchanged rendering path. No case IDs or
+expected answers appear in the implementation. `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache
+uv run pytest -q tests/copilot/test_k7_bounded_answer.py`: **20 passed**, exit 0;
+ruff format on fallback.py: unchanged, exit 0. K3 records final combined checks.
