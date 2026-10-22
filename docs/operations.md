@@ -344,3 +344,32 @@ Do not enable copilot/Kiwi on the production deployment or attach production sou
 through an unbound/external editor request. This limitation was explicitly accepted
 by the coordinator; it does not grant database access or bypass a known production
 profile refusal. Oracle 19c identity qualification belongs to P2.
+
+## Production operations
+
+Stage 1 production is observation-only and launches with copilot and Kiwi off.
+The production environment template is `deploy/production.env.example` and the
+production target manifest example is
+`databases.example/targets.production.json.example`; both are placeholders and
+must be filled in by the named owners before any real deployment. The canary
+procedure and its gates are PLAN.md G3; this section only points at the
+operational steps, it does not restate the plan.
+
+**Enabling a production target.** Register the target through the bootstrap
+manifest (`scripts/bootstrap_targets.py`) with `environment: "production"` and
+both `worksheetsEnabled` and `mutatingRunbooksEnabled` set to `false`; the
+validator refuses any other combination. Production targets receive read-only
+grants, and the Oracle 19c identity check (see Production boundary above) must
+pass before any read is authorized. Do not enable copilot or Kiwi.
+
+**Daily audit and cost check.** While the canary runs, check the audit records
+and the database cost every day and retain the evidence. The audit trail is the
+refusal and execution records described under History and audit; the cost check
+is against the database-cost budget agreed before the canary started (PLAN.md
+G3). Retain incident reports for any finding.
+
+**Disable and revoke (rollback).** On a failed gate, disable the target first,
+then have the DBA revoke the harness grants or lock the account, and verify
+access is refused. Retain the incident and recovery evidence. This is the
+PLAN.md G3 rollback order: disable, revoke/lock, verify refusal, retain
+evidence.

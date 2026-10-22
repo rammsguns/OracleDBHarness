@@ -144,7 +144,7 @@ artifacts included in changes. Documentation consolidation alone does not pass i
 - [ ] **P5 HUMAN.** Fleet shape (RAC, Data Guard, CDB/PDB, TCPS) is established by
   the DBA. Do not implement shape-dependent session/blocker diagnostics before it
   is recorded under "Decisions still needed".
-- [ ] **P6** Add or verify production manifest and environment examples, TLS/proxy
+- [x] **P6** Add or verify production manifest and environment examples, TLS/proxy
   settings, exact origin allowlists, secret references and production operations
   procedures. Placeholders only.
 
@@ -1213,3 +1213,52 @@ Oracle/OIDC/PostgreSQL qualification checks. No real Oracle/provider/database
 access, excluded-store reads, contract changes, deletions, untracked
 evaluation-artifact edits, push or PR occurred. P4 is complete; P6 follows on its
 own branch.
+
+
+### P6 — Production configuration examples — 2026-10-22 — done
+
+Implementation commit on `plan/P6-production-config`, branched from
+`plan/P4-pin-oracledb` (`0371596`). This completion record is a separate commit.
+No product code or contract changed.
+
+Added `deploy/production.env.example` (placeholders only). Every `HARNESS_*` key
+is a real setting in `services/api/harness_api/config.py`; the file covers
+`HARNESS_ENV=production`, OIDC auth mode with placeholder issuer/client, copilot
+and Kiwi disabled, an exact `HARNESS_CORS_ORIGINS` allowlist (no wildcards),
+`HARNESS_SECRET_DIR` secret references, `HARNESS_ALLOWED_ENDPOINTS` using
+documentation addresses (`203.0.113.10` and `oracle-prod.example.internal`), and
+the python-oracledb thin-mode backend. The app has no TLS settings of its own
+(TLS is terminated at the reverse proxy), so the example documents that in a
+comment rather than inventing settings; the OIDC issuer and CORS origins are
+`https://` URLs.
+
+Added `databases.example/targets.production.json.example`, a production-only
+manifest whose two targets set `worksheetsEnabled: false` and
+`mutatingRunbooksEnabled: false` (the bootstrap validator refuses any other
+production combination). Added `tests/unit/test_production_example.py` with five
+tests: the env example loads into `Settings` with environment `production`,
+copilot and Kiwi off, OIDC/oracledb/thin; no wildcard origins; every key is a
+known `Settings` field; endpoints are documentation addresses; and the manifest
+passes `validate_manifest` with observation-only production targets.
+
+Added a short **Production operations** section to `docs/operations.md` covering
+enabling a production target, the daily audit/cost check, and the
+disable/revoke/verify rollback order, referencing PLAN.md G3 rather than
+duplicating it.
+
+| Command | Exit | Result / saved output |
+| --- | ---: | --- |
+| `uv run pytest -q tests/unit/test_production_example.py` | 0 | **5 passed**, 0.21s |
+| `uv run ruff format --check .` | 0 | 315 files already formatted |
+| `uv run ruff check .` | 0 | All checks passed |
+| `npm --prefix apps/web run typecheck` | 0 | tsc --noEmit clean |
+| `uv run pytest -q` | 0 | **2633 passed, 83 skipped, 0 failures**, 536.23s; `/tmp/p6-pytest-full.log` |
+| `bash scripts/secret_scan.sh` | 0 | no findings, including the staged new files |
+| `git diff --check` and `git diff --cached --check` | 0 | no output |
+
+All uv commands used `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache`. The full
+pytest suite ran **once**. The 83 skips remain environment-dependent
+Oracle/OIDC/PostgreSQL qualification checks. No real Oracle/provider/database
+access, excluded-store reads, contract changes, deletions, untracked
+evaluation-artifact edits, push or PR occurred. P6 is complete; P5 (HUMAN) and
+section 3 were not started.
