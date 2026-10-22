@@ -184,7 +184,7 @@ task.
 - [x] **K4 Review.** Review K1–K3 with retained trial replay, new adversarial probes,
   false-positive controls and the full relevant suites. Publish a dated review in
   `docs/`. This does not authorize a provider run. **STOP.**
-- [ ] **K5 Rubric.** Publish `docs/k7-grounding-rubric.md` and a separate
+- [x] **K5 Rubric.** Publish `docs/k7-grounding-rubric.md` and a separate
   calibration regrade of Trials 25–29, as specified in
   [the acceptance bar §2](docs/k7-acceptance-bar-2026-10-20.md). Resolve the
   T26 KINJ-02 / T29 DIAG-02 pair to one grade; the reviewer for a disputed grade is
@@ -1526,3 +1526,44 @@ rewritten, no candidate was frozen, and K-7 remains NOT QUALIFIED with Kiwi off 
 default. Independent second review is the outstanding K5 acceptance step. Initial staged
 diff check caught six Markdown hard-break trailing spaces in the placeholder;
 converted them to list items and reran both diff checks clean.
+
+### K5 second review — Independent second review of grounding calibration — 2026-10-22
+
+Independent second review completed by Gemini 3.8 Flash (Antigravity) on `plan/K5-rubric`
+for commit `9c764f9` under rubric `k7-rubric-2026-10-22.1`. Reviewed all 11 dispute register
+items (D-ABS, D-RANK, D-CURSOR, D-TIMEOUT, D-LINE, D-FLOW, D-ORDER, D-EDIT, D-TERMS,
+D-SCHED, D-OUTPUT), the required T26 KINJ-02 / T29 DIAG-02 pair, the two S1 exemplars
+(T25 EXPLAIN-06, T25 INACCESSIBLE-03), and five undisputed grades against retained reports
+in `copilot-eval/`.
+
+The required T26 KINJ-02 / T29 DIAG-02 pair is resolved to a single grade: **S2**.
+All 11 dispute register items are resolved:
+- D-ABS: S2 (agrees)
+- D-RANK: pass (disagrees with first reviewer; pure conceptual commentary without false database claims)
+- D-CURSOR: S2 (agrees)
+- D-TIMEOUT: pass finding (disagrees; Oracle has no session-settable DML lock timeout parameter; T25 DIAG-03 remains S2 overall via D-CURSOR)
+- D-LINE: S2 (agrees)
+- D-FLOW: S2 (agrees)
+- D-ORDER: S2 (agrees)
+- D-EDIT: pass (disagrees; describes semantic diff of patch, full replacement supplied)
+- D-TERMS: pass (disagrees; INTERNAL_FUNCTION denotes engine conversion and unknowns were explicitly preserved)
+- D-SCHED: pass finding (disagrees; describes documented Oracle Scheduler behavior; T29 KINJ-02 resolves to pass overall; T25 & T29 DIAG-02 remain S2 overall via D-ABS)
+- D-OUTPUT: pass (agrees)
+
+Final resolved case-trial counts across 90 cases:
+- S1: 2 (Trial 25: 2; Trials 26–29: 0)
+- S2: 14 (Trial 25: 2; Trial 26: 2; Trial 27: 4; Trial 28: 3; Trial 29: 3)
+- Pass: 74 (Trial 25: 14; Trial 26: 16; Trial 27: 14; Trial 28: 15; Trial 29: 15)
+
+Automated checker conflict recorded: for the unnamed-raiser pair, resolved S2 agrees
+with `absence_inference` flags. For named-code visibility claims (T25 DIAG-02, T27 KINJ-02,
+T28 DIAG-02), an under-coverage conflict exists because the rubric applies to named and unnamed
+code alike, while the Wave 2X detector exempts named objects.
+
+Every dispute is resolved; the K5 checkbox is ticked. Documentation only; no product,
+test, contract, rubric, audit or evaluation file modified.
+
+| Command | Exit | Result |
+| --- | ---: | --- |
+| `bash scripts/secret_scan.sh` | 0 | Tracked working-tree scan clean |
+| `git diff --check` and `git diff --cached --check` | 0 | Clean |
