@@ -1,8 +1,12 @@
 # Claude tasks: finish K-7 and qualify OracleDBHarness (Parallel Track A)
 
-Assigned 2026-10-16; updated 2026-10-19 for parallel execution with Codex ([agy_plan.md](agy_plan.md), [codex_tasks.md](codex_tasks.md)).
-Follow the active [Master Execution Plan](agy_plan.md) and [K-7 qualification success plan](docs/k7-qualification-success-plan.md).
-The [original remediation plan](docs/k7-remediation-plan.md) and [initial review findings](docs/k7-completion-tasks.md) remain historical references.
+> Superseded 2026-10-22: [PLAN.md](PLAN.md) defines the current execution order,
+> ownership and permitted scope. Assignments and restrictions below are historical;
+> they do not authorize another worker, provider run or database operation.
+
+Assigned 2026-10-16; updated 2026-10-19 for parallel execution with Codex ([PLAN.md](PLAN.md), [codex_tasks.md](codex_tasks.md)).
+Follow the active [Master Execution Plan](PLAN.md) and [K-7 qualification success plan](PLAN.md).
+The [original remediation plan](PLAN.md) and [initial review findings](docs/k7-completion-tasks.md) remain historical references.
 Record completed work, checks, artifacts and remaining issues in `claude_k7.md`.
 
 
@@ -93,7 +97,7 @@ Trial 30 is released only by a later Codex sync point.
 
 ### Orientation (read first; you are starting fresh)
 
-1. [agy_plan.md](agy_plan.md): execution-model note and the AGY-3 row.
+1. [PLAN.md](PLAN.md): execution-model note and the AGY-3 row.
 2. Top of [codex_tasks.md](codex_tasks.md): Wave 2V/2W and Trial 28/29 results.
 3. Audits: [Trial 29](docs/k7-q5-trial29-review-2026-10-20.md),
    [Wave 2W gate](docs/k7-wave2w-review-2026-10-20.md),
@@ -169,7 +173,7 @@ Write `docs/k7-convergence-analysis-2026-10-20.md`:
 ## PAUSED — 2026-10-20: Claude track handed to Codex (superseded by Wave 2X above)
 
 From Sync Point 2U onward, **Codex alone** executes all remaining work (see
-[agy_plan.md](agy_plan.md) and the top of [codex_tasks.md](codex_tasks.md)). Claude
+[PLAN.md](PLAN.md) and the top of [codex_tasks.md](codex_tasks.md)). Claude
 should not start new waves. Historical sections below are preserved for reference.
 
 
@@ -1383,7 +1387,7 @@ You are working **in parallel** with Codex (`codex_tasks.md`) in the same reposi
    - `tests/copilot/*` and `tests/integration/test_contracts.py`
    - `claude_k7.md`
 2. **Files off-limits to Claude during Wave 1 & Wave 2 (owned by Codex in `codex_tasks.md`):**
-   - Do **NOT** edit `scripts/bootstrap_targets.py`, `databases.example/*`, `oracle/grants/*`, `.env.real.example`, `tests/unit/test_bootstrap_targets.py`, `README.md`, `NEXT_PHASE_PLAN.md`, `docs/setup.md`, `docs/compatibility.md`, `codex_tasks.md`, or `docs/k7-*-review-*.md`.
+   - Do **NOT** edit `scripts/bootstrap_targets.py`, `databases.example/*`, `oracle/grants/*`, `.env.real.example`, `tests/unit/test_bootstrap_targets.py`, `README.md`, `PLAN.md`, `docs/setup.md`, `docs/compatibility.md`, `codex_tasks.md`, or `docs/k7-*-review-*.md`.
    - Do **NOT** run `git commit`, `git checkout`, `git reset`, or `git stash` until synchronized at the Wave 2 freeze checkpoint.
 3. **Database & Strata locks:**
    - **Wave 1:** Pure Python/TypeScript/stand-in work only. Make **zero** calls to live Oracle (`D1`–`D4`) or local Strata (`127.0.0.1:8080`) while Codex runs real-database onboarding and 3-DB capacity on `D1`/`D2`/`D4`.
@@ -1438,7 +1442,7 @@ finding 3 and the live C28 source-domain correction remain assigned above.**
 ## Active execution plan — 2026-10-18
 
 The user requested a new route to K7 qualification. Execute Q1–Q7 in the
-[success plan](docs/k7-qualification-success-plan.md), in dependency order:
+[success plan](PLAN.md), in dependency order:
 
 1. **Q1:** close C21/C22 runtime-budget and arithmetic defects.
 2. **Q2:** validate proposal delivery independently of Markdown formatting.
@@ -2015,8 +2019,8 @@ Markdown, literal command arguments or shell history.
    prompt or configuration change, fix it, review/freeze again and restart full runs.
 5. **Run full evaluation B** after A passes, with the same implementation/model
    configuration. Save a separate report and request another fresh review.
-6. **Update result documentation:** `KIWI_PLAN.md`, `NEXT_PHASE_PLAN.md`,
-   `tests/copilot/README.md`, `README.md`, `docs/k7-remediation-plan.md` and
+6. **Update result documentation:** `PLAN.md`, `PLAN.md`,
+   `tests/copilot/README.md`, `README.md`, `PLAN.md` and
    `claude_k7.md`. Include commit, exact model, case-set version/hash, report paths,
    scores, reviewer identities, grounding result and any validation limits.
 

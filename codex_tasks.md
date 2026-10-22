@@ -1,6 +1,10 @@
 # Codex tasks: real-database onboarding, pilot gates & independent K-7 reviews (Parallel Track B)
 
-Assigned 2026-10-19. Companion to [agy_plan.md](agy_plan.md) and [claude_tasks.md](claude_tasks.md).
+> Superseded 2026-10-22: [PLAN.md](PLAN.md) defines the current execution order,
+> ownership and permitted scope. Assignments and restrictions below are historical;
+> they do not authorize another worker, provider run or database operation.
+
+Assigned 2026-10-19. Companion to [PLAN.md](PLAN.md) and [claude_tasks.md](claude_tasks.md).
 
 You are working **in parallel** with Claude (`claude_tasks.md`) in `/home/kiwi/OracleDBHarness`. While Claude finishes the K-7 copilot/Kiwi code (`AGY-1` and `AGY-2`), you own **Track B**: building turnkey real-database onboarding (`AGY-4`), closing the remaining database/capacity/store/documentation pilot gates (`AGY-6`), and performing the independent **Codex Checkpoints** on Claude's K-7 deliverables.
 
@@ -53,7 +57,7 @@ the Wave 2X handoff appears in `claude_k7.md`:
 Codex completed the authorized task and stops at score reporting. See
 [Wave 2W self-review](docs/k7-wave2w-review-2026-10-20.md) and
 [Trial 29 full audit](docs/k7-q5-trial29-review-2026-10-20.md).
-Claude remains paused; the single-agent execution note in `agy_plan.md` applies.
+Claude remains paused; the single-agent execution note in `PLAN.md` applies.
 
 Wave 2W adds retained-source statement/token attribution, identity-based overload
 checks, truthful valid-comment removal explanations, the listed semantic-scope
@@ -154,7 +158,7 @@ scores. No freeze or Q6. Record the result at the top of this file.
 ## Wave 2V / Gate 2V / Trial 28 result — 2026-10-20: gate passed; Q5 combined 15/18
 
 Claude remains paused; Codex owns both tracks under the execution-model note in
-`agy_plan.md`. This task is complete at the requested score-reporting stop point.
+`PLAN.md`. This task is complete at the requested score-reporting stop point.
 See [Wave 2V self-review](docs/k7-wave2v-review-2026-10-20.md) and
 [Trial 28 full audit](docs/k7-q5-trial28-review-2026-10-20.md).
 
@@ -1318,7 +1322,7 @@ To run simultaneously with Claude without merge conflicts or database collisions
    - `.env.real.example` (new)
    - `tests/unit/test_bootstrap_targets.py` (new)
    - `tests/fixtures/` (for `NP-02` schema-v5 baseline store snapshot) and `tests/unit/test_metadata_schema.py`
-   - `README.md`, `NEXT_PHASE_PLAN.md`, `docs/setup.md`, `docs/compatibility.md`, `docs/capacity.md`
+   - `README.md`, `PLAN.md`, `docs/setup.md`, `docs/compatibility.md`, `docs/capacity.md`
    - `docs/k7-*-review-*.md` and `codex_tasks.md`
 2. **Files off-limits to Codex during Wave 1 (actively edited by Claude):**
    - Do **NOT** modify `services/api/harness_api/copilot/*`, `oracle/diagnostics/schema/object_source*.sql`, `packages/contracts/*`, `apps/web/src/views/CopilotDrawer*`, `tests/copilot/*`, `tests/integration/test_contracts.py`, or `claude_k7.md`.
@@ -1342,7 +1346,7 @@ To run simultaneously with Claude without merge conflicts or database collisions
 | **Wave 1C (Part 1)** | **Live C28 `ALL_SOURCE` Type Verification & Real-DB Workflow Check (`AGY-5` Part B)** | D1/D2 view definitions read; `LIBRARY` supported on both, `MLE MODULE` additionally on D2, `ASSEMBLY` filtered out. All 49 API workflow checks passed, with independent cleanup confirmation. Evidence in `docs/compatibility.md`. | **Done; C28 correction assigned to Track A** |
 | **Sync Point 1B** | **Re-verify Claude's 4 Wave 1C Fixes & Release Q5** | Review in `docs/k7-agy1c-review-2026-10-19.md`; 1104 copilot/contract tests passed. Findings 1/2/4 closed; fresh conditional RETURN/GOTO counterexamples keep finding 3 open. Track A follow-up recorded in `claude_tasks.md`. | **Changes requested; Wave 2 / Q5 not released** |
 | **Sync Point 2** | **Codex Checkpoint 3 (Review Claude's Q5 -> Freeze -> Q6/Q7)** | Audit Claude's Q5 18/18 diagnostic report and D1 compile log; approve clean candidate commit for Q6; audit Full Run A (52/52) and Full Run B (52/52) reports, grounding, and `docs/k7-qualification-result.md`. | Gated on Sync Point 1B & Claude Wave 2 |
-| **Wave 3** | **Codex Checkpoint 5, 6 & 7 (Final Audit & Release Sign-Off)** | Audit Claude's live `lab_cases.json` run (`AGY-5` Part A), verify zero lab-schema mutations, run full repo test/lint/typecheck suite, and sign off `agy_plan.md`. | Gated on Sync Point 2 |
+| **Wave 3** | **Codex Checkpoint 5, 6 & 7 (Final Audit & Release Sign-Off)** | Audit Claude's live `lab_cases.json` run (`AGY-5` Part A), verify zero lab-schema mutations, run full repo test/lint/typecheck suite, and sign off `PLAN.md`. | Gated on Sync Point 2 |
 
 ---
 

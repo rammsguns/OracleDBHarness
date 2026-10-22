@@ -17,4 +17,4 @@ assembles one report. It has no SQL file because it issues no statement of its o
 it is defined in `services/api/harness_api/runbooks.py`.
 
 Mutating runbooks are refused on profiles whose environment is `production`. See
-`MVP_PLAN.md`, "Scope and acceptance criteria".
+`PLAN.md`, "Scope and acceptance criteria".

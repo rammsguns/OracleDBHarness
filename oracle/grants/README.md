@@ -9,4 +9,4 @@ result that looks healthy.
 
 AWR, ASH, ADDM, SQL Tuning Advisor and Real-Time SQL Monitoring are excluded from
 these roles on purpose. A technical privilege does not establish an entitlement to the
-Diagnostics or Tuning Pack; see `MVP_PLAN.md`, "Performance and DBA boundaries".
+Diagnostics or Tuning Pack; see `PLAN.md`, "Performance and DBA boundaries".

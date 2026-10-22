@@ -434,7 +434,7 @@ in the startup warnings.
 streaming, budgets, injection reporting, staleness, provider failure. It does not
 evaluate answer quality, because the fixture provider's answers are fixed.
 
-MVP_PLAN.md requires at least 30 representative cases reviewed by a DBA against a real
+PLAN.md requires at least 30 representative cases reviewed by a DBA against a real
 provider, with all authorisation and no-automatic-execution cases passing and at least
 90% reviewed correctness on explain and fix cases. The case set and an opt-in runner for
 that exist (`python -m tests.copilot.eval`). Since ADR-0012 the run goes to a model on
@@ -452,7 +452,7 @@ named tests in `tests/copilot/test_kiwi_evaluation.py`.
 
 **Status:** the cases, runner checks and rehearsal exist and pass against scripted turns.
 The case set is now `2026-10-15.4`. A run against the local model on 2026-10-16
-completed all 52 cases with every automated safety check passing (KIWI_PLAN.md, status
+completed all 52 cases with every automated safety check passing (PLAN.md, status
 log). Its DBA review and score have **not** been done, so `HARNESS_KIWI_ENABLED` stays
 off by default.
 

@@ -15,7 +15,7 @@
 #     provider, which this script does not have, so it uses a placeholder issuer and never
 #     signs anybody in. Discovery is lazy, so the deployment starts and serves its unauthenticated
 #     endpoints; authenticated calls would be refused. Provider-facing code is qualified by
-#     the Keycloak job instead. See NP-06 in NEXT_PHASE_PLAN.md.
+#     the Keycloak job instead. See NP-06 in PLAN.md section 5, "Complete pilot and production qualification".
 #   * Oracle. No target database is reachable here, so the seed registers profiles without
 #     probing them. Store continuity is what is under test.
 #   * Secret provisioning. The files are created here with throwaway values, which is the
