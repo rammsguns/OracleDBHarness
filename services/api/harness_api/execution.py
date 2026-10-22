@@ -344,10 +344,18 @@ class ExecutionService:
         service still get their own proof.
         """
 
+        if profile.environment == "production":
+            # Persist invalidation before connecting: a failed refresh must not leave
+            # an earlier successful identity authorizing production reads.
+            profile.identity_json = None
+            profile.identity_checked_at = None
+            db.commit()
+
         spec = self.connection_spec(profile, grant)
         connection = self._backend.connect(spec)
         try:
             identity = connection.identity()
+            self._policy.check_production_identity(profile, identity.major_version)
             reports = [connection.probe_capability(cap) for cap in Capability]
         finally:
             connection.close()

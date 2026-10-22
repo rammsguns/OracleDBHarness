@@ -268,6 +268,17 @@ Oracle lookup. Refusals use the existing HTTP 403 `policy_refused` error; copilo
 keeps its HTTP 200 SSE transport and emits only an `error` event. Earlier grant,
 role and request-validation failures retain their existing errors.
 
+Production read authorization also requires a successful target probe reporting
+Oracle Database major version **19**. Unprobed, empty/unparseable and non-19
+identities (including 23ai and 26ai) are refused with `policy_refused`. Before a
+production re-probe, the cached identity is cleared durably: a failed connection,
+identity lookup or timeout cannot retain an earlier 19c authorization. Probe
+failures retain their existing error shape. Development/test version behavior is
+unchanged. A numeric version from `product_component_version` or the driver's
+`connection.version` is authoritative; banner wording, edition and CDB/PDB fields
+are descriptive and do not substitute for the numeric version. The fake-backend
+and driver-stand-in regressions are in `tests/unit/test_production_identity.py`.
+
 The P1 audit found that production copilot/Kiwi bindings were accepted, console
 controls remained available, and worksheet policy depended solely on stored flags.
 The coordinator approved the minimal server and console fixes on 2026-10-22.
