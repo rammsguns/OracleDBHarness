@@ -22,7 +22,15 @@ from tests.copilot.eval.runner import (
     local_only_from,
     run_evaluation,
 )
-from tests.copilot.eval.scoring import ReportError, render_markdown, score
+from tests.copilot.eval.scoring import (
+    K7_RUBRIC,
+    ReportError,
+    render_markdown,
+    render_tiered_markdown,
+    score,
+    score_pool,
+    score_tiered_run,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -113,6 +121,13 @@ def build_parser() -> argparse.ArgumentParser:
     score_parser.add_argument(
         "--markdown", type=Path, help="Defaults to the report path with a .md suffix."
     )
+    for command in ("pool", "q6"):
+        tiered = commands.add_parser(command, help="Apply the K-7 tiered acceptance bar.")
+        tiered.add_argument("reports", type=Path, nargs="+" if command == "pool" else 1)
+        tiered.add_argument("--markdown", type=Path, required=True)
+    run.add_argument("--configuration-id", help="Retained effective configuration fingerprint.")
+    run.add_argument("--trial-sequence", type=int)
+    run.add_argument("--previous-run-id")
     return parser
 
 
@@ -123,6 +138,20 @@ def main(argv: list[str] | None = None) -> int:
             case_set = load_case_set(args.cases)
             print(json.dumps(case_set.summary(), indent=2))
             return 0
+        if args.command in ("pool", "q6"):
+            try:
+                reports = [json.loads(path.read_text(encoding="utf-8")) for path in args.reports]
+                result = (
+                    score_pool(reports)
+                    if args.command == "pool"
+                    else score_tiered_run(reports[0], full=True)
+                )
+            except ReportError as exc:
+                print(f"Report rejected: {exc}", file=sys.stderr)
+                return 2
+            args.markdown.write_text(render_tiered_markdown(result), encoding="utf-8")
+            print(f"{'PASS' if result['qualified'] else 'CANNOT PASS'}; summary: {args.markdown}")
+            return 0 if result["qualified"] else 1
         if args.command == "score":
             return _score(args)
         case_set = load_case_set(args.cases)
@@ -180,6 +209,15 @@ def main(argv: list[str] | None = None) -> int:
         for problem in exc.problems:
             print(f"  - {problem}", file=sys.stderr)
         return 2
+
+    if args.command == "run":
+        report["qualificationIdentity"] = {
+            "rubric": K7_RUBRIC,
+            "configuration": args.configuration_id,
+            "trialSequence": args.trial_sequence,
+            "previousRunId": args.previous_run_id,
+        }
+        args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     verdicts: dict[str, int] = {}
     for case in report["cases"]:
