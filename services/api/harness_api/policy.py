@@ -139,9 +139,21 @@ class PolicyEngine:
             raise PolicyError(decision.reason, detail=decision.as_dict())
 
         self._check_environment(profile, permission, risk, decision)
+        self.check_production_identity(profile, target_major_version)
         self._check_capabilities(required_capabilities, target_capabilities or [], decision)
         self._check_version(min_version, target_major_version, decision, operation_id)
         return decision
+
+    def check_production_identity(
+        self, profile: ConnectionProfile, major_version: int | None
+    ) -> None:
+        """Production reads require a successfully proved Oracle 19c identity."""
+        if profile.environment in self._production and major_version != 19:
+            error = PolicyError(
+                "Production targets require a successfully probed Oracle Database 19c identity."
+            )
+            error.audit_profile_id = profile.id
+            raise error
 
     def _check_environment(
         self,
