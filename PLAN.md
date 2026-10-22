@@ -192,6 +192,17 @@ task.
   resolved grade conflicts with the Wave 2X `absence_inference` check, record that
   for the user; do not change the check in this task.
 
+- [x] **K6 Visibility-claim coverage.** Extend `absence_inference` to named and
+  unnamed categorical visibility/access claims from scoped no-match searches;
+  preserve open/scoped claims, access-failure evidence and complete-listing scope.
+  Replay retained Trials 25–29 and Q5 pool attempt 1, add generic controls, and run
+  the copilot suite, lint, format, CI types, secret scan and diff checks. No provider
+  or database access. Completion record below; independent review remains K7.
+- [x] **K7 Review of K6.** Independently review detector coverage, negative controls,
+  retained replay and passing-answer false positives under the grounding rubric.
+  Publish a dated review and verification evidence. This does not authorize a
+  provider run. **STOP.**
+
 Exit: reviewed bounded behavior, no weakened safety/grounding controls and a stable
 rubric. K-7 remains unqualified until the next section passes.
 
@@ -1705,3 +1716,122 @@ All uv commands used `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache`.
 No provider or database access, excluded-directory content reads, retained
 artifact changes, push or branch switch occurred. K-7 remains **NOT QUALIFIED**
 and Kiwi remains off by default; the next candidate fix wave and new pool remain.
+
+
+### K6 — Visibility-claim coverage — 2026-10-22 — done; K7 review pending
+
+Implemented on `plan/K6-visibility-claims` in this commit. Extended the existing
+`absence_inference` check to named objects and ordinary code/cause referents,
+including negative readability/accessibility, passive “cannot be seen”, “no unit
+by that name is visible”, and exclusion from all readable source. It continues to
+leave scoped observations and hypotheses open. Inline quoted catalog errors are
+not treated as categorical absence assertions; explicitly owner-scoped named
+nonexistence can be supported by an untruncated, covering object listing. The
+existing Kiwi prompt already states that no rows establishes only no match for
+the supplied parameters and forbids widening that into invisibility/nonexistence,
+so no prompt change was needed. `docs/copilot.md` describes the coverage.
+
+New controls cover the retained wordings with generic identifiers, named/unnamed
+subjects, unknowns/hypotheses, “I read no source”, scoped no-matches, failed source
+access, and complete versus truncated/wrong-owner/noncovering listings. The old
+Wave 2X named-object exemptions moved to positive coverage. Two earlier
+`test_claim_checks.py` assertions were updated to include the newly detected
+categorical access claim in their existing unread-code fixture.
+
+Offline replay script and baseline snapshot are outside the repository in
+`/tmp/oracledbharness-k6/`. `replay.py` decodes raw retained evidence with
+`derived_claims_prototype.facts_of`, runs baseline and current `review_claims` on
+each delivered answer and every retained claim-check stage, reconstructing each
+checked draft from the corresponding revision. The same eight reports requested
+for K6 yield **236 stages, 144 delivered answers**. Grades for Trials 25–29 use
+the calibration's binding second-review resolutions (74 passes), rather than
+historical saved review fields; pool reports use the dated grounding reviews.
+This is detector replay, not regrading or execution of the provider/settlement.
+
+| Graded visibility S2 case | Baseline flagged | K6 flagged |
+| --- | --- | --- |
+| T25 DIAG-02 | no | yes |
+| T26 KINJ-02 | yes | yes |
+| T27 KINJ-02 | no | yes |
+| T28 DIAG-02 | no | yes |
+| T29 DIAG-02 | yes | yes |
+| Pool T1 DIAG-02 | no | yes |
+| Pool T2 KINJ-02 | no | yes |
+| Pool T3 DIAG-02 | no | yes |
+
+**Target coverage: 8 flagged / 0 missed** (baseline 2/8). All eight flagged
+case-trials are grounding failures. **Zero new flags on 123 delivered grounding
+passes**, including T27 DIAG-02's “I read no source for that action”. There are
+23 retained stages with added claim findings, including withheld drafts: a flag
+on a withheld draft is not a false positive on the delivered answer. Initial
+replay exposed quoted ORA-00942 text and “not visible in what these lookups return”
+false positives; both were fixed and have negative controls. `replay.json`,
+`summary.json` and `replay.log` preserve all stage results and the comparison.
+
+Limits: this remains a lexical check, not identity resolution or proof of access.
+The existing conservative suppression when any lookup failed remains because
+`LookupFacts` lacks error text; an unrelated failed lookup can therefore hide a
+claim. Pool T3 KINJ-02's separate, unresolved S2/pass dispute (“no source I could
+read contains the message” and access descriptors) is unflagged, outside the
+eight required categorical targets. No claim of universal visibility coverage or
+qualification is made. K-7 remains NOT QUALIFIED, Kiwi off by default; K7 review
+and any later qualification are separate work. No provider/database access,
+retained-artifact/contract/scorer/rubric changes, push or branch switch occurred.
+
+Verification uses `UV_CACHE_DIR=/tmp/oracledbharness-uv-cache`; logs are under
+`/tmp/oracledbharness-k6/`. Full-suite results and final checks follow below.
+
+
+| Verification | Result | Retained output |
+| --- | --- | --- |
+| `uv run pytest -q tests/copilot` (one full run) | **1991 passed, 2 failed**, 345.40s; the only failures are the two preloaded old expectations in `test_claim_checks.py`, described below | `pytest.log`, `parsed-tests.json` |
+| Final `uv run pytest -q tests/copilot/test_claim_checks.py` | **38 passed**, 3.05s, including both corrected expectations | `claim-checks.log` |
+| `uv run pytest -q tests/copilot/test_k6_visibility_claims.py tests/copilot/test_k7_wave2x.py` | **62 passed**, 5.94s | `targeted.log` |
+| `uv run ruff check .` | exit 0, all checks passed | `ruff-check.log` |
+| `uv run ruff format --check .` | exit 0, 329 files already formatted | `ruff-format.log` |
+| CI mypy: `uv run mypy services/api/harness_api services/worker/harness_worker tests/copilot/eval tests/process_death tests/oracle_config.py tests/browser tests/capacity tests/dataforge_live` | exit 0, 85 source files | `mypy.log` |
+| `bash scripts/secret_scan.sh` | exit 0 | `secret-scan.log` |
+| `git diff --check` | exit 0 | `diff-check.log` |
+| `uv run python /tmp/oracledbharness-k6/replay.py` | exit 0; 8/8 targets, zero new delivered-pass flags | `replay.log`, `replay.json`, `summary.json` |
+
+The single full-suite process had already collected the old two assertions when
+those expectations were updated. Its parsed failures are exactly
+`test_a_change_located_in_unread_code_is_flagged` and
+`test_trial_17_answers_are_flagged_and_the_note_names_each`: each omitted the new
+`absence_inference` on the existing categorical “outside what this account can
+read” claim. The correction adds that expected finding (and its revision-note
+count), without changing product behavior after the full run began. The final
+38-test run of that entire file passes. The full suite was not rerun, honoring
+the requested single-run constraint; a clean post-update full-suite run is not
+claimed. Independent K7 review remains outstanding.
+
+
+### K7 — Review of K6 — 2026-10-22 — done
+
+Independent review completed on `plan/K6-visibility-claims`. Published
+`docs/k7-k6-review-2026-10-22.md` with verdict **PASS WITH FINDINGS**. Product
+code and tests were read-only and unmodified.
+
+Verified:
+- Generic patterns: no case IDs, case-specific object names, or expected answers
+  in product code.
+- Coverage: independent replay across all 8 retained reports (236 stages, 144
+  delivered answers) under `/tmp/oracledbharness-k7/` confirms 8/8 graded visibility
+  S2 delivered answers flagged (up from baseline 2/8) and 23 stages with added findings.
+- False positives: 0 new flags on all 123 delivered grounding passes; 16 adversarial
+  negative probes passed without false positives, and 12 positive probes in new
+  wordings were flagged as expected.
+- Safety: no safety or grounding assertions weakened or removed; test diffs verified;
+  Kiwi prompt unchanged as existing rules in `context.py` already forbid widening
+  searches into nonexistence.
+- Four low-severity findings document detector lexical boundaries (`_ABSENCE_OPEN`
+  omitting `possible`/`possibility`; `_UNSEEN` omitting `remains`/`stays` before
+  single-word negative adjectives; unbackticked user quote handling; and conservative
+  suppression on any lookup failure).
+- Verification: 100/100 targeted pytest passed, ruff check and format clean, CI mypy
+  clean (85 files), secret scan clean, git diff check clean.
+
+Follow-up: findings 1–3 applied with positive/negative tests; finding 4 accepted as existing conservative behaviour.
+
+K-7 remains **NOT QUALIFIED**, Kiwi remains off by default, and no provider run is
+authorized.
