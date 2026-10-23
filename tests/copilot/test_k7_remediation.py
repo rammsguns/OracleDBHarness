@@ -368,6 +368,11 @@ def test_both_prompts_carry_the_code_rules() -> None:
         assert "FORALL takes exactly one INSERT, UPDATE, DELETE or MERGE" in prompt
         assert "a key that matches no row as well as one that does" in prompt
         assert "handle TOO_MANY_ROWS explicitly" in prompt
+        assert "Returning NULL or another sentinel hides the ambiguity" in prompt
+        assert "-20999..-20000 that names the ambiguous key" in prompt
+        assert "or return a result the caller can tell apart" not in prompt
+        assert "ROW_NUMBER returns at most N rows per group" in prompt
+        assert "do not say exactly N" in prompt
         assert "pick one that cannot occur" in prompt  # instead of MAX(id)+1
         # Trial 3 TEST-01 printed success whatever its flags said (C12).
         assert "never a fixed success message" in prompt
