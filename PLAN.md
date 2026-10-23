@@ -2191,3 +2191,58 @@ Completion: `9e44a53`, then `e8e876a` and `6a9701e` after review.
   passed.
 
 Next: Q5 pooled attempt 6.
+
+### Q5 — Pooled attempt 6 — 2026-10-23 — FAILED (STOP)
+
+Candidate: `main` at `fd96ace` (K12). The configuration, model, case set, rubric,
+budgets and engine identity are unchanged. The trials are linked.
+
+| Trial | Run | Narrow | S1 | S2 | D1 compile | Review |
+| --- | --- | ---: | ---: | --- | --- | --- |
+| 1 | `eval-ddc83a6cea3d` | 18/18 | 0 | DRAFT-02, DIAG-01, KINJ-02 | PASSED | [review](docs/k7-q5-pool6-trial1-review-2026-10-23.md) |
+| 2 | `eval-644c804de379` | not graded | — | — | **FAILED** (FIX-03) | — |
+| 3 | not run | | | | | |
+
+- **Trial 1:** S2s in DRAFT-02, DIAG-01 and KINJ-02. That uses the whole pool budget of 3.
+  - DRAFT-02: "returns exactly three employees per department" (it returns at most three).
+  - DIAG-01: the Finding puts both compiler errors at 5:39 (the second is at 5:5).
+  - KINJ-02: "find the `RAISE_APPLICATION_ERROR(20001, …)`". A positive number is not
+    valid; it raises ORA-21000.
+  - agy's second review turned DIAG-03 into a pass and confirmed the KINJ-02 S2.
+- **Trial 2:** the proposal compile gate failed (`k7-proposal-compile-20261023T093522Z.log`).
+  The FIX-03 proposal handles `TOO_MANY_ROWS` with `RETURN NULL`, so the ambiguous
+  probes NEQ and MIX return NULL where a deliberate error is required. D1 is a hard Q5
+  gate, so the pool cannot pass. Trial 2 was therefore not graded, and Trial 3 was not
+  run (STOP).
+- **K12 effect:** EXPLAIN-06 had no lock-wait S2 in Trial 1 or Trial 2. Trial 1 says
+  "deadlock or lock-related errors"; Trial 2 says a blocked session "does not raise an
+  error merely" because it waits.
+- **Root cause of the FIX-03 failure:** a contract inconsistency. The prompt's
+  single-row-fetch bullet allows "raise, or return a result the caller can tell apart".
+  The D1 probe requires a raise, and NULL is also a legitimate salary/no-value result.
+  This was the first NULL-returning FIX-03 in 16 Q5 trials.
+- **Pattern:** every S2 this pool was a different one-off misstatement. The defect
+  families are becoming more diverse, not more concentrated.
+
+K-7 remains **NOT QUALIFIED**.
+
+### K13 — Single-row ambiguity, application-error numbers, cardinality and positions — 2026-10-23 — planned
+
+1. **Prompt** (`context.py`, single-row fetches). When a SELECT INTO's predicate is not
+   unique, handle TOO_MANY_ROWS by raising a named application error
+   (RAISE_APPLICATION_ERROR with a number in -20000..-20999) that names the ambiguous
+   key. Returning NULL or another sentinel hides the ambiguity. Remove "or return a
+   result the caller can tell apart".
+2. **Edit-contract check** (`edit_contract.py`, using the K8 anchor-repair path).
+   Trigger a revision when a proposal's TOO_MANY_ROWS handler (or a WHEN OTHERS handler
+   in a function) only RETURNs or assigns a value, without RAISE.
+3. **Claim and code check.** Flag RAISE_APPLICATION_ERROR with a literal number outside
+   -20000..-20999, in proposals and in prose/code spans. Oracle raises ORA-21000 for it.
+4. **Prompt** (Ranking bullet). A top-N per group by ROW_NUMBER returns at most N rows
+   per group, and fewer when fewer qualify. Do not say "exactly N".
+5. **Claim check** (compiler errors). A statement placing "both" or "all" compiler errors
+   at one line:position, when the retained compiler-error lookup shows different
+   positions, triggers a revision.
+6. **Tests and replay** over all retained reports: no unjustified new flag, D1 68/68 plus
+   a new D1 check that a NULL-returning TOO_MANY_ROWS handler fails the FIX-03 probes
+   (this already holds). Then an independent agy review, then Q5 pooled attempt 7.
