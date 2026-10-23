@@ -33,7 +33,9 @@ A step names:
 - ``about``: the open question in the model's words. It is rendered, labelled as the
   model's interpretation, only when it is one plain clause on one line that asks
   (whether, which, what ...) and claims no result; otherwise it stays in the retained
-  proposal and is not rendered (C34-B). ``access`` is held to the same plain form.
+  proposal and is not rendered (C34-B). ``access`` is held to the same plain form
+  and rendered as the model's description, not checked; the actor text stays
+  harness-owned.
 
 Dotted names. ``A.B`` in a PL/SQL call is, among the forms checked here, either the
 standalone ``PROCEDURE``/``FUNCTION`` ``B`` in schema ``A`` or member ``B`` of package
@@ -742,7 +744,7 @@ def _render_step(number_: int, item: Checked) -> str:
     # Requester access is unverified metadata: silently omit it, keeping the question.
     # Only actors whose role bears access may publish an access description.
     if step.actor in ("account_with_access", "dba") and step.access:
-        actor += f" ({step.access.strip()})"
+        actor += f" (the model's description, not checked: {step.access.strip()})"
     question = _open_question(step.about)
     if step.operation is None:
         return f"{number_}. For {actor} to supply, outside these lookups: {question}."
