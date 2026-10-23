@@ -2348,3 +2348,11 @@ A meaningfully stronger quantisation does not fit this hardware.
    - Kiwi is not qualified and remains off by default (`HARNESS_KIWI_ENABLED=false`).
    - Reopening requires a different model/hardware with requalification from Q1, or a
      human-revised bar.
+
+### K14 — Attribute access descriptions in Next steps — 2026-10-23 — done
+
+The fix for the pool 7 Trial 1 KINJ-02 harness defect. The model's free-text `access`
+phrase for account_with_access and dba steps is now rendered as "(the model's
+description, not checked: …)" inside the harness-written Next steps. The harness no
+longer appears to assert coverage facts such as "the searches here did not cover"
+ORDER_FEED. Commit `b12e9c3`; 4480 tests passed; protocol description updated.
