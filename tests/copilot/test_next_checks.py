@@ -18,8 +18,10 @@ from harness_api.copilot.claim_checks import LookupFacts
 from harness_api.copilot.next_checks import (
     GOALS,
     OPERATION_GOALS,
+    Checked,
     Contract,
     Step,
+    _render_step,
     parse,
     readings,
     render,
@@ -665,3 +667,26 @@ def test_a_renamed_lookup_is_still_held_to_its_goals_and_parameters() -> None:
     selectors = {k: v for k, v in DESCRIBED["selectors"].items() if k != "object_type"}
     [missing] = check({**DESCRIBED, "selectors": selectors})
     assert any("needs object_type" in why for why in missing.declined), missing.declined
+
+
+@pytest.mark.parametrize("actor", ["requester", "this_account", "account_with_access", "dba"])
+def test_only_access_bearing_actors_render_access(actor: str) -> None:
+    access = "can read the required configuration"
+    step = Step(actor, None, {}, "", "where the destination is configured", access)
+    rendered = _render_step(1, Checked(step))
+    assert (access in rendered) == (actor in {"account_with_access", "dba"})
+    assert "where the destination is configured" in rendered
+
+
+def test_pool5_trial2_requester_step_drops_exclusive_knowledge_claim() -> None:
+    # Verbatim delivered T2 KINJ-02 step, whose parenthesised text came from access.
+    delivered = "2. For you (only the person running the job knows its output target and configuration) to supply, outside these lookups: what destination the export writes to and where that destination is configured."
+    step = Step(
+        "requester",
+        None,
+        {},
+        "",
+        "what destination the export writes to and where that destination is configured",
+        "only the person running the job knows its output target and configuration",
+    )
+    assert _render_step(2, Checked(step)) == delivered.replace(" (" + step.access + ")", "")

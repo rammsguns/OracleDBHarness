@@ -388,6 +388,7 @@ export type KiwiClaimFindingKind =
   | "job_intervention"
   | "future_outcome"
   | "absence_inference"
+  | "lock_wait_exception"
   | "read_coverage"
   | "read_scope"
   | "band_reachability"

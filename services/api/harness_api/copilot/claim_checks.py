@@ -123,6 +123,7 @@ FINDING_KINDS = (
     "job_intervention",
     "future_outcome",
     "absence_inference",
+    "lock_wait_exception",
     "read_coverage",
     "read_scope",
     "band_reachability",
@@ -178,6 +179,7 @@ def review_claims(answer: str, lookups: Iterable[LookupFacts]) -> ClaimReview:
     findings += _job_interventions(answer, facts)
     findings += _future_outcomes(answer, facts)
     findings += _absence_inferences(answer, facts)
+    findings += lock_wait_exception_claims(answer)
     return ClaimReview(findings, unchecked)
 
 
@@ -186,7 +188,8 @@ def review_plain_claims(answer: str) -> ClaimReview:
 
     A plain answer has no lookups, so only checks resting on Oracle's documented
     behaviour alone apply: Oracle ``MOD``, a synonym offered in place of a privilege, and
-    the rights model a privilege remedy describes (Sync Point 2N). The checks that compare
+    the rights model a privilege remedy describes (Sync Point 2N), and ordinary lock waits
+    presented as raised or handled exceptions (K12). The checks that compare
     an answer with returned rows have nothing to compare.
     """
 
@@ -194,6 +197,7 @@ def review_plain_claims(answer: str) -> ClaimReview:
     findings = _mod_arithmetic(answer, unchecked)
     findings += _remedy_alternatives(answer, unchecked)
     findings += _rights_models(answer)
+    findings += lock_wait_exception_claims(answer)
     return ClaimReview(findings, unchecked)
 
 
@@ -3439,4 +3443,97 @@ def plan_expression_claims(plan: Sequence[str], answer: str) -> list[ClaimFindin
                     "conversion it stands for is not shown.",
                 )
             )
+    return findings
+
+
+# Ordinary waiting is not an exception. Match concepts and their grammatical
+# relationship, rather than particular case wording or a particular handler.
+_LOCK_WAIT = re.compile(
+    r"\b(?:(?:row[- ]?)?lock[- ](?:waits?|waiting|conflicts?)|"
+    r"waiting\s+(?:on|for)\s+(?:a\s+|the\s+)?(?:row[- ]?)?lock|"
+    r"blocked\s+(?:row[- ]?)?lock|row[- ]locks?|blocking(?!\s+(?:delet|insert|updat)\w*))\b",
+    re.I,
+)
+_EXCEPTION_CONTEXT = re.compile(
+    r"\b(?:exceptions?|handlers?|errors?|WHEN\s+OTHERS|swallow\w*|catch\w*|caught|"
+    r"hid(?:e[sn]?|den|ing)|suppress\w*)\b",
+    re.I,
+)
+_EXCEPTION_ACTION = re.compile(
+    r"\b(?:rais\w*|throw\w*|catch\w*|caught|swallow\w*|hid(?:e[sn]?|den|ing)|"
+    r"suppress\w*|discard\w*|includ\w*|examples?|such\s+as|"
+    r"(?:runtime|run-time|DML)\s+(?:errors?|failures?)|"
+    r"(?:is|are)\s+(?:an?\s+)?(?:error|exception|failure)s?)\b",
+    re.I,
+)
+_WAIT_DENIAL = re.compile(
+    r"\b(?:no\s+(?:exception|error)|(?:does|do|would|will|can)\s+not\s+"
+    r"(?:rais\w*|throw\w*|catch\w*|hide|swallow\w*)|"
+    r"(?:is|are)\s+not\s+(?:an?\s+)?(?:errors?|exceptions?|failures?)|"
+    r"(?:never|not)\s+(?:raised|caught|hidden|swallowed)|not\s+an?\s+(?:error|exception))\b",
+    re.I,
+)
+
+
+def lock_wait_exception_claims(answer: str) -> list[ClaimFinding]:
+    """Flag waiting presented as an exception, including an introduced bullet list.
+
+    A list inherits its introduction until the next non-list paragraph or heading.
+    Qualified lock timeouts and explicit denials remain ordinary Oracle prose.
+    Questions do not assert an exception. Fenced source is never checked.
+    """
+    findings: list[ClaimFinding] = []
+    introduction = ""
+    previous = ""
+    for line in _prose_lines(answer):
+        bullet = bool(re.match(r"^(?:[-*+] |\d+[.)] )", line))
+        if line.startswith("#"):
+            introduction = previous = ""
+            continue
+        if not bullet:
+            introduction = ""
+        elif not introduction:
+            introduction = previous if previous.endswith(":") else ""
+        for clause in (part for sentence in _clauses(line) for part in subclauses(sentence)):
+            context = introduction + " " + clause
+            waits = list(_LOCK_WAIT.finditer(clause))
+            waits = [
+                m
+                for m in waits
+                if not re.search(r"\bno\s+$", clause[: m.start()], re.I)
+                and not re.match(
+                    r"\s+(?:ending\s+in\s+errors|that\s+(?:exceed|reach)\s+(?:a\s+)?timeout)",
+                    clause[m.end() :],
+                    re.I,
+                )
+            ]
+            if not waits:
+                continue
+            if (
+                "?" in context
+                or _WAIT_DENIAL.search(context)
+                or re.search(r"\b(?:whether|unknown|unclear)\b", context, re.I)
+                or not _EXCEPTION_CONTEXT.search(context)
+                or not _EXCEPTION_ACTION.search(context)
+            ):
+                continue
+            # An explicit timeout/error qualification distinguishes an exception
+            # from bare waiting. Do not excuse a list's separate ordinary wait.
+            if re.search(r"ORA-(?:00054|30006|00060)|DDL_LOCK_TIMEOUT", clause, re.I):
+                if re.search(
+                    r"\b(?:timeout|times?\s+out|NOWAIT|WAIT\s+(?:n|\d+)|deadlock)\b", clause, re.I
+                ):
+                    continue
+            findings.append(
+                ClaimFinding(
+                    "lock_wait_exception",
+                    context.strip(),
+                    "An ordinary enqueue or row-lock wait blocks the session and raises no "
+                    "exception for a handler to catch or hide. List only raised conditions: "
+                    "ORA-00054 for NOWAIT or busy DDL (including DDL_LOCK_TIMEOUT expiry), "
+                    "ORA-30006 for SELECT FOR UPDATE WAIT n timeout, and ORA-00060 for a "
+                    "deadlock in one involved session, rolling back only that statement.",
+                )
+            )
+        previous = line
     return findings

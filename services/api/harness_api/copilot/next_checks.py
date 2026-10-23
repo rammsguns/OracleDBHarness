@@ -739,7 +739,9 @@ def render(checked: Sequence[Checked]) -> str:
 def _render_step(number_: int, item: Checked) -> str:
     step = item.step
     actor = _ACTOR_TEXT[step.actor]
-    if step.access:
+    # Requester access is unverified metadata: silently omit it, keeping the question.
+    # Only actors whose role bears access may publish an access description.
+    if step.actor in ("account_with_access", "dba") and step.access:
         actor += f" ({step.access.strip()})"
     question = _open_question(step.about)
     if step.operation is None:

@@ -203,14 +203,15 @@ def explain_payload() -> dict:
 def test_the_explanation_is_revised_once_for_the_transaction_state(
     client: TestClient, developer
 ) -> None:
-    revised = TRIAL_24["EXPLAIN-06"] + "\n\n" + RETAINED
+    # K12 also catches the retained answer's ordinary waits listed as errors.
+    revised = TRIAL_24["EXPLAIN-06"].replace(", lock waits", "") + "\n\n" + RETAINED
     provider = use_replies(client, Reply(TRIAL_24["EXPLAIN-06"]), Reply(revised))
     events = sse(client, developer, explain_payload())
 
     first, second = checks(events)
     assert (first["action"], [f["kind"] for f in first["findings"]]) == (
         "revise",
-        ["transaction_state"],
+        ["transaction_state", "lock_wait_exception"],
     )
     assert (second["stage"], second["action"], second["findings"]) == ("revised", "none", [])
     assert "rolls back only the failing statement" in provider.messages[1]

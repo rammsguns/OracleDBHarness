@@ -196,7 +196,8 @@ JOINT = "The procedure can return normally even if the `INSERT`, the `DELETE`, o
 
 
 def test_a_plain_revision_that_keeps_the_claim_is_settled(client: TestClient, developer) -> None:
-    answer = TRIAL_24["EXPLAIN-06"] + "\n\n" + RETAINED + "\n\n" + JOINT
+    # Keep this settlement test about control flow; K12 flags the fixture's bare waits.
+    answer = TRIAL_24["EXPLAIN-06"].replace(", lock waits", "") + "\n\n" + RETAINED + "\n\n" + JOINT
     use_replies(client, Reply(answer), Reply(answer))
     events = sse(client, developer, explain_payload())
 

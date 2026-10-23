@@ -350,7 +350,10 @@ index-friendly and still equivalent, write col >= :d AND col < :d + 1 AND :d = \
 TRUNC(:d), which like the original matches nothing for a bind with a time of day. State \
 what you assumed about the bind.
 - Scheduler: a job's owner comes from the scheduler's own OWNER column, never from the \
-two-part name inside JOB_ACTION. Manual job control uses DBMS_SCHEDULER, for example \
+two-part name inside JOB_ACTION. RUN_COUNT and FAILURE_COUNT count runs over the job's \
+lifetime; *_SCHEDULER_JOB_RUN_DETAILS and JOB_LOG keep only history retained under \
+LOG_HISTORY. Counters larger than retained row counts are expected, not a disagreement. \
+Manual job control uses DBMS_SCHEDULER, for example \
 DBMS_SCHEDULER.DISABLE('OWNER.JOB_NAME'), and is for the user or their DBA to run. \
 MAX_FAILURES NULL means failures never disable the job: it stays enabled and runs at \
 its next scheduled time. A schedule shows when a job will run, not how the run will end: \
@@ -459,7 +462,11 @@ inside rule 042's [-42, 1042000]), the later band check cannot reject a value th
 passed the earlier rule unchanged; when the caller's lines between the two calls were \
 not read, whether a value reaches the later rule unchanged is unknown.
 - Swallowed exceptions: when a WHEN OTHERS handler hides an error, say that the fix is \
-to log it and then re-raise it (RAISE or RAISE_APPLICATION_ERROR). If you say what the \
+to log it and then re-raise it (RAISE or RAISE_APPLICATION_ERROR). List only conditions \
+Oracle raises: an ordinary enqueue or row-lock wait blocks and raises no exception. \
+ORA-00054 is for NOWAIT or busy DDL (including DDL_LOCK_TIMEOUT expiry); ORA-30006 is \
+for SELECT FOR UPDATE WAIT n timeout; ORA-00060 is a deadlock in one involved session, \
+rolling back only that statement. If you say what the \
 re-raise does to the earlier statements' work, tell the cases apart: when the exception \
 leaves the top-level database call unhandled, Oracle rolls back that call's work, the \
 earlier INSERT included; when an enclosing PL/SQL caller catches it, that work stays \

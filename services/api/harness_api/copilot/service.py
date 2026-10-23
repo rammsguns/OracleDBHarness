@@ -44,6 +44,7 @@ from harness_api.copilot.claim_checks import (
     ClaimFinding,
     ClaimReview,
     LookupFacts,
+    lock_wait_exception_claims,
     plan_expression_claims,
     review_claims,
     review_plain_claims,
@@ -2609,9 +2610,13 @@ def _plain_review(action: str, source: tuple[str, ...], answer: str) -> ClaimRev
     Sync Point 2J), or a plan explanation's reading of the supplied plan (Sync Point 2J)."""
 
     if action == "explain":
-        return ClaimReview(missing_remedies(action, source, answer), [])
+        return ClaimReview(
+            missing_remedies(action, source, answer) + lock_wait_exception_claims(answer), []
+        )
     if action == "explain_plan":
-        return ClaimReview(plan_expression_claims(source, answer), [])
+        return ClaimReview(
+            plan_expression_claims(source, answer) + lock_wait_exception_claims(answer), []
+        )
     return review_plain_claims(answer)
 
 

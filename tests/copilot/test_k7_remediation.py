@@ -348,6 +348,14 @@ def test_both_prompts_carry_the_code_rules() -> None:
         assert "narrowest direct object grant" in prompt
         assert "AUTHID CURRENT_USER is not a way around" in prompt
         assert "DBMS_SCHEDULER.DISABLE" in prompt
+        assert "RUN_COUNT and FAILURE_COUNT count runs over the job" in prompt
+        assert "LOG_HISTORY" in prompt
+        assert "Counters larger than retained row counts are expected" in prompt
+        assert "ordinary enqueue or row-lock wait blocks and raises no exception" in prompt
+        assert "ORA-00054 is for NOWAIT or busy DDL" in prompt
+        assert "ORA-30006" in prompt and "SELECT FOR UPDATE WAIT n timeout" in prompt
+        assert "ORA-00060 is a deadlock in one involved session" in prompt
+        assert "rolling back only that statement" in prompt
         assert "DBMS_ROWID" in prompt
         assert "re-raise" in prompt
         assert "AWR, ASH or SQL Monitor" in prompt  # named only to rule it out
