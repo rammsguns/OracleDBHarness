@@ -23,7 +23,7 @@
 # no credentials.
 set -uo pipefail
 
-EXPECTED_CHECKS=66
+EXPECTED_CHECKS=68
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SQLPLUS="${SQLPLUS:-/opt/oracle/instantclient_21_4/sqlplus}"
 

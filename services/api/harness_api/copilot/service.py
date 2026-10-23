@@ -68,6 +68,7 @@ from harness_api.copilot.edit_contract import (
     anchor_repair_message,
     apply_edits,
     carried_directives,
+    collection_declaration_problems,
     directive_note,
     edit_description,
     minimal_repair_message,
@@ -797,7 +798,10 @@ class CopilotService:
             if minimal:
                 event["minimalRepair"] = minimal
         if first.delivered == "proposal":
-            anchors = anchor_problems("\n".join(b.text for b in first.blocks), metadata)
+            proposal = "\n".join(b.text for b in first.blocks)
+            anchors = anchor_problems(proposal, metadata) + collection_declaration_problems(
+                proposal
+            )
             if anchors:
                 event["anchorRepair"] = anchors
         if first.delivered != "missing" and not minimal and not anchors:
@@ -838,6 +842,7 @@ class CopilotService:
             reading.delivered != "proposal"
             or (minimal and minimal_repair_problems(ask.editor.text, reading.blocks[0].text))
             or anchor_problems("\n".join(b.text for b in reading.blocks), metadata)
+            or collection_declaration_problems("\n".join(b.text for b in reading.blocks))
         ):
             # The first proposal stands: the reply did not give the change asked for.
             if reading.delivered != "proposal":

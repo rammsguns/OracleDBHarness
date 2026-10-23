@@ -155,6 +155,17 @@ BEGIN
       l_n = t.n AND l_batches = CEIL(t.n / t.lim), l_n || ' rows in ' || l_batches || ' batch(es)');
   END LOOP;
 
+  -- K8: a collection variable needs a previously declared collection type.
+  l_msg := compiles(q'[CREATE OR REPLACE PROCEDURE k7q_collection IS
+    l_orders TABLE OF k7q_owner.orders%ROWTYPE;
+  BEGIN NULL; END;]', 'K7Q_COLLECTION', 'PROCEDURE');
+  verdict('collection: inline TABLE OF fails with PLS-00103',
+    l_msg LIKE '%PLS-00103%', SUBSTR(l_msg, 1, 80));
+  verdict('collection: named TABLE OF type and variable compile',
+    compiles(q'[CREATE OR REPLACE PROCEDURE k7q_collection IS
+      TYPE t IS TABLE OF k7q_owner.orders%ROWTYPE; l_orders t;
+    BEGIN NULL; END;]', 'K7Q_COLLECTION', 'PROCEDURE') IS NULL);
+
   -- 1b. FORALL takes one DML statement, not an assignment (trial 3 DRAFT-03).
   l_msg := compiles(q'[CREATE OR REPLACE PROCEDURE k7q_bad_forall IS
     TYPE t IS TABLE OF NUMBER INDEX BY PLS_INTEGER; a t; b t;

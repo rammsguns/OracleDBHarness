@@ -3058,10 +3058,11 @@ _SEARCHED_FOR = re.compile(
 # Named objects and ordinary referents have the same evidence requirement as raisers.
 _VISIBILITY_SUBJECT = re.compile(
     rf"`[^`\n]+`|{QUALIFIED.pattern}|\b(?:code|source|statement|unit|routine|"
-    r"subprogram|procedure|function|package|object|table|cause|action|it)\b",
+    r"subprogram|procedure|function|package|object|table|schema|owner|cause|action|it)\b",
     re.IGNORECASE,
 )
-# Said to be out of the account's sight, or not to exist at all.
+# Said to be out of the account's sight, or not to exist at all. An elliptical
+# "cannot" must end the clause; a comma with more text may introduce a mutation verb.
 _UNSEEN = re.compile(
     r"\b(?:is|are|was|were|remains?|stays?)\s+(?:not|never)\s+(?:visible|accessible|readable|"
     r"available)\b|\b(?:isn['’]t|aren['’]t|wasn['’]t|weren['’]t)\s+(?:visible|accessible|"
@@ -3073,6 +3074,10 @@ _UNSEEN = re.compile(
     r"source\s+(?:this|the)\s+account\s+can\s+read)\b"
     r"|\b(?:cannot|can['’]t)\s+be\s+(?:seen|read|accessed)\b"
     r"|\b(?:this|the)\s+account\s+(?:cannot|can['’]t)\s+(?:see|read|access)\s+it\b"
+    r"|\b(?:invisible|inaccessible|unreadable)\s+to\s+(?:this|the)\s+account\b"
+    r"|\bcan\s+(?:see|read|access)\b[^.;]{0,160}?\bwhich\s+"
+    r"(?:(?:currently|now|yet|still)\s+)?(?:this|the)\s+"
+    r"account\s+(?:cannot|can['’]t)\b(?=\s*(?:[)\].;:]|$|,\s*$))"
     r"|\bno\s+(?:unit|object|routine|procedure|function|package|table)\b[^.;]{0,60}?"
     r"\bis\s+(?:visible|readable|accessible)\b",
     re.IGNORECASE,
@@ -3154,13 +3159,18 @@ def _absence_inferences(answer: str, facts: Sequence[LookupFacts]) -> list[Claim
                 if subject is None:
                     continue
                 # Inline errors and quoted statements are evidence, not absence claims.
+                # Word-internal apostrophes belong to the single-quoted span; they
+                # cannot open one in ordinary prose such as "the table isn't visible".
                 predicates = re.sub(
-                    r'`[^`\n]+`|"[^"\n]+"|“[^”\n]+”',
+                    r"`[^`\n]+`|\"[^\"\n]+\"|“[^”\n]+”|"
+                    r"(?<!\w)'(?:[^'\n]|(?<=\w)'(?=\w))+'(?!\w)|‘[^’\n]+’",
                     lambda m: " " * len(m[0]),
                     part,
                 )
                 unseen = _UNSEEN.search(predicates)
                 if unseen is None or unseen.start() - subject.end() > 180:
+                    continue
+                if re.match(r"\s+to\s+(?:the\s+)?optimizer\b", predicates[unseen.end() :], re.I):
                     continue
                 if _ABSENCE_OPEN.search(part[: unseen.end()]) or _ABSENCE_SCOPED.search(
                     part[unseen.end() :]

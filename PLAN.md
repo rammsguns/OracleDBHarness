@@ -1873,3 +1873,59 @@ for drafted PL/SQL, if the boundary permits it, or a prompt rule against inline
 reviewed plan before any new pool.
 
 K-7 remains **NOT QUALIFIED**, and Kiwi stays off by default.
+
+### K8 — Inline collection declarations and elliptical visibility claims — 2026-10-23 — done (K9 reviewed)
+
+Fix wave for the pool 2 failure patterns. User direction 2026-10-23: "do always what you
+recommend". There is no boundary change: no compile step against any database, and
+production stays observation-only.
+
+1. **Prompt** (`context.py`, Oracle code bullet "Bulk processing"): require the
+   collection type to be declared before it is used: `TYPE t_rows IS TABLE OF
+   <owner>.<table>%ROWTYPE; l_rows t_rows;`. A variable declared inline as
+   `l_rows TABLE OF ...` does not compile (PLS-00103).
+2. **Deterministic proposal check** (`edit_contract.py`, alongside `anchor_problems`):
+   flag a declaration of the form `<identifier> TABLE OF ...` or
+   `<identifier> VARRAY|VARYING ARRAY (...) OF ...` that is not part of a
+   `TYPE|SUBTYPE <name> IS ...` declaration. It goes through the same repair message and
+   revision path as the anchor problems. Literals and comments are masked. Valid
+   `TYPE x IS TABLE OF`, `CREATE TYPE x AS TABLE OF`, `TABLE(...)` calls and `IS TABLE OF`
+   must not be flagged.
+3. **D1 rule check** (`scripts/k7_oracle_checks.sh` and its SQL): add checks proving on
+   D1 that the inline form fails to compile and the named-type form compiles, and update
+   `EXPECTED_CHECKS`.
+4. **Visibility detector** (`claim_checks.py` `_absence_inferences`): catch the KINJ-02
+   wordings "…, which this account cannot" (an elliptical continuation of a preceding
+   "can see/read/access"), "invisible/inaccessible/unreadable to this account", and
+   schema/owner referents. Add positive tests for each pool 2 KINJ-02 sentence and
+   negative probes (e.g. "which this account cannot change", "invisible to the
+   optimizer", text in backticks).
+5. **Review (K9)** by a different model before the new candidate is frozen, followed by
+   a new three-trial pool (attempt 3).
+
+Completion (K8 `d388e2c`, `c66dc85`; K9 fixes `911c960`):
+
+- **Implemented:** items 1–4, by Codex.
+- **D1:** code-rule checks **PASSED 68/68** with cleanup
+  (`databases/reports/k7-oracle-checks-20261023T011419Z.log`, local only). This includes
+  "collection: inline TABLE OF fails with PLS-00103" and "collection: named TABLE OF
+  type and variable compile".
+- **Offline replay over 62 retained reports:** DRAFT-03 and all three KINJ-02 sentences
+  are flagged. The only new flag on an answer graded as a grounding pass is KINJ-02 in
+  `strata-k7-focused-20261020T040546Z` ("which this account cannot"). It is the wording
+  pool 2 graded S2 under D-ABS, so it is a grading miss, not a false positive.
+- **K9 independent review** (agy, `docs/k7-k8-review-2026-10-23.md`): PASS WITH
+  FINDINGS, eight findings, all low severity.
+  - Fixed in `911c960` with tests, replay unchanged:
+    - 1: apostrophes inside single-quoted spans;
+    - 4: "cannot" must end the clause, and an adverb is allowed;
+    - 6: the repair advice keeps any initializer or NOT NULL off the TYPE;
+    - 7: double-quoted identifiers.
+  - Accepted as documented boundaries:
+    - 2: claims in single quotes are masked;
+    - 3: pronoun variants;
+    - 5: "invisible to the caller" (pre-existing);
+    - 8: subject scope.
+
+The new candidate is `main` once this lands. Next: Q5 pooled attempt 3, with three new
+trials on that candidate.

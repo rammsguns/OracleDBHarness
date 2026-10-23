@@ -51,7 +51,7 @@ case "$input" in
       interrupt) echo K7Q-PREFLIGHT-CLEAR; create K7Q_OWNER; touch "$MOCK_DIR/ready"
                  exec sleep 30 ;;
       *) echo K7Q-PREFLIGHT-CLEAR; create K7Q_OWNER; create K7Q_USER; create K7Q_READ
-         for i in $(seq 66); do echo "PASS check $i"; done; echo K7Q-DONE ;;
+         for i in $(seq 68); do echo "PASS check $i"; done; echo K7Q-DONE ;;
     esac ;;
   *'DROP '*)
     grep '^DROP ' <<<"$input" >>"$MOCK_DIR/drops"
@@ -132,7 +132,7 @@ def test_a_normal_run_drops_exactly_what_it_created(run) -> None:
         "DROP ROLE K7Q_READ;",
     ]
     assert result["existing"] == []
-    assert "result: PASSED - 66/66" in result["log"]
+    assert "result: PASSED - 68/68" in result["log"]
     assert "<password>" in result["log"]  # the mock echoed it; the log has it scrubbed
 
 

@@ -261,7 +261,9 @@ CODE_RULES = """\
 
 Oracle code you write or review:
 
-- Bulk processing: declare an explicit cursor, then LOOP, FETCH cur BULK COLLECT INTO \
+- Bulk processing: declare the collection type before its variable: TYPE t_rows IS \
+TABLE OF <owner>.<table>%ROWTYPE; l_rows t_rows; (not l_rows TABLE OF ...). Declare an \
+explicit cursor, then LOOP, FETCH cur BULK COLLECT INTO \
 coll LIMIT n, EXIT WHEN coll.COUNT = 0, process the whole batch, END LOOP, and close the \
 cursor. Testing the count rather than cur%NOTFOUND processes the last partial batch. \
 Leave COMMIT and ROLLBACK to the caller. LIMIT belongs to FETCH, not to SELECT ... BULK \
