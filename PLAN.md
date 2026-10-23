@@ -2226,7 +2226,7 @@ budgets and engine identity are unchanged. The trials are linked.
 
 K-7 remains **NOT QUALIFIED**.
 
-### K13 — Single-row ambiguity, application-error numbers, cardinality and positions — 2026-10-23 — planned
+### K13 — Single-row ambiguity, application-error numbers, cardinality and positions — 2026-10-23 — done (reviewed)
 
 1. **Prompt** (`context.py`, single-row fetches). When a SELECT INTO's predicate is not
    unique, handle TOO_MANY_ROWS by raising a named application error
@@ -2246,3 +2246,26 @@ K-7 remains **NOT QUALIFIED**.
 6. **Tests and replay** over all retained reports: no unjustified new flag, D1 68/68 plus
    a new D1 check that a NULL-returning TOO_MANY_ROWS handler fails the FIX-03 probes
    (this already holds). Then an independent agy review, then Q5 pooled attempt 7.
+
+Completion: `9042ff8` and `b5d1c11`, then `ea6c0e7` after review.
+
+- **Prompt:**
+  - Single-row fetches: an ambiguous fetch raises a named application error
+    (-20999..-20000) that names the ambiguous key. A NULL or sentinel return hides the
+    ambiguity. The "or return a result the caller can tell apart" clause is removed.
+  - Ranking: a ROW_NUMBER top-N returns at most N rows per group, never "exactly N".
+- **Checks:**
+  - `ambiguity_handler_problems` (proposal repair path): a TOO_MANY_ROWS handler, or a
+    function's WHEN OTHERS, that only returns or assigns.
+  - `application_error_number`: a literal outside -20999..-20000.
+  - `compiler_error_position`: a "both/all errors at L:P" claim against retained
+    `schema.object_errors` rows with distinct positions.
+- **Replay** (110 snapshots, 1512 answers, 1004 proposals): the 3 pool 6 defects are
+  flagged; all 80 correct FIX-03 proposals pass; zero unjustified flags.
+- **Reviews:** agy found PASS WITH FINDINGS (`docs/k7-k13-review-2026-10-23.md`; 47
+  probes, 94.7% recall, 3.6% false positives). The findings were string-literal masking,
+  nested-routine classification, repair wording and negation forms; all are fixed in
+  `ea6c0e7`. Coordinator held-out probes: 8/8 recall, 0/10 false positives.
+- **Gates:** D1 68/68 (`k7-oracle-checks-20261023T095818Z.log`); 4477 tests passed.
+
+Next: Q5 pooled attempt 7.

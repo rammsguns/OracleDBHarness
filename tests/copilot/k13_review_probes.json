@@ -1,0 +1,284 @@
+[
+  {
+    "id": "LEGIT_AH_01",
+    "detector": "ambiguity_handler",
+    "text": "FUNCTION f RETURN NUMBER IS x NUMBER; BEGIN SELECT id INTO x FROM t; RETURN x; EXCEPTION WHEN NO_DATA_FOUND THEN RETURN NULL; END;",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_AH_02",
+    "detector": "ambiguity_handler",
+    "text": "FUNCTION f RETURN NUMBER IS x NUMBER; BEGIN SELECT id INTO x FROM t; RETURN x; EXCEPTION WHEN TOO_MANY_ROWS THEN log_pkg.log('error'); RAISE; END;",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_AH_03",
+    "detector": "ambiguity_handler",
+    "text": "PROCEDURE p IS BEGIN NULL; EXCEPTION WHEN OTHERS THEN NULL; END;",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_AH_04",
+    "detector": "ambiguity_handler",
+    "text": "PROCEDURE p IS BEGIN NULL; EXCEPTION WHEN OTHERS THEN log_error; END;",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_AH_05",
+    "detector": "ambiguity_handler",
+    "text": "PROCEDURE p IS x NUMBER; BEGIN SELECT id INTO x FROM t; EXCEPTION WHEN TOO_MANY_ROWS THEN RAISE_APPLICATION_ERROR(-20001, 'duplicate key'); END;",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_AH_06",
+    "detector": "ambiguity_handler",
+    "text": "FUNCTION f RETURN NUMBER IS x NUMBER; BEGIN SELECT id INTO x FROM t; RETURN x; EXCEPTION WHEN TOO_MANY_ROWS THEN RAISE_APPLICATION_ERROR(-20001, 'duplicate key'); END;",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_AH_07",
+    "detector": "ambiguity_handler",
+    "text": "FUNCTION f RETURN NUMBER IS x NUMBER; BEGIN BEGIN SELECT id INTO x FROM t; EXCEPTION WHEN NO_DATA_FOUND THEN x := NULL; END; RETURN x; END;",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_AH_08",
+    "detector": "ambiguity_handler",
+    "text": "FUNCTION f RETURN NUMBER IS x NUMBER; BEGIN SELECT id INTO x FROM t; RETURN x; EXCEPTION WHEN TOO_MANY_ROWS THEN RAISE; END;",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_AH_09",
+    "detector": "ambiguity_handler",
+    "text": "PROCEDURE p IS x NUMBER; BEGIN BEGIN SELECT id INTO x FROM t; EXCEPTION WHEN TOO_MANY_ROWS THEN RAISE; END; END;",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_AH_10",
+    "detector": "ambiguity_handler",
+    "text": "CREATE PACKAGE BODY pkg AS PROCEDURE p1 IS BEGIN NULL; END; PROCEDURE p2 IS BEGIN NULL; EXCEPTION WHEN OTHERS THEN NULL; END; END pkg;",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_AH_11",
+    "detector": "ambiguity_handler",
+    "text": "PROCEDURE p IS FUNCTION helper RETURN NUMBER IS BEGIN RETURN 1; END; BEGIN NULL; EXCEPTION WHEN OTHERS THEN NULL; END;",
+    "flag": false
+  },
+  {
+    "id": "DEFECT_AH_01",
+    "detector": "ambiguity_handler",
+    "text": "FUNCTION f RETURN NUMBER IS x NUMBER; BEGIN SELECT id INTO x FROM t; RETURN x; EXCEPTION WHEN TOO_MANY_ROWS THEN RETURN NULL; END;",
+    "flag": true
+  },
+  {
+    "id": "DEFECT_AH_02",
+    "detector": "ambiguity_handler",
+    "text": "FUNCTION f RETURN NUMBER IS x NUMBER; BEGIN SELECT id INTO x FROM t; RETURN x; EXCEPTION WHEN TOO_MANY_ROWS THEN RETURN -1; END;",
+    "flag": true
+  },
+  {
+    "id": "DEFECT_AH_03",
+    "detector": "ambiguity_handler",
+    "text": "PROCEDURE p(res OUT NUMBER) IS x NUMBER; BEGIN SELECT id INTO x FROM t; EXCEPTION WHEN TOO_MANY_ROWS THEN res := NULL; END;",
+    "flag": true
+  },
+  {
+    "id": "DEFECT_AH_04",
+    "detector": "ambiguity_handler",
+    "text": "FUNCTION f RETURN NUMBER IS x NUMBER; BEGIN SELECT id INTO x FROM t; RETURN x; EXCEPTION WHEN OTHERS THEN RETURN NULL; END;",
+    "flag": true
+  },
+  {
+    "id": "DEFECT_AH_05",
+    "detector": "ambiguity_handler",
+    "text": "FUNCTION f RETURN NUMBER IS x NUMBER; BEGIN BEGIN SELECT id INTO x FROM t; EXCEPTION WHEN TOO_MANY_ROWS THEN x := NULL; END; RETURN x; END;",
+    "flag": true
+  },
+  {
+    "id": "DEFECT_AH_06",
+    "detector": "ambiguity_handler",
+    "text": "PROCEDURE p IS x NUMBER; BEGIN BEGIN SELECT id INTO x FROM t; EXCEPTION WHEN TOO_MANY_ROWS THEN x := -999; NULL; END; END;",
+    "flag": true
+  },
+  {
+    "id": "DEFECT_AH_07",
+    "detector": "ambiguity_handler",
+    "text": "FUNCTION f RETURN NUMBER IS x NUMBER; BEGIN SELECT id INTO x FROM t; RETURN x; EXCEPTION WHEN NO_DATA_FOUND OR TOO_MANY_ROWS THEN RETURN 0; END;",
+    "flag": true
+  },
+  {
+    "id": "LEGIT_AEN_01",
+    "detector": "application_error_number",
+    "text": "RAISE_APPLICATION_ERROR(-20001, 'Valid error code');",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_AEN_02",
+    "detector": "application_error_number",
+    "text": "RAISE_APPLICATION_ERROR(-20999, 'Boundary error code');",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_AEN_03",
+    "detector": "application_error_number",
+    "text": "RAISE_APPLICATION_ERROR(-20000, 'Boundary error code');",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_AEN_04",
+    "detector": "application_error_number",
+    "text": "RAISE_APPLICATION_ERROR(c_err, 'Variable error code');",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_AEN_05",
+    "detector": "application_error_number",
+    "text": "RAISE_APPLICATION_ERROR(-20000 - 5, 'Computed error code');",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_AEN_06",
+    "detector": "application_error_number",
+    "text": "RAISE_APPLICATION_ERROR(:b_code, 'Bind error code');",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_AEN_07",
+    "detector": "application_error_number",
+    "text": "The application will raise ORA-20001 when a duplicate entry is detected.",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_AEN_08",
+    "detector": "application_error_number",
+    "text": "Do not use positive numbers: calling RAISE_APPLICATION_ERROR(20001, 'err') is invalid in Oracle.",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_AEN_09",
+    "detector": "application_error_number",
+    "text": "Calling RAISE_APPLICATION_ERROR(20001, 'test') raises ORA-21000 because numbers must be negative.",
+    "flag": false
+  },
+  {
+    "id": "DEFECT_AEN_01",
+    "detector": "application_error_number",
+    "text": "RAISE_APPLICATION_ERROR(20001, 'Positive error code');",
+    "flag": true
+  },
+  {
+    "id": "DEFECT_AEN_02",
+    "detector": "application_error_number",
+    "text": "RAISE_APPLICATION_ERROR(+20001, 'Positive signed error code');",
+    "flag": true
+  },
+  {
+    "id": "DEFECT_AEN_03",
+    "detector": "application_error_number",
+    "text": "RAISE_APPLICATION_ERROR(-19999, 'Too large negative code');",
+    "flag": true
+  },
+  {
+    "id": "DEFECT_AEN_04",
+    "detector": "application_error_number",
+    "text": "RAISE_APPLICATION_ERROR(-21000, 'Too small negative code');",
+    "flag": true
+  },
+  {
+    "id": "DEFECT_AEN_05",
+    "detector": "application_error_number",
+    "text": "RAISE_APPLICATION_ERROR(0, 'Zero error code');",
+    "flag": true
+  },
+  {
+    "id": "DEFECT_AEN_06",
+    "detector": "application_error_number",
+    "text": "You must invoke RAISE_APPLICATION_ERROR(20005, 'Something went wrong') to notify the client.",
+    "flag": true
+  },
+  {
+    "id": "DEFECT_AEN_07",
+    "detector": "application_error_number",
+    "text": "Change the exception handler to call `RAISE_APPLICATION_ERROR(100, 'failed')`.",
+    "flag": true
+  },
+  {
+    "id": "LEGIT_CEP_01",
+    "detector": "compiler_error_position",
+    "text": "Both compiler errors are on line 5.",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_CEP_02",
+    "detector": "compiler_error_position",
+    "text": "All compiler errors are on line 5.",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_CEP_03",
+    "detector": "compiler_error_position",
+    "text": "Both compiler errors occur at line 5, position 39 and line 5, position 5.",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_CEP_04",
+    "detector": "compiler_error_position",
+    "text": "The first error is at line 5, position 39, while the second error is at line 5, position 5.",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_CEP_05",
+    "detector": "compiler_error_position",
+    "text": "Not all compiler errors are at line 5, position 39.",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_CEP_06",
+    "detector": "compiler_error_position",
+    "text": "Both errors have different positions on line 5.",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_CEP_07",
+    "detector": "compiler_error_position",
+    "text": "Are both compiler errors at line 5, position 39?",
+    "flag": false
+  },
+  {
+    "id": "LEGIT_CEP_08",
+    "detector": "compiler_error_position",
+    "text": "Whether both compiler errors are at 5:39 is unknown without querying USER_ERRORS.",
+    "flag": false
+  },
+  {
+    "id": "DEFECT_CEP_01",
+    "detector": "compiler_error_position",
+    "text": "Both compiler errors point at line 5, position 39: ORA-00942.",
+    "flag": true
+  },
+  {
+    "id": "DEFECT_CEP_02",
+    "detector": "compiler_error_position",
+    "text": "All compiler errors are located at line 5, column 39.",
+    "flag": true
+  },
+  {
+    "id": "DEFECT_CEP_03",
+    "detector": "compiler_error_position",
+    "text": "Each compiler error in EMPLOYEE_REPORT points to 5:39.",
+    "flag": true
+  },
+  {
+    "id": "DEFECT_CEP_04",
+    "detector": "compiler_error_position",
+    "text": "Every compiler error occurs at line 5, col 39.",
+    "flag": true
+  },
+  {
+    "id": "DEFECT_CEP_05",
+    "detector": "compiler_error_position",
+    "text": "The compilation errors both occur at 5:39.",
+    "flag": true
+  }
+]

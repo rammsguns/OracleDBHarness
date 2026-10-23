@@ -435,6 +435,94 @@ def collection_declaration_problems(proposal: str) -> list[str]:
     return problems
 
 
+def _handler_in_function(masked: str, offset: int) -> bool:
+    """Track routine bodies and nested blocks up to a handler's source offset.
+
+    A routine declaration stays pending until its BEGIN; local routines may have
+    complete bodies before that BEGIN. Forward declarations have no body to own.
+    END IF/LOOP/CASE do not close a BEGIN block.
+    """
+    frames: list[tuple[str, bool]] = []
+    tokens = list(re.finditer(r"\b[\w$#]+\b|;", masked[:offset], re.I))
+    skip = False
+    for index, token in enumerate(tokens):
+        word = token[0].upper()
+        if skip:
+            skip = False
+            continue
+        if word in {"FUNCTION", "PROCEDURE"}:
+            tail = masked[token.end() :]
+            header = re.match(r"[^;]*?\b(?:IS|AS)\b", tail, re.I | re.S)
+            if header:
+                frames.append((word, False))
+        elif word == "BEGIN":
+            if frames and not frames[-1][1]:
+                frames[-1] = (frames[-1][0], True)
+            else:
+                frames.append(("BLOCK", True))
+        elif word == "CASE":
+            frames.append(("CASE", True))
+        elif word == "END":
+            following = tokens[index + 1][0].upper() if index + 1 < len(tokens) else ""
+            if following in {"IF", "LOOP"}:
+                skip = True
+            else:
+                if frames:
+                    frames.pop()
+                skip = following == "CASE"
+    return next(
+        (kind == "FUNCTION" for kind, _ in reversed(frames) if kind in {"FUNCTION", "PROCEDURE"}),
+        False,
+    )
+
+
+def ambiguity_handler_problems(proposal: str) -> list[str]:
+    """Reject simple sentinel handlers that conceal a non-unique single-row fetch.
+
+    The shared lexer masks comments and string literals before recognizing statements.
+    Only straight-line RETURN/assignment/NULL handlers are classified; arbitrary control
+    flow is deliberately left to review. NO_DATA_FOUND returning a value is legitimate.
+    """
+    masked = strip_literals_and_comments(proposal)
+    masked = re.sub(r'"(?:[^"\n]|"")*"', lambda m: "x" * len(m[0]), masked)
+    problems: list[str] = []
+    for handler in re.finditer(
+        r"\bWHEN\s+([^;]+?)\s+THEN\b(.*?)(?=\bWHEN\b|\bEND\b|$)",
+        masked,
+        re.I | re.S,
+    ):
+        names, body = handler[1], handler[2]
+        function = _handler_in_function(masked, handler.start())
+        if not re.search(r"\bTOO_MANY_ROWS\b", names, re.I) and not (
+            function and re.search(r"\bOTHERS\b", names, re.I)
+        ):
+            continue
+        statements = [part.strip() for part in body.split(";") if part.strip()]
+        if not statements or not all(
+            re.fullmatch(r"RETURN\b.*|:?[\w$#.]+(?:\([^;]*\))?\s*:=.*|NULL", part, re.I | re.S)
+            for part in statements
+        ):
+            continue
+        shown = proposal[handler.start() : handler.end()].strip()
+        problems.append(
+            f"`{shown}` hides ambiguous rows by returning or assigning a sentinel. "
+            "Raise a named application error in -20999..-20000 identifying the ambiguous "
+            "key instead; NULL can also be a legitimate result."
+        )
+    return problems
+
+
+def proposal_semantic_problems(proposal: str) -> list[str]:
+    """Checks sharing the bounded anchor-repair path."""
+    from harness_api.copilot.claim_checks import application_error_claims
+
+    return (
+        collection_declaration_problems(proposal)
+        + ambiguity_handler_problems(proposal)
+        + [f.problem + " " + f.claim for f in application_error_claims(proposal, code=True)]
+    )
+
+
 def anchor_problems(proposal: str, facts: SchemaFacts) -> list[str]:
     """``%TYPE``/``%ROWTYPE`` anchors in the proposal that the supplied metadata shows
     cannot resolve.
@@ -486,9 +574,14 @@ def anchor_problems(proposal: str, facts: SchemaFacts) -> list[str]:
 
 
 def anchor_repair_message(user_message: str, answer: str, problems: list[str]) -> str:
-    """The harness's one request for a proposal whose type anchors resolve."""
+    """The harness's one request to correct the proposal's listed semantic problems."""
 
     listed = "\n".join(f"- {problem}" for problem in problems)
+    anchor_advice = (
+        "A column anchor is <table>.<column>%TYPE or <owner>.<table>.<column>%TYPE. "
+        if any(re.search(r"%TYPE|%ROWTYPE", problem, re.I) for problem in problems)
+        else "Correct the listed PL/SQL semantic problems. "
+    )
     return "\n".join(
         [
             user_message,
@@ -497,13 +590,12 @@ def anchor_repair_message(user_message: str, answer: str, problems: list[str]) -
             answer,
             "----- END UNTRUSTED PREVIOUS_ANSWER -----",
             "",
-            "[harness] The previous answer above is yours. Against the supplied schema "
-            "metadata, its proposal has type anchors that cannot resolve, so it would not "
-            "compile:\n"
+            "[harness] The previous answer above is yours. Its proposal has the following "
+            "problems under the supplied metadata and PL/SQL semantics:\n"
             f"{listed}\n"
-            "A column anchor is <table>.<column>%TYPE or <owner>.<table>.<column>%TYPE. "
-            "Reply with one fenced ```plsql (or ```sql) block holding the complete "
-            "replacement for the editor with those anchors corrected and every other line "
+            + anchor_advice
+            + "Reply with one fenced ```plsql (or ```sql) block holding the complete "
+            "replacement for the editor with the listed problems corrected and every other line "
             "as your proposal has it. Nothing else: do not repeat the explanation and do "
             "not change the design.",
         ]
