@@ -1873,3 +1873,32 @@ for drafted PL/SQL, if the boundary permits it, or a prompt rule against inline
 reviewed plan before any new pool.
 
 K-7 remains **NOT QUALIFIED**, and Kiwi stays off by default.
+
+### K8 — Inline collection declarations and elliptical visibility claims — 2026-10-23 — planned
+
+Fix wave for the pool 2 failure patterns. User direction 2026-10-23: "do always what you
+recommend". There is no boundary change: no compile step against any database, and
+production stays observation-only.
+
+1. **Prompt** (`context.py`, Oracle code bullet "Bulk processing"): require the
+   collection type to be declared before it is used: `TYPE t_rows IS TABLE OF
+   <owner>.<table>%ROWTYPE; l_rows t_rows;`. A variable declared inline as
+   `l_rows TABLE OF ...` does not compile (PLS-00103).
+2. **Deterministic proposal check** (`edit_contract.py`, alongside `anchor_problems`):
+   flag a declaration of the form `<identifier> TABLE OF ...` or
+   `<identifier> VARRAY|VARYING ARRAY (...) OF ...` that is not part of a
+   `TYPE|SUBTYPE <name> IS ...` declaration. It goes through the same repair message and
+   revision path as the anchor problems. Literals and comments are masked. Valid
+   `TYPE x IS TABLE OF`, `CREATE TYPE x AS TABLE OF`, `TABLE(...)` calls and `IS TABLE OF`
+   must not be flagged.
+3. **D1 rule check** (`scripts/k7_oracle_checks.sh` and its SQL): add checks proving on
+   D1 that the inline form fails to compile and the named-type form compiles, and update
+   `EXPECTED_CHECKS`.
+4. **Visibility detector** (`claim_checks.py` `_absence_inferences`): catch the KINJ-02
+   wordings "…, which this account cannot" (an elliptical continuation of a preceding
+   "can see/read/access"), "invisible/inaccessible/unreadable to this account", and
+   schema/owner referents. Add positive tests for each pool 2 KINJ-02 sentence and
+   negative probes (e.g. "which this account cannot change", "invisible to the
+   optimizer", text in backticks).
+5. **Review (K9)** by a different model before the new candidate is frozen, followed by
+   a new three-trial pool (attempt 3).
