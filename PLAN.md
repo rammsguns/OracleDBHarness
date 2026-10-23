@@ -2128,7 +2128,7 @@ Other defects:
 
 K-7 remains **NOT QUALIFIED**.
 
-### K12 — Lock-wait semantics, scheduler counters, requester rendering — 2026-10-23 — planned
+### K12 — Lock-wait semantics, scheduler counters, requester rendering — 2026-10-23 — done (reviewed)
 
 1. **Prompt** (`context.py`, swallowed-exceptions bullet). When the answer lists errors
    a handler would hide, it lists only conditions Oracle raises. An ordinary row-lock
@@ -2158,3 +2158,36 @@ K-7 remains **NOT QUALIFIED**.
 5. **Replay** over all retained reports. List new flags on answers graded as grounding
    passes, with a justification for each. Acceptance: no unjustified new flag; D1 68/68.
 6. **Independent review** by agy, then Q5 pooled attempt 6.
+
+Completion: `9e44a53`, then `e8e876a` and `6a9701e` after review.
+
+- **Prompt:**
+  - Swallowed-exceptions bullet: list only conditions Oracle raises. An ordinary lock
+    wait blocks. ORA-00054, ORA-30006 and ORA-00060 are the lock events that raise.
+  - Scheduler bullet: job counters cover the job's lifetime, and the run log keeps only
+    retained history.
+- **Detector:** `lock_wait_exception` (revision), applied only to explain and plain
+  answers. It was taken out of Kiwi diagnoses after agy's review found that a false
+  flag there could end in a bounded fallback. Noun phrases ("blocking session",
+  "row locks held by …") are excluded. Denials ("without raising", "raises nothing")
+  and ORA-qualified timeouts are exempt.
+- **Rendering:** a requester step's model-written `access` text is no longer published
+  in the harness-written Next steps.
+- **Replay** (720 answers, 40 reports):
+  - all 6 graded EXPLAIN-06 lock-wait S2s are flagged;
+  - 19 historical EXPLAIN-06 grounding-pass answers are now flagged, all grader misses
+    under T27;
+  - 0 flags on DIAG, KINJ or INACCESSIBLE answers, or on any non-EXPLAIN-06 answer.
+- **Reviews:** agy found PASS WITH FINDINGS (`docs/k7-k12-review-2026-10-23.md`):
+  - bare blocking/row-lock false positives;
+  - fallback risk;
+  - missing "masks" wording;
+  - missing "without raising" denial.
+
+  All are fixed. On fresh coordinator probes, held-out recall rose from 2/6 to 4/6 with
+  0/13 false positives. The remaining misses ("would never surface as an error", "the
+  exception goes to WHEN OTHERS") are an accepted limitation; the prompt is the main
+  lever. D1 68/68 (`k7-oracle-checks-20261023T082631Z.log`); full copilot suite 4294
+  passed.
+
+Next: Q5 pooled attempt 6.
