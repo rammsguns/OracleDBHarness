@@ -560,7 +560,7 @@ def test_the_rules_the_prompt_states_are_in_the_oracle_checks() -> None:
         "fixture: FIX-01''s function errors are ORA-00942 at 4:37",
     ):
         assert name in sql, name
-    assert "EXPECTED_CHECKS=66" in Path(REPO_ROOT, "scripts/k7_oracle_checks.sh").read_text()
+    assert "EXPECTED_CHECKS=68" in Path(REPO_ROOT, "scripts/k7_oracle_checks.sh").read_text()
 
 
 def test_the_test_block_action_asks_for_every_outcome_and_cleanup() -> None:
