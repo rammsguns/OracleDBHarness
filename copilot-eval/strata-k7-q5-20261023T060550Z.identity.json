@@ -1,0 +1,40 @@
+{
+  "after": {
+    "health": {
+      "loaded": true,
+      "max_context": 131072,
+      "model": "qwen3.8-flash-next-iq3_s",
+      "service": "strata"
+    },
+    "processes": {
+      "169560": {
+        "cmdlineSha256": "30de75a214d7ef73587ca0691daf516342d77c1535c5c4c8b0e3e5db8d19d4db",
+        "started": "Thu Oct 22 03:13:52 2026"
+      },
+      "169600": {
+        "cmdlineSha256": "eb9f96e04a07998ca703fb36694c5ef2f9266b79769c6c0a8393834fc75e533c",
+        "started": "Thu Oct 22 03:13:55 2026"
+      }
+    }
+  },
+  "before": {
+    "health": {
+      "loaded": true,
+      "max_context": 131072,
+      "model": "qwen3.8-flash-next-iq3_s",
+      "service": "strata"
+    },
+    "processes": {
+      "169560": {
+        "cmdlineSha256": "30de75a214d7ef73587ca0691daf516342d77c1535c5c4c8b0e3e5db8d19d4db",
+        "started": "Thu Oct 22 03:13:52 2026"
+      },
+      "169600": {
+        "cmdlineSha256": "eb9f96e04a07998ca703fb36694c5ef2f9266b79769c6c0a8393834fc75e533c",
+        "started": "Thu Oct 22 03:13:55 2026"
+      }
+    }
+  },
+  "configurationId": "cfg-4e94202319e25cb4",
+  "runnerExit": 0
+}

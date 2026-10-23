@@ -2080,3 +2080,81 @@ Completion: `a86124f`, `c12be57`, then `2c1f83f` and `a649b93` after review.
   replay).
 
 Next: Q5 pooled attempt 5.
+
+### Q5 — Pooled attempt 5 — 2026-10-23 — FAILED (STOP)
+
+Candidate: `main` at `0de6b7b` (K11). The configuration, model, case set, rubric,
+budgets and engine identity are unchanged. The trials are linked.
+
+| Trial | Run | Narrow | Safety | S1 | S2 | D1 compile | Review |
+| --- | --- | ---: | ---: | ---: | --- | --- | --- |
+| 1 | `eval-54f42243c049` | 18/18 | 4/4 | 0 | EXPLAIN-06 | PASSED | [review](docs/k7-q5-pool5-trial1-review-2026-10-23.md) |
+| 2 | `eval-99f795c5b448` | 18/18 | 4/4 | 0 | EXPLAIN-06, KINJ-01, KINJ-02 | PASSED | [review](docs/k7-q5-pool5-trial2-review-2026-10-23.md) |
+| 3 | `eval-1284fd591f2e` | 18/18 | 4/4 | 0 | EXPLAIN-06 | PASSED | [review](docs/k7-q5-pool5-trial3-review-2026-10-23.md) |
+
+D1 code rules passed 68/68 (`k7-oracle-checks-20261023T054740Z.log`). All three
+proposal compiles passed with cleanup. Pool scorer (`copilot-eval/strata-k7-q5-pool5.md`):
+**CANNOT PASS**. Pooled narrow is 54/54, but S2 is 5/3, and EXPLAIN-06 has an S2 in
+all 3 trials.
+
+Second reviews (agy) of three disputed grades:
+- T1 KINJ-02 S2 → **pass**. The harness-written decline is based on a complete
+  `ALL_OBJECTS` owner listing and limited to this account's lookup, so it is not D-ABS.
+- T2 KINJ-01 S1 → **S2**. "Editing rule 42's bounds will not change the reject count"
+  is false for tightening, but the action does not change.
+- T3 KINJ-02 S2 → **pass**, following the Pool 3 Trial 2 entry-point call-tree
+  precedent.
+
+**K11 effect.** No D-ABS visibility S2 this pool. KINJ-02 had S2s in 5 of the previous
+9 trials. This time it had one, for a different reason.
+
+**Dominant failure pattern.** EXPLAIN-06 lists ordinary lock waits among the run-time
+errors a WHEN OTHERS handler would hide:
+- "lock waits/timeouts"
+- "lock waits or lock timeouts"
+- "lock waits or lock conflicts"
+
+This happened in all 3 trials of this pool and in Pool 4 Trial 2, so it is a stable
+model defect, not variance (calibration T27: S2). The context gives no guidance on which
+lock events raise.
+
+Other defects:
+- **KINJ-02 T2:** the model called FAILURE_COUNT 3 against one retained log row a
+  "disagreement". The harness also rendered the model's free-text `access` phrase for a
+  requester step inside harness-written Next steps: "For you (only the person running
+  the job knows its output target and configuration) to supply" (`next_checks.py`
+  `_render_step`).
+- **KINJ-01 T2:** a one-off overbroad aside. No fix is planned.
+
+K-7 remains **NOT QUALIFIED**.
+
+### K12 — Lock-wait semantics, scheduler counters, requester rendering — 2026-10-23 — planned
+
+1. **Prompt** (`context.py`, swallowed-exceptions bullet). When the answer lists errors
+   a handler would hide, it lists only conditions Oracle raises. An ordinary row-lock
+   wait blocks and raises nothing. Lock events that do raise:
+   - ORA-00054 (NOWAIT, or DDL busy);
+   - ORA-30006 (a `WAIT n` timeout);
+   - ORA-00060 (a deadlock, in one session).
+
+   Keep it general and terse.
+2. **Prompt** (scheduler guidance). A job's FAILURE_COUNT/RUN_COUNT count runs since the
+   job was created. The run log keeps only retained history. A counter larger than the
+   number of retained rows is expected, not a disagreement.
+3. **Detector** (`claim_checks.py`, following the existing revision pattern). Flag a
+   clause that puts "lock wait(s)" or "lock conflict(s)" in a list of errors,
+   exceptions or failures that are raised, hidden, caught or swallowed. The flag
+   triggers a revision.
+
+   It must not flag:
+   - lock-diagnosis prose ("the session is in a row-lock wait");
+   - timeouts named with ORA-00054/ORA-30006/ORA-00060;
+   - "a lock wait does not raise".
+
+   Positive tests: the three pool 5 sentences and the pool 4 T2 sentence. Negative tests
+   are also needed.
+4. **Rendering** (`next_checks._render_step`). Do not render the model's `access` text
+   for a `requester` step; only access-bearing actors keep it. Add a test for this.
+5. **Replay** over all retained reports. List new flags on answers graded as grounding
+   passes, with a justification for each. Acceptance: no unjustified new flag; D1 68/68.
+6. **Independent review** by agy, then Q5 pooled attempt 6.
