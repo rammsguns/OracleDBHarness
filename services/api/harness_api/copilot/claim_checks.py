@@ -3098,6 +3098,94 @@ _ABSENCE_SCOPED = re.compile(
 )
 
 
+# A short clause-local span, independent of a particular verb or subject wording.
+_VISIBILITY_NEGATION = re.compile(r"\b(?:not|no|neither|nor|none|nothing)\b|n['’]t\b", re.I)
+_VISIBILITY_PREDICATE = re.compile(
+    r"\b(?:visible|readable|accessible|invisible|unreadable|inaccessible)\b", re.I
+)
+_VISIBILITY_ANCHOR = re.compile(
+    r"(?i:\b(?:to|from|by)\s+(?:this|the)\s+account\b|\bhere\b|\bthis\s+schema\b)|"
+    r"(?i:\b(?:from|in))\s+`?[A-Z][A-Z0-9_$#]*`?\b"
+)
+
+
+def _negated_visibility(part: str) -> re.Match[str] | None:
+    """Return a visibility predicate connected to negation and an access scope."""
+    for visible in _VISIBILITY_PREDICATE.finditer(part):
+        # Do not borrow a negation from another assertion or adjacent sentence.
+        start = max(0, visible.start() - 120)
+        boundaries = list(re.finditer(r"[.;!?]|\b(?:and|so|but)\b", part[: visible.start()]))
+        if boundaries:
+            start = max(start, boundaries[-1].end())
+        end = visible.end() + 120
+        boundary = re.search(r"[.;!?]|\b(?:and|so|but)\b", part[visible.end() : end])
+        if boundary:
+            end = visible.end() + boundary.start()
+        span = part[start:end]
+        before = part[start : visible.start()]
+        if not _VISIBILITY_NEGATION.search(span) or not _VISIBILITY_ANCHOR.search(span):
+            continue
+        if not _VISIBILITY_NEGATION.search(before) and not re.search(
+            r"\b(?:contains?|raises?|mentions?|matches?)\b", part[visible.end() : end], re.I
+        ):
+            continue
+        # Catalog observations, retained rows and Oracle privilege/optimizer facts
+        # do not assert the access state of unread code.
+        if re.search(r"\b(?:privileges?|roles?|optimizer)\b", span, re.I):
+            continue
+        if re.search(
+            r"\bin\s+(?:what\s+(?:was\s+retained|these\s+lookups\s+return)|the\s+objects\s+listed)\b",
+            span,
+            re.I,
+        ):
+            continue
+        if re.search(r"\bnot\s+an?\s+object\s+of\s+this\s+schema\b", span, re.I):
+            continue
+        # A matching-name/line observation within a named owner is scoped. This
+        # differs from claiming no readable unit contains/raises an error.
+        if re.search(
+            r"\b(?:no\s+(?:line|object)|matches\s+no\s+object)\b", before, re.I
+        ) and re.search(r"\b(?:in|of|owned\s+by)\s+[A-Z][A-Z0-9_$#]*\b", span):
+            continue
+        if re.search(r"\bno\s+line\b", before, re.I) and re.search(
+            r"\b[A-Z][A-Z0-9_$#]*\s+source\b", span
+        ):
+            continue
+        if re.search(r"\bmatches\s+no\s+object\s+visible\s+in\s+[A-Z][A-Z0-9_$#]*\b", span):
+            continue
+        if re.search(
+            r"\b(?:nothing|no\s+(?:lookup|result|row)s?)\s+visible\b.*\bshows?\b", span, re.I
+        ):
+            continue
+        if re.search(r"\b(?i:no\s+(?:readable\s+)?source\s+in)\s+[A-Z][A-Z0-9_$#]*\b", span):
+            continue
+        if re.search(r"\b(?:no\s+(?:stored\s+)?source|neither)\b", before, re.I) and re.search(
+            r"\bvisible\s+in\s+[A-Z][A-Z0-9_$#]*\b", span
+        ):
+            continue
+        if re.search(r"\ba\s+name\s+not\s+visible\b.*\bmay\b", span, re.I):
+            continue
+        if _ABSENCE_OPEN.search(part[: visible.end()]):
+            continue
+        return visible
+    return None
+
+
+def _visibility_listing(part: str, facts: Sequence[LookupFacts]) -> bool:
+    """A schema listing describes visible owners, not the access state of code."""
+    if not re.search(
+        r"\b(?:no\s+(?:other\s+)?schema(?:\s+named)?|no\s+\w+\s+schema|"
+        r"neither\s+a\s+visible\s+schema|not\s+a\s+visible\s+schema)\b",
+        part,
+        re.I,
+    ):
+        return False
+    return any(
+        f.operation_id == "schema.list_schemas" and f.succeeded and coverage(f).state == "complete"
+        for f in facts
+    )
+
+
 def _listed_absent(part: str, unseen: re.Match[str], facts: Sequence[LookupFacts]) -> bool:
     """A named object's absence within a complete listing is a distinct claim.
 
@@ -3156,19 +3244,30 @@ def _absence_inferences(answer: str, facts: Sequence[LookupFacts]) -> list[Claim
         for clause in _clauses(line):
             for part in subclauses(clause):
                 subject = _SEARCHED_FOR.search(part) or _VISIBILITY_SUBJECT.search(part)
-                if subject is None:
-                    continue
                 # Inline errors and quoted statements are evidence, not absence claims.
                 # Word-internal apostrophes belong to the single-quoted span; they
                 # cannot open one in ordinary prose such as "the table isn't visible".
                 predicates = re.sub(
                     r"`[^`\n]+`|\"[^\"\n]+\"|“[^”\n]+”|"
                     r"(?<!\w)'(?:[^'\n]|(?<=\w)'(?=\w))+'(?!\w)|‘[^’\n]+’",
-                    lambda m: " " * len(m[0]),
+                    lambda m: (
+                        "X" * len(m[0]) if re.fullmatch(r"`[\w$#]+`", m[0]) else " " * len(m[0])
+                    ),
                     part,
                 )
-                unseen = _UNSEEN.search(predicates)
-                if unseen is None or unseen.start() - subject.end() > 180:
+                structural = _negated_visibility(predicates)
+                if structural and (
+                    _visibility_listing(predicates, facts)
+                    or re.search(
+                        r"\breturned\s+(?:zero|0|no)\s+rows\s+from\s+the\s+constraints?\s+lookup\b",
+                        predicates,
+                        re.I,
+                    )
+                ):
+                    structural = None
+                unseen = _UNSEEN.search(predicates) or structural
+                subject = subject or structural
+                if unseen is None or subject is None or unseen.start() - subject.end() > 180:
                     continue
                 if re.match(r"\s+to\s+(?:the\s+)?optimizer\b", predicates[unseen.end() :], re.I):
                     continue
