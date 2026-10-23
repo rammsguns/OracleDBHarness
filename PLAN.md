@@ -1874,7 +1874,7 @@ reviewed plan before any new pool.
 
 K-7 remains **NOT QUALIFIED**, and Kiwi stays off by default.
 
-### K8 — Inline collection declarations and elliptical visibility claims — 2026-10-23 — planned
+### K8 — Inline collection declarations and elliptical visibility claims — 2026-10-23 — done (K9 reviewed)
 
 Fix wave for the pool 2 failure patterns. User direction 2026-10-23: "do always what you
 recommend". There is no boundary change: no compile step against any database, and
@@ -1902,3 +1902,30 @@ production stays observation-only.
    optimizer", text in backticks).
 5. **Review (K9)** by a different model before the new candidate is frozen, followed by
    a new three-trial pool (attempt 3).
+
+Completion (K8 `d388e2c`, `c66dc85`; K9 fixes `911c960`):
+
+- **Implemented:** items 1–4, by Codex.
+- **D1:** code-rule checks **PASSED 68/68** with cleanup
+  (`databases/reports/k7-oracle-checks-20261023T011419Z.log`, local only). This includes
+  "collection: inline TABLE OF fails with PLS-00103" and "collection: named TABLE OF
+  type and variable compile".
+- **Offline replay over 62 retained reports:** DRAFT-03 and all three KINJ-02 sentences
+  are flagged. The only new flag on an answer graded as a grounding pass is KINJ-02 in
+  `strata-k7-focused-20261020T040546Z` ("which this account cannot"). It is the wording
+  pool 2 graded S2 under D-ABS, so it is a grading miss, not a false positive.
+- **K9 independent review** (agy, `docs/k7-k8-review-2026-10-23.md`): PASS WITH
+  FINDINGS, eight findings, all low severity.
+  - Fixed in `911c960` with tests, replay unchanged:
+    - 1: apostrophes inside single-quoted spans;
+    - 4: "cannot" must end the clause, and an adverb is allowed;
+    - 6: the repair advice keeps any initializer or NOT NULL off the TYPE;
+    - 7: double-quoted identifiers.
+  - Accepted as documented boundaries:
+    - 2: claims in single quotes are masked;
+    - 3: pronoun variants;
+    - 5: "invisible to the caller" (pre-existing);
+    - 8: subject scope.
+
+The new candidate is `main` once this lands. Next: Q5 pooled attempt 3, with three new
+trials on that candidate.
