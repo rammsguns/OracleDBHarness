@@ -3450,22 +3450,29 @@ def plan_expression_claims(plan: Sequence[str], answer: str) -> list[ClaimFindin
 # Bare blocking/row locks remain eligible in exception claims, but references
 # to blocking sessions or locks held/acquired by sessions are diagnostic prose.
 _LOCK_WAIT = re.compile(
-    r"\b(?:(?:row[- ]?)?lock[- ](?:waits?|waiting|conflicts?)|"
-    r"waiting\s+(?:on|for)\s+(?:a\s+|the\s+)?(?:row[- ]?)?lock|"
+    r"\b(?:(?:row[- ]?)?lock[- ](?:waits?|waiting|conflicts?|contention)|"
+    r"wait(?:s|ing)?\s+(?:on|for)\s+(?:a\s+|the\s+)?"
+    r"(?:(?:TX\s+)?row[- ]?|TX\s+|table\s+)?locks?|"
     r"blocked\s+(?:by|on)\s+(?:a\s+|the\s+)?(?:row[- ]?)?lock|"
     r"blocked\s+(?:row[- ]?)?lock|row[- ]locks?|"
     r"blocking(?!\s+(?:sessions?|locks?|chains?|transactions?|SIDs?|holders?|"
     r"delet\w*|insert\w*|updat\w*)\b))\b",
     re.I,
 )
+_HANDLER_EFFECT = (
+    r"absorb\w*|ignor\w*|eat(?:s|en|ing)?|"
+    r"turn(?:s|ed)?\s+into\s+(?:a\s+)?(?:silent\s+)?success"
+)
 _EXCEPTION_CONTEXT = re.compile(
-    r"\b(?:exceptions?|handlers?|errors?|WHEN\s+OTHERS|swallow\w*|catch\w*|caught|"
+    rf"\b(?:{_HANDLER_EFFECT}|exceptions?|handlers?|errors?|problems?|failures?|"
+    r"WHEN\s+OTHERS|swallow\w*|catch\w*|caught|"
     r"hid(?:e[sn]?|den|ing)|suppress\w*|mask\w*)\b",
     re.I,
 )
 _EXCEPTION_ACTION = re.compile(
-    r"\b(?:rais\w*|throw\w*|catch\w*|caught|swallow\w*|hid(?:e[sn]?|den|ing)|"
-    r"mask\w*|suppress\w*|discard\w*|includ\w*|examples?|such\s+as|"
+    rf"\b(?:{_HANDLER_EFFECT}|rais\w*|throw\w*|catch\w*|caught|swallow\w*|hid(?:e[sn]?|den|ing)|"
+    r"mask\w*|suppress\w*|discard\w*|includ\w*|examples?|like|e\.g(?=\.)|"
+    r"for\s+(?:example|instance)|such\s+as|among\s+them|"
     r"(?:runtime|run-time|DML)\s+(?:errors?|failures?)|"
     r"(?:is|are)\s+(?:an?\s+)?(?:error|exception|failure)s?)\b",
     re.I,
@@ -3475,7 +3482,8 @@ _WAIT_DENIAL = re.compile(
     r"free\s+of\s+errors?)|no\s+(?:exception|error)|(?:does|do|would|will|can)\s+not\s+"
     r"(?:rais\w*|throw\w*|catch\w*|hide|swallow\w*)|"
     r"(?:is|are)\s+not\s+(?:an?\s+)?(?:errors?|exceptions?|failures?)|"
-    r"(?:never|not)\s+(?:raised|caught|hidden|swallowed)|not\s+an?\s+(?:error|exception))\b",
+    rf"(?:never|not)\s+(?:{_HANDLER_EFFECT}|raised|caught|hidden|swallowed)|"
+    r"not\s+an?\s+(?:error|exception))\b",
     re.I,
 )
 
@@ -3499,7 +3507,9 @@ def lock_wait_exception_claims(answer: str) -> list[ClaimFinding]:
             introduction = ""
         elif not introduction:
             introduction = previous if previous.endswith(":") else ""
-        for clause in (part for sentence in _clauses(line) for part in subclauses(sentence)):
+        # Keep the dotted enumerator with its examples in this local check.
+        sentences = re.split(r"(?<!e\.g\.)(?<=[.!?])\s+", line, flags=re.I)
+        for clause in (part for sentence in sentences for part in subclauses(sentence)):
             context = introduction + " " + clause
             waits = list(_LOCK_WAIT.finditer(clause))
             waits = [
