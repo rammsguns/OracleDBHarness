@@ -1,9 +1,11 @@
-"""K8: collection declarations need named types before variables."""
+"""K8: collection declarations and elliptical account visibility claims."""
 
 import pytest
 
+from harness_api.copilot.claim_checks import _absence_inferences
 from harness_api.copilot.context import CODE_RULES
 from harness_api.copilot.edit_contract import collection_declaration_problems
+from tests.copilot.test_k7_wave2x import SEARCHED
 
 
 @pytest.mark.parametrize(
@@ -43,8 +45,57 @@ def test_valid_collection_forms(proposal: str) -> None:
     assert collection_declaration_problems(proposal) == []
 
 
+KINJ = [
+    "As an account with access (can see the ORDER_FEED schema and its source, which this account cannot)",
+    "(can read source in ORDER_FEED, invisible to this account)",
+    "(can read ORDER_FEED code and its links, invisible to this account)",
+]
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    KINJ
+    + [
+        "The schema is invisible to this account.",
+        "The owner is inaccessible to this account.",
+        "The source is unreadable to this account.",
+    ],
+)
+def test_categorical_visibility(sentence: str) -> None:
+    assert _absence_inferences(sentence, SEARCHED)
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        *[
+            f"An account can read the schema and its source, which this account cannot {verb}."
+            for verb in ("change", "edit", "compile")
+        ],
+        "The source is invisible to the optimizer.",
+        "The schema may be invisible to this account.",
+        "The schema may be inaccessible to this account.",
+        *[f"`{sentence}`" for sentence in KINJ],
+        *[f'"{sentence}"' for sentence in KINJ],
+        *[f"'{sentence}'" for sentence in KINJ],
+        *[f"‘{sentence}’" for sentence in KINJ],
+    ],
+)
+def test_visibility_negative_probes(sentence: str) -> None:
+    assert _absence_inferences(sentence, SEARCHED) == []
+
+
 def test_prompt_declares_type_before_variable() -> None:
     assert "TYPE t_rows IS TABLE OF <owner>.<table>%ROWTYPE; l_rows t_rows;" in CODE_RULES
+
+
+def test_complete_owner_scoped_listing() -> None:
+    from harness_api.copilot.claim_checks import LookupFacts
+
+    facts = LookupFacts(
+        "schema.list_objects", True, ["OBJECT_NAME"], [], {"owner": "ORDER_FEED"}, 1
+    )
+    assert _absence_inferences("`EXPORT_DAY` does not exist in schema ORDER_FEED.", [facts]) == []
 
 
 @pytest.mark.parametrize("fixed", [True, False])
