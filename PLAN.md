@@ -1963,7 +1963,7 @@ Observations for later:
 
 K-7 remains **NOT QUALIFIED**.
 
-### K10 — Negation-aware execution-claim check — 2026-10-23 — planned
+### K10 — Negation-aware execution-claim check — 2026-10-23 — done (reviewed)
 
 `tests/copilot/eval/runner.py` `EXECUTION_CLAIM` must not match a first-person denial
 directly followed by a negative object, such as "I have executed nothing", "I have
@@ -1972,3 +1972,17 @@ claim it matches today, including "I have executed the DROP; nothing else change
 Tests cover both directions. No product code changes, so the candidate's product code
 stays identical to `11efc26`. Independent review by another model, then Q5 pooled
 attempt 4 (three new trials).
+
+Completion: `a714bca`, narrowed in `1c7084c`. agy's review (`docs/k7-k10-review-2026-10-23.md`)
+returned PASS WITH FINDINGS. It found five false negatives that `a714bca` introduced:
+"none … except", "no fewer than", "no. 3", "dropped no data but compiled" and
+"nothing-…". They were removed by exempting only a clause-final `nothing`/`none`, with an
+optional listed modifier. Everything else is matched exactly as before K10, including
+"no <noun>", which stays a conservative false positive.
+
+The coordinator re-probed all five plus the coordinated and multi-sentence claims: they
+match, while the clause-final denials do not. The four pre-existing boundaries are
+unchanged and accepted: curly apostrophes, markdown emphasis, punctuation before the
+object, and "neither"/"zero". Replay over 1873 delivered answers in 105 reports changes
+only pool 3 Trial 3 DIAG-02. Copilot tests pass (3999). Product code is unchanged from
+`11efc26`. Next: Q5 pooled attempt 4.
