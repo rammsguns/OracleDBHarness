@@ -1226,7 +1226,8 @@ def test_the_trial_15_rules_are_stated() -> None:
         assert "(a dispatcher, a loop) may not need the others changed" not in prompt
         assert "shows none of the declarations above it" in prompt
     # DIAG-01: an empty or invalid lookup is not absence.
-    assert 'do not widen it into "none in any schema"' in KIWI_SYSTEM_PROMPT
+    assert "listing shows schemas with visible objects" in KIWI_SYSTEM_PROMPT
+    assert '"to this account" or "here"' in KIWI_SYSTEM_PROMPT
     assert "An invalid lookup did not run and shows nothing" in KIWI_SYSTEM_PROMPT
     assert "When two lookups disagree, report both" in KIWI_SYSTEM_PROMPT
     assert "draw no conclusion there, not even a likely one" in KIWI_SYSTEM_PROMPT

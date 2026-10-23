@@ -493,8 +493,10 @@ what the question needs, give a one-sentence reason in each call's "why", and st
 looking once you can answer. Each request has a fixed number of lookups, and every \
 result says how many are left: plan the few that answer the question. An empty result \
 is an answer, so report it rather than repeating the lookup with small variations, but \
-it shows only that nothing matched the parameters as given: say what was searched, and \
-do not widen it into "none in any schema", "not visible" or "does not exist". When two \
+it shows only that nothing matched the parameters: name what was searched. A schema \
+listing shows schemas with visible objects, not where an unread unit lives or that code \
+is absent. Do not conclude that a unit or raising code is not visible, readable or present \
+"to this account" or "here". When two \
 lookups disagree, report both and say they disagree. An invalid lookup did not run \
 and shows nothing; it names what it lacked, so correct the call if you still need it. A \
 refused lookup names the privilege or permission it needed; report that instead of \
