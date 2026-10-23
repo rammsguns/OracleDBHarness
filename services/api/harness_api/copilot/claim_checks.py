@@ -3110,6 +3110,21 @@ _VISIBILITY_ANCHOR = re.compile(
 )
 
 
+# Access assertions need no particular object noun or grammatical voice.
+_ACCOUNT_READER = r"(?:(?:this|the|my)\s+(?:account|login|user)|we|I)"
+_ACCESS_LIMIT = re.compile(
+    rf"\b{_ACCOUNT_READER}\s+(?:(?:cannot|can['’]t|(?:(?:is|are|am)\s+)?unable\s+to)\s+"
+    r"(?:see|read|access|reach)\b|(?:has|have)\s+no\s+(?:access\s+to|view\s+of)\b)"
+    rf"|\b(?:outside|beyond)\s+(?:anything|what)\s+{_ACCOUNT_READER}\s+can\s+"
+    r"(?:see|read|access)\b|\bout\s+of\s+reach\b"
+    r"|\bno\s+(?:visible|readable|accessible)\s+(?:code|source|unit|routine|object)s?\b",
+    re.I,
+)
+_VISIBILITY_FACT = re.compile(
+    r"\b(?:grants?|granted|privileges?|roles?|definer|invoker|optimizer)\b", re.I
+)
+
+
 def _negated_visibility(part: str) -> re.Match[str] | None:
     """Return a visibility predicate connected to negation and an access scope."""
     for visible in _VISIBILITY_PREDICATE.finditer(part):
@@ -3139,7 +3154,7 @@ def _negated_visibility(part: str) -> re.Match[str] | None:
             continue
         # Catalog observations, retained rows and Oracle privilege/optimizer facts
         # do not assert the access state of unread code.
-        if re.search(r"\b(?:privileges?|roles?|optimizer)\b", span, re.I):
+        if _VISIBILITY_FACT.search(part):
             continue
         if re.search(
             r"\bin\s+(?:what\s+(?:was\s+retained|these\s+lookups\s+return)|the\s+objects\s+listed)\b",
@@ -3289,7 +3304,25 @@ def _absence_inferences(answer: str, facts: Sequence[LookupFacts]) -> list[Claim
                     part,
                 )
                 structural = _negated_visibility(predicates)
-                unseen = _UNSEEN.search(predicates) or structural
+                access = _ACCESS_LIMIT.search(predicates)
+                # Missing information and conditional alternatives do not assert
+                # the account-wide access state of a database object.
+                if access and (
+                    re.search(
+                        r"\b(?:see|read)\s+(?:who|why|when|how|(?:the\s+)?intent)\b",
+                        access[0] + predicates[access.end() :],
+                        re.I,
+                    )
+                    or re.search(
+                        r"\b(?:intent|provenance|history)\s*$",
+                        predicates[: access.start()],
+                        re.I,
+                    )
+                    or re.match(r"\s*(?:[-*]\s*)?if\b", line, re.I)
+                    or re.search(r"\bor\s+(?:something|someone)\s+else\b", predicates, re.I)
+                ):
+                    access = None
+                unseen = _UNSEEN.search(predicates) or structural or access
                 if unseen is not None:
                     # An owner in an earlier observation cannot scope a later
                     # account-wide conclusion introduced by "so" or "and".
@@ -3298,12 +3331,14 @@ def _absence_inferences(answer: str, facts: Sequence[LookupFacts]) -> list[Claim
                     end = re.search(r"\b(?:and|so|but)\b", predicates[unseen.end() :])
                     stop = unseen.end() + end.start() if end else len(predicates)
                     local = predicates[start:stop]
+                    if _VISIBILITY_FACT.search(predicates):
+                        continue
                     if (
-                        _VISIBILITY_PREDICATE.search(local)
+                        (_VISIBILITY_PREDICATE.search(local) or access)
                         and _owner_scoped_visibility(local, empty, predicates[:start])
                     ) or _visibility_listing(local, facts):
                         continue
-                subject = subject or structural
+                subject = subject or structural or access
                 if unseen is None or subject is None or unseen.start() - subject.end() > 180:
                     continue
                 if re.match(r"\s+to\s+(?:the\s+)?optimizer\b", predicates[unseen.end() :], re.I):

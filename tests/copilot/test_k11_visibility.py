@@ -1163,3 +1163,93 @@ def test_catalog_scope_bound_to_lookup_arguments(
         for name in ("ETL_ORDERS_STAGE", "ETL_ORDERS_REJECTS")
     ]
     assert bool(_absence_inferences(sentence.lower() if lowercase else sentence, facts)) is expected
+
+
+# Coordinator's held-out lookup scope: neither lookup locates the raising unit.
+ACCOUNT_SEARCHED = [
+    LookupFacts("schema.list_schemas", True, ["OWNER"], [["HARNESS_APP"]], {}, sequence=1),
+    LookupFacts(
+        "schema.object_source_search",
+        True,
+        [],
+        [],
+        {"owner": "HARNESS_APP", "source_filter": "%20001%"},
+        sequence=2,
+    ),
+    LookupFacts(
+        "schema.list_objects",
+        True,
+        [],
+        [],
+        {"owner": "HARNESS_APP", "name_filter": "ORDER_FEED%"},
+        sequence=3,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The code behind ORDER_FEED.EXPORT_DAY sits outside anything this account can read.",
+        "This login has no view of the unit that raised ORA-20001.",
+        "Whatever raises -20001 lives somewhere this account has no access to.",
+        "No visible source raises the error, so it comes from code we cannot read.",
+        "ORDER_FEED is a schema this account cannot see.",
+        "- Raising code: out of reach for this account.",
+        "There is no readable code anywhere that raises 20001.",
+        "The raising routine is hidden from this account.",
+        "The error's source is beyond this account's visibility.",
+        "The package that raises the error is not available to this user.",
+        "I am unable to reach the wrapper.",
+        "We can't access the module.",
+        "This user is unable to read the declaration.",
+        "We have no access to the implementation.",
+        "The caller is beyond what we can access.",
+        "No accessible routine emits that exception.",
+        "No readable object contains the raise.",
+    ],
+)
+def test_account_access_overclaims(sentence: str) -> None:
+    assert _absence_inferences(sentence, ACCOUNT_SEARCHED)
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "A grant received through a role is not visible to definer's-rights code at compile time.",
+        "Whether ORDER_FEED is visible to this account is not established by these lookups.",
+        "Nothing in these lookups shows where the raising code lives.",
+        "Rows beyond the row limit are not visible in this result.",
+        "The predicate is not visible in the plan output.",
+        "The raising code was not found in the HARNESS_APP source searched.",
+        "I did not read the source of ORDER_FEED.EXPORT_DAY.",
+        "No HARNESS_APP object is named ORDER_FEED (lookup 3).",
+        "There is no readable code in HARNESS_APP that raises 20001.",
+    ],
+)
+def test_account_access_legitimate(sentence: str) -> None:
+    assert _absence_inferences(sentence, ACCOUNT_SEARCHED) == []
+
+
+@pytest.mark.parametrize(
+    "vocabulary", ["grant", "grants", "granted", "privilege", "role", "definer", "invoker"]
+)
+@pytest.mark.parametrize(
+    "claim",
+    ["The code is not visible to this account", "No unit readable here contains that message"],
+)
+def test_privilege_facts_exempt_both_paths(vocabulary: str, claim: str) -> None:
+    assert _absence_inferences(f"{claim} under the {vocabulary} rule.", SEARCHED) == []
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "I cannot see who edited the body or when, so its provenance is unknown.",
+        "Which one is right depends on the intent I cannot see, so I am not naming an object for you.",
+        "What ORDER_FEED is (a schema this account cannot see, or something else) is unknown.",
+        "If EMPLOYEE is a different object — one this account cannot see — the remedy differs.",
+    ],
+)
+def test_access_information_and_alternatives(sentence: str) -> None:
+    assert _absence_inferences(sentence, ACCOUNT_SEARCHED) == []
