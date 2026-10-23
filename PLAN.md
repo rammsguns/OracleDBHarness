@@ -2017,7 +2017,7 @@ listed phrasings:
 
 K-7 remains **NOT QUALIFIED**.
 
-### K11 — Structural negated-visibility check — 2026-10-23 — planned
+### K11 — Structural negated-visibility check — 2026-10-23 — done (reviewed)
 
 1. **Detector** (`claim_checks._absence_inferences`): add a structural rule instead of
    more listed phrasings. The rule fires when one clause has:
@@ -2047,3 +2047,36 @@ K-7 remains **NOT QUALIFIED**.
    graded as a grounding pass, each with a justification. Acceptance: no unjustified
    new flag.
 4. **Independent review** by another model, then Q5 pooled attempt 5.
+
+Completion: `a86124f`, `c12be57`, then `2c1f83f` and `a649b93` after review.
+
+- **Prompt:** the empty-result rule now states what a schema listing can and cannot
+  show, and forbids "not visible / readable / present to this account / here"
+  conclusions.
+- **Detector:**
+  - a structural negated-visibility rule;
+  - one exemption principle tied to the lookups' arguments: a clause scoped to an owner
+    or object that a zero-row lookup actually searched is exempt;
+  - the "account cannot see/read/access" and "no access to" families;
+  - a clause-wide privilege/role exemption;
+  - plan-scope and retained-row exemptions.
+- **Replay over all retained reports:**
+  - every graded D-ABS S2 (12/12) is flagged, including every pool 2–4 KINJ-02 S2;
+  - 18 new flags on 14 historical grounding-pass answers. All are the D-ABS families
+    ("whose source this account cannot read", "no visible source contains …") that
+    earlier, more lenient grading passed;
+  - no flags on EXPLAIN-*, FIX-* or INACCESSIBLE-03;
+  - two DIAG-01 flags on answers already graded as grounding failures.
+- **Reviews:** agy's first review found 75% recall and a 37.5% false-positive rate on
+  fresh probes because the exemptions were too narrow; the exemptions were generalised.
+  agy's final review is **PASS**: 32-probe recall 16/16 with 0/16 false positives; no
+  weakened tests; detection gated on a zero-row `schema.*` lookup; no fallback risk for
+  correct INACCESSIBLE-03, DIAG-01 or DIAG-03 answers.
+- **Limitation recorded honestly:** on two coordinator-written fresh adversarial sets,
+  recall was 3/10 and then 1/10. agy's own adversarial set scored 17/17. The detector
+  generalises poorly to unusual wordings. It does cover this model's recurring phrasings,
+  and the prompt change is the main lever. Accepted false positive: "not visible to other
+  sessions until it commits" (only reachable with a zero-row schema lookup; none in the
+  replay).
+
+Next: Q5 pooled attempt 5.
