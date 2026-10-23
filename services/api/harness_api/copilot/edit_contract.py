@@ -406,7 +406,8 @@ def collection_declaration_problems(proposal: str) -> list[str]:
 
     masked = strip_literals_and_comments(proposal)
     pattern = re.compile(
-        r"\b([a-z][\w$#]*)\s+(TABLE\s+OF|(?:VARRAY|VARYING\s+ARRAY)\s*"
+        r'(?<![\w$#"])("(?:[^"\n]|"")+"|[a-z][\w$#]*)\s+'
+        r"(TABLE\s+OF|(?:VARRAY|VARYING\s+ARRAY)\s*"
         r"\([^;]*?\)\s+OF)\b[^;]*;",
         re.IGNORECASE,
     )
@@ -416,10 +417,19 @@ def collection_declaration_problems(proposal: str) -> list[str]:
         if match[1].upper() in {"IS", "AS"}:
             continue
         shown = proposal[match.start() : match.end()]
-        definition = proposal[match.start(2) : match.end()]
+        definition = proposal[match.start(2) : match.end() - 1].rstrip()
+        initializer = re.search(r":=|\bDEFAULT\b", masked[match.start(2) : match.end() - 1], re.I)
+        variable_suffix = ""
+        if initializer:
+            variable_suffix = " " + definition[initializer.start() :].strip()
+            definition = definition[: initializer.start()].rstrip()
+        constraint = re.search(r"\s+NOT\s+NULL$", definition, re.I)
+        if constraint:
+            variable_suffix = " " + definition[constraint.start() :].strip() + variable_suffix
+            definition = definition[: constraint.start()]
         problems.append(
             f"`{shown}` declares a collection variable inline (PLS-00103); "
-            f"declare its type first: TYPE t IS {definition} {match[1]} t; "
+            f"declare its type first: TYPE t IS {definition}; {match[1]} t{variable_suffix}; "
             "(TYPE t IS TABLE OF ...; v t;)"
         )
     return problems
