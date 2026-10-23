@@ -431,7 +431,9 @@ export interface KiwiClaimCheck {
  * lookups included. With `restored`, a revision did not finish and the draft is streamed again.
  * With `rendered`, no model call was made. `next_checks`: the harness replaced the
  * answer's next-steps section with its rendering of the checked `kiwi-next-checks`
- * steps. `bounded_fallback`: a bound ended the request with no diagnosis from the
+ * steps. Actor labels are harness-owned; access descriptions and open questions are
+ * attributed to the model and labelled as not checked.
+ * `bounded_fallback`: a bound ended the request with no diagnosis from the
  * model, and the text that follows is the harness's, written from the lookups; its
  * `draft` is empty, so what was streamed stays. With `withheld` (bounded_fallback), the
  * model's diagnosis had claim findings and no revision completed: `draft` is that

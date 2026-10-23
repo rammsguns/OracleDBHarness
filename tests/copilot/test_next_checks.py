@@ -163,7 +163,8 @@ def test_a_reading_check_is_accepted_and_rendered_as_one_reading() -> None:
     assert checked[0].accepted
     text = render(checked)
     assert (
-        "1. As an account with access (can see ORDER_FEED's objects): "
+        "1. As an account with access (the model's description, not checked: "
+        "can see ORDER_FEED's objects): "
         "`schema.object_source(owner='ORDER_FEED', object_name='EXPORT_DAY', "
         "object_type='PROCEDURE')` returns whether an account with access can see the "
         "standalone PROCEDURE or FUNCTION ORDER_FEED.EXPORT_DAY, one reading of "
@@ -690,3 +691,57 @@ def test_pool5_trial2_requester_step_drops_exclusive_knowledge_claim() -> None:
         "only the person running the job knows its output target and configuration",
     )
     assert _render_step(2, Checked(step)) == delivered.replace(" (" + step.access + ")", "")
+
+
+@pytest.mark.parametrize("actor", ["account_with_access", "dba"])
+def test_access_description_is_attributed_to_the_model(actor: str) -> None:
+    [item] = check(
+        {
+            "actor": actor,
+            "access": "can see ORDER_FEED's objects",
+            "operation": "schema.object_status",
+            "selectors": {"owner": "ORDER_FEED", "object_name": "EXPORT_DAY"},
+            "establishes": "object_status",
+        }
+    )
+    assert item.accepted and item.notes == ()
+    actor_text = "an account with access" if actor == "account_with_access" else "a DBA"
+    assert render([item]).endswith(
+        f"1. As {actor_text} (the model's description, not checked: "
+        "can see ORDER_FEED's objects): "
+        "`schema.object_status(owner='ORDER_FEED', object_name='EXPORT_DAY')` "
+        f"returns the status (VALID or INVALID) of ORDER_FEED.EXPORT_DAY as {actor_text} sees it."
+    )
+
+
+def test_pool7_trial1_access_coverage_claim_is_attributed_to_the_model() -> None:
+    # Verbatim revised KINJ-02 step from strata-k7-q5-20261023T102150Z.json.
+    # Lookup 7 searched ORDER_FEED source, contradicting the access description.
+    step = {
+        "actor": "account_with_access",
+        "access": "can read source in the ORDER_FEED schema, which the searches here did not cover",
+        "operation": "schema.object_source_search",
+        "selectors": {"owner": "ORDER_FEED", "source_filter": "%destination unavailable%"},
+        "establishes": "source_matches",
+        "about": "what source lines in the ORDER_FEED schema contain the message text",
+    }
+    searched = LookupFacts(
+        "schema.object_source_search",
+        True,
+        ["OWNER", "NAME", "TYPE", "LINE", "TEXT"],
+        [],
+        step["selectors"],
+        7,
+    )
+    [item] = validate(parse(block(step)), [searched])
+    assert item.accepted and item.notes == ()
+    assert render([item]).endswith(
+        "1. As an account with access (the model's description, not checked: "
+        "can read source in the ORDER_FEED schema, which the searches here did not cover): "
+        "`schema.object_source_search(owner='ORDER_FEED', "
+        "source_filter='%destination unavailable%')` returns the stored source lines of "
+        "ORDER_FEED whose text matches %destination unavailable%, up to the row limit; "
+        "matching text, not a count of definitions. "
+        "Open question (the model's interpretation, not checked): "
+        "what source lines in the ORDER_FEED schema contain the message text."
+    )
