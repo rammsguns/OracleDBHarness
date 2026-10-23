@@ -435,6 +435,54 @@ def collection_declaration_problems(proposal: str) -> list[str]:
     return problems
 
 
+def ambiguity_handler_problems(proposal: str) -> list[str]:
+    """Reject simple sentinel handlers that conceal a non-unique single-row fetch.
+
+    The shared lexer masks comments and string literals before recognizing statements.
+    Only straight-line RETURN/assignment/NULL handlers are classified; arbitrary control
+    flow is deliberately left to review. NO_DATA_FOUND returning a value is legitimate.
+    """
+    masked = strip_literals_and_comments(proposal)
+    masked = re.sub(r'"(?:[^"\n]|"")*"', lambda m: "x" * len(m[0]), masked)
+    problems: list[str] = []
+    for handler in re.finditer(
+        r"\bWHEN\s+([^;]+?)\s+THEN\b(.*?)(?=\bWHEN\b|\bEND\b|$)",
+        masked,
+        re.I | re.S,
+    ):
+        names, body = handler[1], handler[2]
+        routines = re.findall(r"\b(FUNCTION|PROCEDURE)\s+[\w$#.]+", masked[: handler.start()], re.I)
+        function = bool(routines and routines[-1].upper() == "FUNCTION")
+        if not re.search(r"\bTOO_MANY_ROWS\b", names, re.I) and not (
+            function and re.search(r"\bOTHERS\b", names, re.I)
+        ):
+            continue
+        statements = [part.strip() for part in body.split(";") if part.strip()]
+        if not statements or not all(
+            re.fullmatch(r"RETURN\b.*|:?[\w$#.]+(?:\([^;]*\))?\s*:=.*|NULL", part, re.I | re.S)
+            for part in statements
+        ):
+            continue
+        shown = proposal[handler.start() : handler.end()].strip()
+        problems.append(
+            f"`{shown}` hides ambiguous rows by returning or assigning a sentinel. "
+            "Raise a named application error in -20999..-20000 identifying the ambiguous "
+            "key instead; NULL can also be a legitimate result."
+        )
+    return problems
+
+
+def proposal_semantic_problems(proposal: str) -> list[str]:
+    """Checks sharing the bounded anchor-repair path."""
+    from harness_api.copilot.claim_checks import application_error_claims
+
+    return (
+        collection_declaration_problems(proposal)
+        + ambiguity_handler_problems(proposal)
+        + [f.problem + " " + f.claim for f in application_error_claims(proposal, code=True)]
+    )
+
+
 def anchor_problems(proposal: str, facts: SchemaFacts) -> list[str]:
     """``%TYPE``/``%ROWTYPE`` anchors in the proposal that the supplied metadata shows
     cannot resolve.
@@ -486,7 +534,7 @@ def anchor_problems(proposal: str, facts: SchemaFacts) -> list[str]:
 
 
 def anchor_repair_message(user_message: str, answer: str, problems: list[str]) -> str:
-    """The harness's one request for a proposal whose type anchors resolve."""
+    """The harness's one request to correct the proposal's listed semantic problems."""
 
     listed = "\n".join(f"- {problem}" for problem in problems)
     return "\n".join(
@@ -497,13 +545,12 @@ def anchor_repair_message(user_message: str, answer: str, problems: list[str]) -
             answer,
             "----- END UNTRUSTED PREVIOUS_ANSWER -----",
             "",
-            "[harness] The previous answer above is yours. Against the supplied schema "
-            "metadata, its proposal has type anchors that cannot resolve, so it would not "
-            "compile:\n"
+            "[harness] The previous answer above is yours. Its proposal has the following "
+            "problems under the supplied metadata and PL/SQL semantics:\n"
             f"{listed}\n"
             "A column anchor is <table>.<column>%TYPE or <owner>.<table>.<column>%TYPE. "
             "Reply with one fenced ```plsql (or ```sql) block holding the complete "
-            "replacement for the editor with those anchors corrected and every other line "
+            "replacement for the editor with the listed problems corrected and every other line "
             "as your proposal has it. Nothing else: do not repeat the explanation and do "
             "not change the design.",
         ]

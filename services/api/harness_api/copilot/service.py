@@ -44,6 +44,7 @@ from harness_api.copilot.claim_checks import (
     ClaimFinding,
     ClaimReview,
     LookupFacts,
+    application_error_claims,
     lock_wait_exception_claims,
     plan_expression_claims,
     review_claims,
@@ -69,7 +70,6 @@ from harness_api.copilot.edit_contract import (
     anchor_repair_message,
     apply_edits,
     carried_directives,
-    collection_declaration_problems,
     directive_note,
     edit_description,
     minimal_repair_message,
@@ -77,6 +77,7 @@ from harness_api.copilot.edit_contract import (
     open_fence,
     promises_edit,
     proposal_block,
+    proposal_semantic_problems,
     read_edit,
     render,
     repair_message,
@@ -800,9 +801,7 @@ class CopilotService:
                 event["minimalRepair"] = minimal
         if first.delivered == "proposal":
             proposal = "\n".join(b.text for b in first.blocks)
-            anchors = anchor_problems(proposal, metadata) + collection_declaration_problems(
-                proposal
-            )
+            anchors = anchor_problems(proposal, metadata) + proposal_semantic_problems(proposal)
             if anchors:
                 event["anchorRepair"] = anchors
         if first.delivered != "missing" and not minimal and not anchors:
@@ -843,7 +842,7 @@ class CopilotService:
             reading.delivered != "proposal"
             or (minimal and minimal_repair_problems(ask.editor.text, reading.blocks[0].text))
             or anchor_problems("\n".join(b.text for b in reading.blocks), metadata)
-            or collection_declaration_problems("\n".join(b.text for b in reading.blocks))
+            or proposal_semantic_problems("\n".join(b.text for b in reading.blocks))
         ):
             # The first proposal stands: the reply did not give the change asked for.
             if reading.delivered != "proposal":
@@ -2288,7 +2287,7 @@ _MAX_REPAIR_REPLY_CHARS = 16 * 1024
 _REPAIR_ACTIONS = frozenset({"diagnose", "propose"})
 # The harness's line before a minimal repair that replaces the answer's proposal.
 _ANCHOR_LEAD = (
-    "**Proposal (type anchors corrected, written by the model at the harness's request):** "
+    "**Proposal (corrected, written by the model at the harness's request):** "
     "the block above anchored a declaration to a column the supplied metadata shows it "
     "cannot resolve to; this one replaces it."
 )
@@ -2612,11 +2611,17 @@ def _plain_review(action: str, source: tuple[str, ...], answer: str) -> ClaimRev
     # Lock-wait semantics apply to explanations and plain answers, never Kiwi reviews.
     if action == "explain":
         return ClaimReview(
-            missing_remedies(action, source, answer) + lock_wait_exception_claims(answer), []
+            missing_remedies(action, source, answer)
+            + lock_wait_exception_claims(answer)
+            + application_error_claims(answer),
+            [],
         )
     if action == "explain_plan":
         return ClaimReview(
-            plan_expression_claims(source, answer) + lock_wait_exception_claims(answer), []
+            plan_expression_claims(source, answer)
+            + lock_wait_exception_claims(answer)
+            + application_error_claims(answer),
+            [],
         )
     return review_plain_claims(answer)
 

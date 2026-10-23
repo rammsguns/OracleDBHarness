@@ -187,7 +187,7 @@ def test_malformed_anchors_get_one_bounded_repair(client: TestClient, developer)
     assert "COMMIT" not in proposed.upper()
     assert "LIMIT 10000" in proposed and "EXIT WHEN v_batch.COUNT = 0" in proposed
     assert "WHERE ORDER_ID = v_batch(i).ORDER_ID" in proposed
-    assert "type anchors corrected" in answer(events)
+    assert "**Proposal (corrected," in answer(events)
 
 
 def test_a_repair_that_keeps_a_malformed_anchor_leaves_the_first_proposal(

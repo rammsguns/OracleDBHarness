@@ -389,6 +389,8 @@ export type KiwiClaimFindingKind =
   | "future_outcome"
   | "absence_inference"
   | "lock_wait_exception"
+  | "application_error_number"
+  | "compiler_error_position"
   | "read_coverage"
   | "read_scope"
   | "band_reachability"

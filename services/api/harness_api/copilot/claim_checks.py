@@ -124,6 +124,8 @@ FINDING_KINDS = (
     "future_outcome",
     "absence_inference",
     "lock_wait_exception",
+    "application_error_number",
+    "compiler_error_position",
     "read_coverage",
     "read_scope",
     "band_reachability",
@@ -179,6 +181,8 @@ def review_claims(answer: str, lookups: Iterable[LookupFacts]) -> ClaimReview:
     findings += _job_interventions(answer, facts)
     findings += _future_outcomes(answer, facts)
     findings += _absence_inferences(answer, facts)
+    findings += application_error_claims(answer)
+    findings += compiler_error_position_claims(answer, facts)
     return ClaimReview(findings, unchecked)
 
 
@@ -197,6 +201,7 @@ def review_plain_claims(answer: str) -> ClaimReview:
     findings += _remedy_alternatives(answer, unchecked)
     findings += _rights_models(answer)
     findings += lock_wait_exception_claims(answer)
+    findings += application_error_claims(answer)
     return ClaimReview(findings, unchecked)
 
 
@@ -3572,4 +3577,132 @@ def lock_wait_exception_claims(answer: str) -> list[ClaimFinding]:
                 )
             )
         previous = line
+    return findings
+
+
+# -- application-error numbers and compiler-error positions (K13) ----------------------
+
+
+def application_error_claims(answer: str, *, code: bool = False) -> list[ClaimFinding]:
+    """Check literal arguments, leaving constants, binds and expressions unchecked.
+
+    Executable source is lexed before inspection; prose includes inline code, while
+    explicit warnings about invalid calls are not recommendations to use those calls.
+    """
+    from harness_worker.statement import strip_literals_and_comments
+
+    segments = (
+        [(answer, True)]
+        if code
+        else [
+            (sentence, False)
+            for line in _prose_lines(answer)
+            for sentence in re.split(r"(?<=[.!?])\s+", line)
+        ]
+    )
+    if not code:
+        segments += [(block.text, True) for block in fenced_blocks(answer)]
+    findings: list[ClaimFinding] = []
+    for text, source in segments:
+        inspected = strip_literals_and_comments(text) if source else text
+        if source:
+            inspected = re.sub(r'"(?:[^"\n]|"")*"', lambda m: " " * len(m[0]), inspected)
+        for match in re.finditer(
+            r"\bRAISE_APPLICATION_ERROR\s*\(\s*([+-]?\s*\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*(?=,|\))",
+            inspected,
+            re.I,
+        ):
+            value = Decimal(re.sub(r"\s", "", match[1]))
+            if -20999 <= value <= -20000:
+                continue
+            if not source and re.search(
+                r"\b(?:invalid|illegal|outside|out.of.range|incorrect|wrong|"
+                r"do\s+not|don't|never|must\s+not|cannot|can't|ORA-21000)\b",
+                text,
+                re.I,
+            ):
+                continue
+            findings.append(
+                ClaimFinding(
+                    "application_error_number",
+                    text.strip(),
+                    f"RAISE_APPLICATION_ERROR's literal {match[1].strip()} is outside "
+                    "-20999..-20000; Oracle raises ORA-21000. Use a number in that range.",
+                )
+            )
+    return findings
+
+
+def compiler_error_position_claims(answer: str, facts: Sequence[LookupFacts]) -> list[ClaimFinding]:
+    """Compare a collective position claim with the returned ALL_ERRORS positions.
+
+    A shared line alone is not a shared position. Rows from separate objects or types
+    are never combined to manufacture a contradiction.
+    """
+    groups: dict[tuple[str, ...], set[tuple[str, str]]] = {}
+    for fact in facts:
+        if not fact.succeeded or fact.operation_id != "schema.object_errors":
+            continue
+        columns = [c.upper() for c in fact.columns]
+        if "LINE" not in columns or "POSITION" not in columns:
+            continue
+        for row in fact.rows:
+            if len(row) < len(columns):
+                continue
+            values = dict(zip(columns, row, strict=True))
+            key = tuple(
+                str(values.get(c, fact.parameters.get(p, ""))).upper()
+                for c, p in (("OWNER", "owner"), ("NAME", "object_name"), ("TYPE", "object_type"))
+            )
+            if values["LINE"] is not None and values["POSITION"] is not None:
+                groups.setdefault(key, set()).add((str(values["LINE"]), str(values["POSITION"])))
+    findings: list[ClaimFinding] = []
+    for line in _prose_lines(answer):
+        for sentence in re.split(r"(?<=[.!?])\s+", line):
+            if not re.search(
+                r"\b(?:(?:both|all|each|every)\s+(?:of\s+)?(?:the\s+)?"
+                r"(?:(?:reported|returned|recorded|listed|retained|two|\d+)\s+)?"
+                r"(?:compiler\s+|compilation\s+)?errors?|errors?\s+(?:both|all|each))\b",
+                sentence,
+                re.I,
+            ):
+                continue
+            if re.search(
+                r"\b(?:never|different|distinct|whether|unknown)\b|\?|\bnot\s+(?:all|both|each|every|at|on)\b",
+                sentence,
+                re.I,
+            ):
+                continue
+            positions = re.findall(
+                r"\bline\s+(\d+)\s*[,;:]?\s*(?:position|column|col\.?)\s+(\d+)"
+                r"|\b(\d+)\s*:\s*(\d+)\b",
+                sentence,
+                re.I,
+            )
+            claimed = {(a or c, b or d) for a, b, c, d in positions}
+            if len(claimed) != 1:
+                continue
+            location = re.search(r"\bline\s+\d+|\b\d+\s*:\s*\d+", sentence, re.I)
+            if location and re.search(r"\bnot\b", sentence[: location.start()], re.I):
+                continue
+            candidates = (
+                groups
+                if len(groups) == 1
+                else {k: v for k, v in groups.items() if k[1] and k[1] in sentence.upper()}
+            )
+            if len(candidates) != 1:
+                continue
+            key, retained = next(iter(candidates.items()))
+            if len(retained) < 2:
+                continue
+            positions_shown = ", ".join(f"{a}:{b}" for a, b in sorted(retained))
+            findings.append(
+                ClaimFinding(
+                    "compiler_error_position",
+                    sentence.strip(),
+                    f"The retained compiler errors for {'.'.join(k for k in key if k)} "
+                    f"have distinct line:position values: {positions_shown}. "
+                    "Do not place all errors at one position.",
+                )
+            )
     return findings
