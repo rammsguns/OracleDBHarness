@@ -35,11 +35,15 @@ from harness_api.copilot.service import _plain_review
 )
 def test_waiting_is_not_a_handled_exception(answer: str) -> None:
     assert lock_wait_exception_claims(answer)
-    assert any(f.kind == "lock_wait_exception" for f in review_claims(answer, []).findings)
+    assert not any(f.kind == "lock_wait_exception" for f in review_claims(answer, []).findings)
     assert any(f.kind == "lock_wait_exception" for f in review_plain_claims(answer).findings)
     assert any(
         f.kind == "lock_wait_exception"
         for f in _plain_review("explain", ("BEGIN NULL; END;",), answer).findings
+    )
+    assert any(
+        f.kind == "lock_wait_exception"
+        for f in _plain_review("explain_plan", ("",), answer).findings
     )
 
 

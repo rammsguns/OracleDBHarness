@@ -156,7 +156,7 @@ class ClaimReview:
 
 
 def review_claims(answer: str, lookups: Iterable[LookupFacts]) -> ClaimReview:
-    """Every finding in ``answer``, in the order the kinds are listed above."""
+    """Kiwi diagnosis findings; lock-wait semantics are confined to plain answers."""
 
     facts = list(lookups)
     unchecked: list[ClaimFinding] = []
@@ -179,7 +179,6 @@ def review_claims(answer: str, lookups: Iterable[LookupFacts]) -> ClaimReview:
     findings += _job_interventions(answer, facts)
     findings += _future_outcomes(answer, facts)
     findings += _absence_inferences(answer, facts)
-    findings += lock_wait_exception_claims(answer)
     return ClaimReview(findings, unchecked)
 
 
@@ -3448,26 +3447,32 @@ def plan_expression_claims(plan: Sequence[str], answer: str) -> list[ClaimFindin
 
 # Ordinary waiting is not an exception. Match concepts and their grammatical
 # relationship, rather than particular case wording or a particular handler.
+# Bare blocking/row locks remain eligible in exception claims, but references
+# to blocking sessions or locks held/acquired by sessions are diagnostic prose.
 _LOCK_WAIT = re.compile(
     r"\b(?:(?:row[- ]?)?lock[- ](?:waits?|waiting|conflicts?)|"
     r"waiting\s+(?:on|for)\s+(?:a\s+|the\s+)?(?:row[- ]?)?lock|"
-    r"blocked\s+(?:row[- ]?)?lock|row[- ]locks?|blocking(?!\s+(?:delet|insert|updat)\w*))\b",
+    r"blocked\s+(?:by|on)\s+(?:a\s+|the\s+)?(?:row[- ]?)?lock|"
+    r"blocked\s+(?:row[- ]?)?lock|row[- ]locks?|"
+    r"blocking(?!\s+(?:sessions?|locks?|chains?|transactions?|SIDs?|holders?|"
+    r"delet\w*|insert\w*|updat\w*)\b))\b",
     re.I,
 )
 _EXCEPTION_CONTEXT = re.compile(
     r"\b(?:exceptions?|handlers?|errors?|WHEN\s+OTHERS|swallow\w*|catch\w*|caught|"
-    r"hid(?:e[sn]?|den|ing)|suppress\w*)\b",
+    r"hid(?:e[sn]?|den|ing)|suppress\w*|mask\w*)\b",
     re.I,
 )
 _EXCEPTION_ACTION = re.compile(
     r"\b(?:rais\w*|throw\w*|catch\w*|caught|swallow\w*|hid(?:e[sn]?|den|ing)|"
-    r"suppress\w*|discard\w*|includ\w*|examples?|such\s+as|"
+    r"mask\w*|suppress\w*|discard\w*|includ\w*|examples?|such\s+as|"
     r"(?:runtime|run-time|DML)\s+(?:errors?|failures?)|"
     r"(?:is|are)\s+(?:an?\s+)?(?:error|exception|failure)s?)\b",
     re.I,
 )
 _WAIT_DENIAL = re.compile(
-    r"\b(?:no\s+(?:exception|error)|(?:does|do|would|will|can)\s+not\s+"
+    r"\b(?:(?P<local>without\s+(?:raising|throwing|causing|signalling|signaling|generating)|"
+    r"free\s+of\s+errors?)|no\s+(?:exception|error)|(?:does|do|would|will|can)\s+not\s+"
     r"(?:rais\w*|throw\w*|catch\w*|hide|swallow\w*)|"
     r"(?:is|are)\s+not\s+(?:an?\s+)?(?:errors?|exceptions?|failures?)|"
     r"(?:never|not)\s+(?:raised|caught|hidden|swallowed)|not\s+an?\s+(?:error|exception))\b",
@@ -3501,6 +3506,22 @@ def lock_wait_exception_claims(answer: str) -> list[ClaimFinding]:
                 m
                 for m in waits
                 if not re.search(r"\bno\s+$", clause[: m.start()], re.I)
+                and not (
+                    re.fullmatch(r"row[- ]locks?", m.group(), re.I)
+                    and (
+                        re.search(
+                            r"\b(?:holds?|held|holding|acquir\w*|tak\w*|taken|uses?|using)"
+                            r"(?:\s+\w+){0,2}\s+$",
+                            clause[: m.start()],
+                            re.I,
+                        )
+                        or re.match(
+                            r"\s+(?:(?:are|were|being)\s+)?(?:held|acquired|taken)\b",
+                            clause[m.end() :],
+                            re.I,
+                        )
+                    )
+                )
                 and not re.match(
                     r"\s+(?:ending\s+in\s+errors|that\s+(?:exceed|reach)\s+(?:a\s+)?timeout)",
                     clause[m.end() :],
@@ -3511,7 +3532,12 @@ def lock_wait_exception_claims(answer: str) -> list[ClaimFinding]:
                 continue
             if (
                 "?" in context
-                or _WAIT_DENIAL.search(context)
+                # An introduction's "completes without raising" describes the
+                # handler's result, not whether each listed condition raises.
+                or any(
+                    m.lastgroup != "local" or m.start() >= len(introduction)
+                    for m in _WAIT_DENIAL.finditer(context)
+                )
                 or re.search(r"\b(?:whether|unknown|unclear)\b", context, re.I)
                 or not _EXCEPTION_CONTEXT.search(context)
                 or not _EXCEPTION_ACTION.search(context)

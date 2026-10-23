@@ -2609,6 +2609,7 @@ def _plain_review(action: str, source: tuple[str, ...], answer: str) -> ClaimRev
     explanation's missing remedies and transaction state for the supplied source (C35,
     Sync Point 2J), or a plan explanation's reading of the supplied plan (Sync Point 2J)."""
 
+    # Lock-wait semantics apply to explanations and plain answers, never Kiwi reviews.
     if action == "explain":
         return ClaimReview(
             missing_remedies(action, source, answer) + lock_wait_exception_claims(answer), []
