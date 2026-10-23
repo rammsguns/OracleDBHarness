@@ -435,6 +435,47 @@ def collection_declaration_problems(proposal: str) -> list[str]:
     return problems
 
 
+def _handler_in_function(masked: str, offset: int) -> bool:
+    """Track routine bodies and nested blocks up to a handler's source offset.
+
+    A routine declaration stays pending until its BEGIN; local routines may have
+    complete bodies before that BEGIN. Forward declarations have no body to own.
+    END IF/LOOP/CASE do not close a BEGIN block.
+    """
+    frames: list[tuple[str, bool]] = []
+    tokens = list(re.finditer(r"\b[\w$#]+\b|;", masked[:offset], re.I))
+    skip = False
+    for index, token in enumerate(tokens):
+        word = token[0].upper()
+        if skip:
+            skip = False
+            continue
+        if word in {"FUNCTION", "PROCEDURE"}:
+            tail = masked[token.end() :]
+            header = re.match(r"[^;]*?\b(?:IS|AS)\b", tail, re.I | re.S)
+            if header:
+                frames.append((word, False))
+        elif word == "BEGIN":
+            if frames and not frames[-1][1]:
+                frames[-1] = (frames[-1][0], True)
+            else:
+                frames.append(("BLOCK", True))
+        elif word == "CASE":
+            frames.append(("CASE", True))
+        elif word == "END":
+            following = tokens[index + 1][0].upper() if index + 1 < len(tokens) else ""
+            if following in {"IF", "LOOP"}:
+                skip = True
+            else:
+                if frames:
+                    frames.pop()
+                skip = following == "CASE"
+    return next(
+        (kind == "FUNCTION" for kind, _ in reversed(frames) if kind in {"FUNCTION", "PROCEDURE"}),
+        False,
+    )
+
+
 def ambiguity_handler_problems(proposal: str) -> list[str]:
     """Reject simple sentinel handlers that conceal a non-unique single-row fetch.
 
@@ -451,8 +492,7 @@ def ambiguity_handler_problems(proposal: str) -> list[str]:
         re.I | re.S,
     ):
         names, body = handler[1], handler[2]
-        routines = re.findall(r"\b(FUNCTION|PROCEDURE)\s+[\w$#.]+", masked[: handler.start()], re.I)
-        function = bool(routines and routines[-1].upper() == "FUNCTION")
+        function = _handler_in_function(masked, handler.start())
         if not re.search(r"\bTOO_MANY_ROWS\b", names, re.I) and not (
             function and re.search(r"\bOTHERS\b", names, re.I)
         ):
@@ -537,6 +577,11 @@ def anchor_repair_message(user_message: str, answer: str, problems: list[str]) -
     """The harness's one request to correct the proposal's listed semantic problems."""
 
     listed = "\n".join(f"- {problem}" for problem in problems)
+    anchor_advice = (
+        "A column anchor is <table>.<column>%TYPE or <owner>.<table>.<column>%TYPE. "
+        if any(re.search(r"%TYPE|%ROWTYPE", problem, re.I) for problem in problems)
+        else "Correct the listed PL/SQL semantic problems. "
+    )
     return "\n".join(
         [
             user_message,
@@ -548,8 +593,8 @@ def anchor_repair_message(user_message: str, answer: str, problems: list[str]) -
             "[harness] The previous answer above is yours. Its proposal has the following "
             "problems under the supplied metadata and PL/SQL semantics:\n"
             f"{listed}\n"
-            "A column anchor is <table>.<column>%TYPE or <owner>.<table>.<column>%TYPE. "
-            "Reply with one fenced ```plsql (or ```sql) block holding the complete "
+            + anchor_advice
+            + "Reply with one fenced ```plsql (or ```sql) block holding the complete "
             "replacement for the editor with the listed problems corrected and every other line "
             "as your proposal has it. Nothing else: do not repeat the explanation and do "
             "not change the design.",

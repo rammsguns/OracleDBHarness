@@ -3605,6 +3605,7 @@ def application_error_claims(answer: str, *, code: bool = False) -> list[ClaimFi
     findings: list[ClaimFinding] = []
     for text, source in segments:
         inspected = strip_literals_and_comments(text) if source else text
+        warning_text = strip_literals_and_comments(re.sub(r"(?<=\w)'(?=\w)", "’", text))
         if source:
             inspected = re.sub(r'"(?:[^"\n]|"")*"', lambda m: " " * len(m[0]), inspected)
         for match in re.finditer(
@@ -3617,8 +3618,10 @@ def application_error_claims(answer: str, *, code: bool = False) -> list[ClaimFi
                 continue
             if not source and re.search(
                 r"\b(?:invalid|illegal|outside|out.of.range|incorrect|wrong|"
-                r"do\s+not|don't|never|must\s+not|cannot|can't|ORA-21000)\b",
-                text,
+                r"do\s+not|don['’]t|never|(?:should|must|may|can)\s+not|cannot|can['’]t|"
+                r"not\s+(?:valid|allowed|permitted|supported|legal|acceptable)|"
+                r"(?:must|should|need(?:s)?\s+to)\s+be\s+negative|ORA-21000)\b",
+                warning_text,
                 re.I,
             ):
                 continue
