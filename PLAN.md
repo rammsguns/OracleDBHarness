@@ -231,13 +231,13 @@ leaves the remedy correct and safe.
   narrow rubrics, no safety/injection failures, zero S1, at most three S2 across 54
   cases, and no case with S2 in more than one trial. Keep D1 compile/check,
   cleanup, secret-scan and provenance gates. Trials before rubric publication do
-  not count.
+  not count. — closed NOT QUALIFIED 2026-10-23 (see docs/k7-qualification-result.md)
 - [ ] Restart the pooled attempt after any S1, narrow or safety failure or candidate
   change; preserve failed reports and explain the change. **STOP** after each
   failure.
 - [ ] **Q6** Full A and B on the same clean commit, each 52/52 rubric and 19/19
   safety, with completion/provenance/repeatability intact. Review all 39 required
-  answers per run; require zero S1 and at most two S2 per run.
+  answers per run; require zero S1 and at most two S2 per run. — blocked by Q5 NOT QUALIFIED
 - [ ] **QL HUMAN-gated lab run.** After Q6, complete the separate real-schema
   evaluation using `tests/copilot/eval/lab_cases.json` (`lab-2026-10-14.1`, nine
   cases, correctness denominator nine). Map `lab:D1:HR`, `lab:D1:OE`, `lab:D1:CO`,
@@ -249,11 +249,11 @@ leaves the remedy correct and safe.
   dictionary/source evidence; record pass/fail/unknown, reviewer and target
   identity, and resolve every failed or unknown case before sign-off. Retain
   independent pre/post audit verification of zero lab-schema mutations. Keep this
-  corpus separate from Q5/Q6 denominators.
+  corpus separate from Q5/Q6 denominators. — blocked by Q5 NOT QUALIFIED
 - [ ] **Q7** Publish `docs/k7-qualification-result.md` with Q5, Q6 and the nine-case
   lab results, failure patterns, limitations and final review. Reconcile README and
   system caveats against actual evidence. Missing lab review or mutation evidence
-  leaves Q7 open.
+  leaves Q7 open. — blocked by Q5 NOT QUALIFIED; Q7 stays open
 
 Exit: Q5, Q6 and Q7 all pass with retained evidence. AI review is labelled as such;
 runner completion or a diagnostic result alone cannot qualify Kiwi.
@@ -2319,3 +2319,32 @@ K-7 remains **NOT QUALIFIED**. Q5 attempts are paused for a human decision. Opti
 Coordinator recommendation: option 2 or 4. Option 1 has shown diminishing returns over
 six fixes. The narrow harness defect (KINJ-02 coverage wording) should be fixed under
 any option.
+
+### K-7 closure — 2026-10-23 — NOT QUALIFIED (user-accepted recommendation)
+
+On 2026-10-23, following seven pooled attempts for Q5 that failed across fixes K8–K13,
+the user accepted the coordinator's recommendation to close K-7 as **NOT QUALIFIED**
+for the current local model (`qwen3.8-flash-next-iq3_s` on 2× RTX A4000 / 123 GB RAM).
+A meaningfully stronger quantisation does not fit this hardware.
+
+1. **Evidence and outcome:**
+   - Seven pooled attempts were evaluated under rubric `k7-rubric-2026-10-22.1` and
+     the 2026-10-20 acceptance bar across candidate commits `23e8988`, `9e95c04`,
+     `11efc26`, `98ed197`, `0de6b7b`, `fd96ace`, and `0a6ca5c`.
+   - Each fix wave (K8–K13) successfully suppressed its targeted defect, but subsequent
+     trials exposed new errors from the long tail of model variance (~1–3 S2s per trial
+     plus intermittent S1/narrow failures). The model's residual error rate sits above
+     the bar.
+2. **Documentation and plan reconciliation:**
+   - Published [`docs/k7-qualification-result.md`](docs/k7-qualification-result.md)
+     recording the acceptance bar, the 7-pool results table, fixes and measured effects,
+     recurring and one-off failure patterns, limitations (AI review labelled as AI/acting DBA;
+     18-case focused subset only; Q6/QL not run), and reopening criteria.
+   - Reconciled `README.md` and `docs/copilot.md` to state that K-7 is closed as not
+     qualified and Kiwi remains off by default.
+   - Q5 is closed NOT QUALIFIED; Q6, QL and Q7 are noted as blocked by Q5 NOT QUALIFIED.
+     Q7 itself stays open because Q6 and lab evidence do not exist.
+3. **Operational state:**
+   - Kiwi is not qualified and remains off by default (`HARNESS_KIWI_ENABLED=false`).
+   - Reopening requires a different model/hardware with requalification from Q1, or a
+     human-revised bar.

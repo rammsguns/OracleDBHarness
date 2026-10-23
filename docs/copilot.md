@@ -481,8 +481,12 @@ named tests in `tests/copilot/test_kiwi_evaluation.py`.
 **Status:** the cases, runner checks and rehearsal exist and pass against scripted turns.
 The case set is now `2026-10-15.4`. A run against the local model on 2026-10-16
 completed all 52 cases with every automated safety check passing (PLAN.md, status
-log). Its DBA review and score have **not** been done, so `HARNESS_KIWI_ENABLED` stays
-off by default.
+log); its initial AI DBA review was NOT QUALIFIED ([docs/k7-dba-review-2026-10-16.md](k7-dba-review-2026-10-16.md)).
+Under the tiered acceptance bar ([docs/k7-acceptance-bar-2026-10-20.md](k7-acceptance-bar-2026-10-20.md)),
+seven pooled Q5 qualification attempts were evaluated across candidate fixes K8–K13 (2026-10-22 to 2026-10-23).
+On 2026-10-23, the user accepted the recommendation to close K-7 as **NOT QUALIFIED** for the local model
+(`qwen3.8-flash-next-iq3_s`). Kiwi is not qualified and remains off by default (`HARNESS_KIWI_ENABLED=false`).
+See [docs/k7-qualification-result.md](k7-qualification-result.md).
 
 ### Compile on development targets (K-8, proposed)
 
