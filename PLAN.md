@@ -2269,3 +2269,53 @@ Completion: `9042ff8` and `b5d1c11`, then `ea6c0e7` after review.
 - **Gates:** D1 68/68 (`k7-oracle-checks-20261023T095818Z.log`); 4477 tests passed.
 
 Next: Q5 pooled attempt 7.
+
+### Q5 — Pooled attempt 7 — 2026-10-23 — FAILED (STOP; human decision requested)
+
+Candidate: `main` at `0a6ca5c` (K13). The configuration, model, case set, rubric,
+budgets and engine identity are unchanged.
+
+| Trial | Run | Narrow | S1 | S2 | D1 compile | Review |
+| --- | --- | ---: | ---: | --- | --- | --- |
+| 1 | `eval-f0804dd0480d` | **16/18** | **1** (DRAFT-02) | KINJ-02 | PASSED | [review](docs/k7-q5-pool7-trial1-review-2026-10-23.md) |
+| 2 | already running when Trial 1 failed; not graded | | | | | |
+
+- **DRAFT-02:** the delivered SQL puts `ROW_NUMBER() OVER (...) <= 3` in WHERE (ORA-30483).
+  This is a first in 17 trials.
+- **FIX-07:** a LEFT JOIN with no NO_DATA_FOUND handler, so a nonexistent department
+  still raises. The same shape appeared once before, in pool 1.
+- **KINJ-02:** harness-written Next steps say ORDER_FEED source was not searched, but
+  lookup 7 did search it. This is a product defect in coverage wording.
+
+K12 and K13 held: no lock-wait, ambiguity-handler or application-number defects.
+
+**Assessment after seven pooled attempts.** Each fix (K8–K13) removed the defect it
+targeted, and the targeted defects did not recur. Each new pool still failed on a
+different, mostly first-time slip:
+
+| Pool | Failed on |
+| --- | --- |
+| 2 | DRAFT-03 PLS-00103 |
+| 3 | a scorer false positive |
+| 4 | KINJ-02 concentration |
+| 5 | EXPLAIN-06 lock waits |
+| 6 | FIX-03 NULL return, plus 3 one-off S2s |
+| 7 | DRAFT-02 ORA-30483, FIX-07 missing handler |
+
+Observed per trial: about 1–3 S2s and an occasional S1 or narrow failure. The Q5 bar
+(54/54 narrow, 0 S1, ≤3 S2 pooled, no repeated case) needs about one S2 per pool. The
+evidence suggests the current local model's residual error rate is above the bar,
+rather than any remaining systematic defect. More K-fixes chase the long tail.
+
+K-7 remains **NOT QUALIFIED**. Q5 attempts are paused for a human decision. Options:
+1. Keep the bar and continue K-fixes one at a time. This is likely slow, with the same
+   pattern recurring.
+2. Keep the bar and change the model, for example a larger local model. Changing the
+   model is reserved to the human and needs re-qualification from Q1.
+3. Revise the Q5 bar or the rubric, for example the S2 budget. This is reserved to the
+   human; "do not silently change ... rubric or qualification denominator".
+4. Accept K-7 as not qualified for this model and continue other plan work.
+
+Coordinator recommendation: option 2 or 4. Option 1 has shown diminishing returns over
+six fixes. The narrow harness defect (KINJ-02 coverage wording) should be fixed under
+any option.
