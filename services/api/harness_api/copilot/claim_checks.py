@@ -3092,6 +3092,7 @@ _ABSENCE_OPEN = re.compile(
     re.IGNORECASE,
 )
 _ABSENCE_SCOPED = re.compile(
+    r"^\s*in\s+the\s+(?:(?:execution|query|explain)\s+)?plan\b|"
     r"^\s*(?:in|to|from|by|within)\s+(?:these|those|the|my|its)\s+(?:\w+\s+){0,2}"
     r"(?:searches|search|lookups?|results?|listings?)\b|^\s+in\s+what\s+these\s+lookups\s+return\b|^[^.;]{0,40}\bas\s+far\s+as\b",
     re.IGNORECASE,
@@ -3104,7 +3105,7 @@ _VISIBILITY_PREDICATE = re.compile(
     r"\b(?:visible|readable|accessible|invisible|unreadable|inaccessible)\b", re.I
 )
 _VISIBILITY_ANCHOR = re.compile(
-    r"(?i:\b(?:to|from|by)\s+(?:this|the)\s+account\b|\bhere\b|\bthis\s+schema\b)|"
+    r"(?i:\b(?:to|from|by|for)\s+(?:this|the|my)\s+(?:account|login|user|session|connection)\b|\b(?:to|by|for)\s+me\b|\bhere\b|\bthis\s+schema\b)|"
     r"(?i:\b(?:from|in))\s+`?[A-Z][A-Z0-9_$#]*`?\b"
 )
 
@@ -3123,10 +3124,17 @@ def _negated_visibility(part: str) -> re.Match[str] | None:
             end = visible.end() + boundary.start()
         span = part[start:end]
         before = part[start : visible.start()]
-        if not _VISIBILITY_NEGATION.search(span) or not _VISIBILITY_ANCHOR.search(span):
+        negative_adjective = visible[0].lower() in {"invisible", "unreadable", "inaccessible"}
+        if (
+            not negative_adjective and not _VISIBILITY_NEGATION.search(span)
+        ) or not _VISIBILITY_ANCHOR.search(span):
             continue
-        if not _VISIBILITY_NEGATION.search(before) and not re.search(
-            r"\b(?:contains?|raises?|mentions?|matches?)\b", part[visible.end() : end], re.I
+        if (
+            not negative_adjective
+            and not _VISIBILITY_NEGATION.search(before)
+            and not re.search(
+                r"\b(?:contains?|raises?|mentions?|matches?)\b", part[visible.end() : end], re.I
+            )
         ):
             continue
         # Catalog observations, retained rows and Oracle privilege/optimizer facts
@@ -3141,34 +3149,57 @@ def _negated_visibility(part: str) -> re.Match[str] | None:
             continue
         if re.search(r"\bnot\s+an?\s+object\s+of\s+this\s+schema\b", span, re.I):
             continue
-        # A matching-name/line observation within a named owner is scoped. This
-        # differs from claiming no readable unit contains/raises an error.
-        if re.search(
-            r"\b(?:no\s+(?:line|object)|matches\s+no\s+object)\b", before, re.I
-        ) and re.search(r"\b(?:in|of|owned\s+by)\s+[A-Z][A-Z0-9_$#]*\b", span):
-            continue
-        if re.search(r"\bno\s+line\b", before, re.I) and re.search(
-            r"\b[A-Z][A-Z0-9_$#]*\s+source\b", span
-        ):
-            continue
-        if re.search(r"\bmatches\s+no\s+object\s+visible\s+in\s+[A-Z][A-Z0-9_$#]*\b", span):
-            continue
-        if re.search(
-            r"\b(?:nothing|no\s+(?:lookup|result|row)s?)\s+visible\b.*\bshows?\b", span, re.I
-        ):
-            continue
-        if re.search(r"\b(?i:no\s+(?:readable\s+)?source\s+in)\s+[A-Z][A-Z0-9_$#]*\b", span):
-            continue
-        if re.search(r"\b(?:no\s+(?:stored\s+)?source|neither)\b", before, re.I) and re.search(
-            r"\bvisible\s+in\s+[A-Z][A-Z0-9_$#]*\b", span
-        ):
-            continue
-        if re.search(r"\ba\s+name\s+not\s+visible\b.*\bmay\b", span, re.I):
-            continue
         if _ABSENCE_OPEN.search(part[: visible.end()]):
             continue
         return visible
     return None
+
+
+def _owner_scoped_visibility(part: str, empty: Sequence[LookupFacts], antecedent: str = "") -> bool:
+    """Keep observations about searched owners local, regardless of subject noun.
+
+    "Of HARNESS_APP source visible to this account" still quantifies only over
+    HARNESS_APP source: the reader qualifier does not enlarge that subject.
+    Conversely, "any unit visible to this account" and "anything visible here"
+    introduce an independent account-wide subject, even beside an owner scope.
+    "From OWNER" names the reader and never establishes ownership.
+    """
+    if re.search(
+        r"\b(?:any\s+\w+|anything|everything|nothing|no\s+code)\s+"
+        r"(?:visible|readable|accessible)\s+(?:here|(?:to|by|for|from)\s+"
+        r"(?:(?:this|the|my)\s+(?:account|login|user|session|connection)|me))\b",
+        part,
+        re.I,
+    ):
+        return False
+    for fact in empty:
+        owner = fact.parameters.get("owner")
+        if not isinstance(owner, str) or not owner:
+            continue
+        name = re.escape(owner)
+        if re.search(
+            rf"\b(?i:in|of|within|under|owned\s+by)\s+{name}\b|"
+            rf"\b{name}\s+(?i:source|schema|objects?|code)\b",
+            part,
+        ):
+            return True
+    # A specific catalog subject can also be bound by the lookup's object
+    # argument. Complete empty lookups support observations about those named
+    # objects without requiring the answer to repeat their owner.
+    targeted = {
+        str(f.parameters[key]).upper()
+        for f in empty
+        if not f.truncated and coverage(f).state == "empty"
+        for key in ("object_name", "table_name", "package_name")
+        if f.parameters.get(key)
+    }
+    subject = part
+    if re.search(r"\b(?:neither|each|they|it)\b", part, re.I):
+        subject = antecedent + part
+    identifiers = re.findall(r"\b[A-Z][A-Z0-9_$#]*\b", subject)
+    return any(re.search(rf"\b{re.escape(name)}\b", subject, re.I) for name in targeted) and all(
+        name in targeted for name in identifiers
+    )
 
 
 def _visibility_listing(part: str, facts: Sequence[LookupFacts]) -> bool:
@@ -3251,29 +3282,36 @@ def _absence_inferences(answer: str, facts: Sequence[LookupFacts]) -> list[Claim
                     r"`[^`\n]+`|\"[^\"\n]+\"|“[^”\n]+”|"
                     r"(?<!\w)'(?:[^'\n]|(?<=\w)'(?=\w))+'(?!\w)|‘[^’\n]+’",
                     lambda m: (
-                        "X" * len(m[0]) if re.fullmatch(r"`[\w$#]+`", m[0]) else " " * len(m[0])
+                        " " + m[0][1:-1] + " "
+                        if re.fullmatch(r"`[\w$#]+`", m[0])
+                        else " " * len(m[0])
                     ),
                     part,
                 )
                 structural = _negated_visibility(predicates)
-                if structural and (
-                    _visibility_listing(predicates, facts)
-                    or re.search(
-                        r"\breturned\s+(?:zero|0|no)\s+rows\s+from\s+the\s+constraints?\s+lookup\b",
-                        predicates,
-                        re.I,
-                    )
-                ):
-                    structural = None
                 unseen = _UNSEEN.search(predicates) or structural
+                if unseen is not None:
+                    # An owner in an earlier observation cannot scope a later
+                    # account-wide conclusion introduced by "so" or "and".
+                    bounds = list(re.finditer(r"\b(?:and|so|but)\b", predicates[: unseen.start()]))
+                    start = bounds[-1].end() if bounds else 0
+                    end = re.search(r"\b(?:and|so|but)\b", predicates[unseen.end() :])
+                    stop = unseen.end() + end.start() if end else len(predicates)
+                    local = predicates[start:stop]
+                    if (
+                        _VISIBILITY_PREDICATE.search(local)
+                        and _owner_scoped_visibility(local, empty, predicates[:start])
+                    ) or _visibility_listing(local, facts):
+                        continue
                 subject = subject or structural
                 if unseen is None or subject is None or unseen.start() - subject.end() > 180:
                     continue
                 if re.match(r"\s+to\s+(?:the\s+)?optimizer\b", predicates[unseen.end() :], re.I):
                     continue
-                if _ABSENCE_OPEN.search(part[: unseen.end()]) or _ABSENCE_SCOPED.search(
-                    part[unseen.end() :]
-                ):
+                if _ABSENCE_OPEN.search(
+                    part[: unseen.end()]
+                    + re.split(r"\b(?:and|so|but)\b", part[unseen.end() :], maxsplit=1)[0]
+                ) or _ABSENCE_SCOPED.search(part[unseen.end() :]):
                     continue
                 if _listed_absent(part, unseen, facts):
                     continue

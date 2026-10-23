@@ -1030,7 +1030,6 @@ def test_structural_quote_masking(quoted: str) -> None:
         "No line of HARNESS_APP source visible to this account contains 20001.",
         "The job action matches no object visible in HARNESS_APP.",
         "Neither ORDER_FEED nor EXPORT_DAY is visible in HARNESS_APP.",
-        "Nothing visible to this account shows such an object or link.",
         "A name not visible to this account may still resolve for the job owner.",
         "The table is visible to this account and other schemas were not searched.",
         "The table is visible to this account. No source here was searched.",
@@ -1039,3 +1038,128 @@ def test_structural_quote_masking(quoted: str) -> None:
 )
 def test_replay_scoped_observations(sentence: str) -> None:
     assert _absence_inferences(sentence, SEARCHED) == []
+
+
+def test_account_wide_catalog_claim_needs_evidence() -> None:
+    assert _absence_inferences(
+        "Nothing visible to this account shows such an object or link.", SEARCHED
+    )
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "The unit that failed was not located and cannot be read by this account.",
+        "No stored procedure code is made readable here.",
+        "The package that triggered the error is not accessible to this account.",
+        "The routine which raised ORA-20001 is unreadable here.",
+        "Any unit that contains the failure string is not visible in OTHER_OWNER.",
+        "Neither the package nor any wrapper procedure is readable from this account.",
+        "None of the scheduled jobs, packages, or tables is visible to the account.",
+        "- Failing routine: not visible to this account.",
+        "* Originating source: not readable here.",
+        "1. Underlying code: inaccessible in this schema.",
+        "The unit responsible for the failure is not visible here.",
+        "No package readable for this login contains the message.",
+        "The raising unit is not accessible for this login.",
+        "No source code readable to me contains that error.",
+        "The routine that raised 20001 is not visible to me.",
+        "No unit accessible by this user raises destination unavailable.",
+    ],
+)
+def test_review_overclaims(sentence: str) -> None:
+    assert bool(_absence_inferences(sentence, SEARCHED)) is True
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "In HARNESS_APP, no procedure matching ORDER_FEED was visible.",
+        "Searches in HARNESS_APP returned no objects visible in that schema.",
+        "Neither the package nor its body is readable in HARNESS_APP.",
+        "No statement of HARNESS_APP source visible to this account contains 20001.",
+        "No lines of HARNESS_APP source visible to this account contain destination unavailable.",
+        "No routine in HARNESS_APP contains the text 20001.",
+        "Whether the raising unit is visible in another schema remains an open question.",
+        "It is unknown whether the code is accessible to other database users.",
+        "Hypothesis: the missing procedure is not readable by the current role.",
+        "In Oracle, roles are not visible or active inside definer's rights stored procedures.",
+        "Invisible columns are not visible to SELECT * queries.",
+        "Invisible indexes are not visible to the optimizer during query planning.",
+        "Earlier trace lines are not visible in what was retained because the log was truncated.",
+        "HARNESS_APP is the only visible schema that owns tables.",
+        "An ORA-00942 error means the referenced table is either dropped or not accessible to the parsing user.",
+        "The table access step is not visible in the execution plan.",
+    ],
+)
+def test_review_legitimate(sentence: str) -> None:
+    assert bool(_absence_inferences(sentence, SEARCHED)) is False
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "No function readable for my connection contains the error.",
+        "No wrapper accessible by the session raises that exception.",
+        "No module visible to my user matches the message.",
+        "No package readable for the login mentions destination unavailable.",
+        "No code accessible by me contains 20001.",
+        "Originating module: invisible for this session.",
+        "Error wrapper: unreadable to my connection.",
+        "No unit readable from HARNESS_APP contains that text.",
+        "In HARNESS_APP, no code in any unit visible to this account contains that message.",
+        "Under HARNESS_APP, nothing visible here matches the failure.",
+    ],
+)
+def test_held_out_overclaims(sentence: str) -> None:
+    assert bool(_absence_inferences(sentence, SEARCHED)) is True
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "No functions readable in HARNESS_APP contain the error.",
+        "Within HARNESS_APP, no wrappers are accessible.",
+        "No declarations of HARNESS_APP code visible to this account contain 20001.",
+        "No modules under HARNESS_APP are readable.",
+        "No entry points owned by HARNESS_APP are accessible.",
+        "HARNESS_APP objects are not visible in those searches.",
+        "No source in `cache` is readable.",
+        "No entry in `log` was accessible.",
+        "The table access is not visible in the plan.",
+        "No packages within HARNESS_APP are visible to my connection.",
+    ],
+)
+def test_held_out_legitimate(sentence: str) -> None:
+    assert bool(_absence_inferences(sentence, SEARCHED)) is False
+
+
+@pytest.mark.parametrize("owner", ["OTHER_OWNER", "", None])
+def test_scope_requires_owner_actually_searched(owner: str | None) -> None:
+    facts = [LookupFacts("schema.object_source_search", True, [], [], {"owner": owner})]
+    assert _absence_inferences("No procedures are readable in HARNESS_APP.", facts)
+
+
+@pytest.mark.parametrize("word", ["cache", "log", "payload"])
+def test_backticks_do_not_create_uppercase_owner(word: str) -> None:
+    assert _absence_inferences(f"No record in `{word}` is readable.", SEARCHED) == []
+    assert _absence_inferences(f"No record in {word} is readable.", SEARCHED) == []
+
+
+@pytest.mark.parametrize("lowercase", [True, False])
+@pytest.mark.parametrize("targeted, expected", [(True, False), (False, True)])
+def test_catalog_scope_bound_to_lookup_arguments(
+    targeted: bool, expected: bool, lowercase: bool
+) -> None:
+    sentence = "`ETL_ORDERS_STAGE` and `ETL_ORDERS_REJECTS` each returned zero rows from the constraints lookup, so neither has a constraint visible to this account"
+    facts = [
+        LookupFacts(
+            "schema.table_constraints",
+            True,
+            [],
+            [],
+            {"owner": "HARNESS_APP", "table_name": name if targeted else "OTHER_TABLE"},
+        )
+        for name in ("ETL_ORDERS_STAGE", "ETL_ORDERS_REJECTS")
+    ]
+    assert bool(_absence_inferences(sentence.lower() if lowercase else sentence, facts)) is expected
