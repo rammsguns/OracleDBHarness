@@ -80,3 +80,41 @@ All commands used the writable UV cache; no secret values were printed.
 An offline smoke check using installed 26.0.1 `_Error`/`DatabaseError` objects
 also passed adapter `full_code` and message extraction for DPY-4011, DPY-4024,
 and ORA-01013, without opening a connection.
+
+## Concurrent thin-connection robustness regression (B4b)
+
+Claude's live r2 (D2 23ai, thin) runs found that python-oracledb 26.0.1
+segfaults, without a Python exception, when two threads concurrently use one
+thin connection. This reproduced on Python 3.11 and 3.12; 4.0.2 did not crash
+in the same qualification scenario. The test's daemon kill thread was still
+executing `ALTER SYSTEM KILL SESSION` on the admin connection when fixture
+teardown called `close()` on it, particularly when COMMIT won the race.
+This is a test lifecycle bug and a driver robustness regression recorded for
+the ADR, not a blocker.
+
+The harness product does not share a connection for concurrent ordinary driver
+operations this way. Code inspection found that `SessionManager.acquire()` in
+`services/worker/harness_worker/sessions.py` takes the session lock for exclusive
+execution, and session disposal respects that lock. The intentional concurrent
+path is cancellation: `OracleConnection.cancel()` in
+`services/worker/harness_worker/backend/oracle.py:649` calls
+`self._conn.cancel()` (line 651), catches a failed break, and returns a boolean.
+It does not execute SQL or close the connection; there is no separate `break()`
+call. `SessionManager.request_cancel()` delivers this cancel/break outside the
+execution lock while tracking cancellation delivery under the state lock.
+
+All three `_kill_after` callers now join in `finally` with a 30-second bound,
+including the inconclusive COMMIT skip path. Cancellation and blocking helpers
+have the same bounded cleanup; fixture teardown refuses rollback/close while a
+registered connection thread remains alive, reporting a clear failure instead.
+The stand-in restart test also joins its writer in `finally` on assertion failures.
+No live database checks were run for this fix; Claude owns live qualification.
+
+B4b offline verification used the existing Python 3.11.16 venv and
+`UV_CACHE_DIR=/home/kiwi/.cache/harness-uv`:
+
+- `uv run pytest -q tests/unit`: `777 passed, 7 skipped in 106.89s`.
+- `uv run pytest -q tests/integration/test_restart.py` with `HARNESS_QUAL_*`
+  removed and `HARNESS_ORACLE_BACKEND=fake`: `14 passed in 10.02s`.
+- `uv run ruff check .`: `All checks passed!`.
+- `uv run ruff format --check .`: `392 files already formatted`.

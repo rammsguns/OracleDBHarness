@@ -20,6 +20,7 @@ from harness_worker.types import ExecutionLimits, StatementKind
 from tests import oracle_config as qual_config
 from tests.oracle_fixtures import qualification_dir
 from tests.qualification.evidence import Evidence
+from tests.qualification.threads import join_connection_thread, start_connection_thread
 
 _LOCK_ROW = "UPDATE departments SET location_id = location_id WHERE department_id = 10"
 
@@ -64,7 +65,7 @@ def test_a_blocked_session_is_shown_with_its_blocker(
         waited["seconds"] = time.monotonic() - started
 
     waiter = threading.Thread(target=wait_for_the_lock, name="qualification-waiter", daemon=True)
-    waiter.start()
+    start_connection_thread(second_connection, waiter)
     try:
         rows: list[list[Any]] = []
         polling = time.monotonic()
@@ -80,8 +81,10 @@ def test_a_blocked_session_is_shown_with_its_blocker(
             time.sleep(0.5)
     finally:
         # Releasing the lock is what lets the waiter finish, whatever was observed.
-        connection.rollback()
-        waiter.join(timeout=30)
+        try:
+            connection.rollback()
+        finally:
+            join_connection_thread(second_connection, waiter)
 
     evidence.note(
         "Does the blocking panel show a real blocked session?",

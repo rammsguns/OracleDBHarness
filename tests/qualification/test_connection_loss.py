@@ -21,6 +21,7 @@ from harness_worker.backend import OracleConnection
 from harness_worker.errors import HarnessError, OutcomeUnknownError
 from harness_worker.types import ExecutionLimits, StatementKind
 from tests.qualification.evidence import Evidence
+from tests.qualification.threads import join_connection_thread, start_connection_thread
 
 pytestmark = pytest.mark.needs_admin
 
@@ -69,7 +70,7 @@ def _kill_after(
             pass
 
     thread = threading.Thread(target=worker, name="qualification-kill", daemon=True)
-    thread.start()
+    start_connection_thread(admin, thread)
     return thread
 
 
@@ -98,14 +99,16 @@ def test_a_killed_session_surfaces_as_a_fatal_code(
         _KILL_AFTER_SECONDS,
     )
 
-    with pytest.raises(HarnessError) as raised:
-        connection.execute(
-            "BEGIN harness_burn(:seconds); END;",
-            {"seconds": _BURN_SECONDS},
-            StatementKind.PLSQL_BLOCK,
-            generous,
-        )
-    thread.join(timeout=15)
+    try:
+        with pytest.raises(HarnessError) as raised:
+            connection.execute(
+                "BEGIN harness_burn(:seconds); END;",
+                {"seconds": _BURN_SECONDS},
+                StatementKind.PLSQL_BLOCK,
+                generous,
+            )
+    finally:
+        join_connection_thread(admin_connection, thread)
 
     error = raised.value
     evidence.note(
@@ -168,7 +171,8 @@ def test_a_lost_connection_during_a_write_is_outcome_unknown(
         )
     except Exception as exc:  # noqa: BLE001 - the classification is the assertion
         outcome = exc
-    thread.join(timeout=15)
+    finally:
+        join_connection_thread(admin_connection, thread)
 
     second_connection.rollback()
 
@@ -227,11 +231,13 @@ def test_a_lost_connection_during_commit_is_outcome_unknown(
     # the commit. A run where it did not is not a failure, it is an inconclusive
     # attempt, and it is recorded as one.
     outcome: Exception | None = None
-    _kill_after(admin_connection, limits, identity.session_id, identity.serial_number, 0.0)
+    thread = _kill_after(admin_connection, limits, identity.session_id, identity.serial_number, 0.0)
     try:
         connection.commit()
     except Exception as exc:  # noqa: BLE001 - the classification is the assertion
         outcome = exc
+    finally:
+        join_connection_thread(admin_connection, thread)
 
     if outcome is None:
         evidence.note(
