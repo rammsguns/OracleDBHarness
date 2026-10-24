@@ -189,3 +189,12 @@ execution for the API's default 300-second idle lifetime before starting new wor
 This covers setup sessions unused during steady load; active-session expiry remains
 a measured failure. Read-only cross-user probes separately retry once with a fresh
 session after an expired, unauthorized, quarantined, or missing session response.
+
+The metadata kind measures the console schema panel as served, including cache hits.
+`HARNESS_SCHEMA_PANEL_CACHE_SECONDS` defaults to 60 seconds (0 disables caching);
+`scripts/capacity_run.sh` explicitly sets 60. The API reports its configured TTL in
+`/api/v1/system/info` and the driver records it in report notes. Each API worker
+has its own bounded in-process cache; results can be up to TTL seconds stale.
+Authorization still runs on every request and hits retain the original collection
+time and are audited against the producing execution. NP-07 thresholds remain
+p50 <= 800 ms and p95 <= 2500 ms (ADR-0013).

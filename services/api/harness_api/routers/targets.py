@@ -126,11 +126,51 @@ def test_connection(
 
 
 def _panel(
-    state: State, db, principal, profile, grant, operation_id: str, params: dict
+    state: State,
+    db,
+    principal,
+    profile,
+    grant,
+    operation_id: str,
+    params: dict,
+    *,
+    cache_schema: bool = False,
 ) -> PanelResult:
     entry = state.execution.catalog.get(operation_id)
     collected = utcnow().isoformat()
+    ttl = state.settings.schema_panel_cache_seconds if cache_schema else 0
+    key = None
+    generation = 0
     try:
+        if cache_schema:
+            identity = state.execution.target_identity(profile)
+            state.execution.policy.authorize(
+                principal=principal,
+                profile=profile,
+                grant=grant,
+                permission=state.execution.policy.permission_for_entry(entry),
+                risk=entry.risk,
+                required_capabilities=entry.capabilities,
+                target_capabilities=list(profile.capabilities),
+                min_version=entry.min_version,
+                target_major_version=identity.major_version if identity else None,
+                operation_id=operation_id,
+            )
+        if ttl > 0:
+            # No row filters exist in grants. A grant can select a different credential.
+            # All persisted profile fields form its version (there is no updated_at).
+            key = (
+                profile.id,
+                tuple(repr(getattr(profile, c.name)) for c in ConnectionProfile.__table__.columns),
+                grant.secret_reference_id,
+            )
+            hit, generation = state.schema_panel_cache.get(key)
+            if hit is not None:
+                panel, execution_id = hit
+                state.execution.audit_cached_read(
+                    db, principal, profile.id, operation_id, execution_id
+                )
+                return panel.model_copy(update={"cached": True})
         result = state.execution.run_catalog_operation(
             db, principal, profile, grant, operation_id, params
         )
@@ -147,9 +187,10 @@ def _panel(
         )
     outcome = result.outcome
     rs = outcome.result_set
-    return PanelResult(
+    panel = PanelResult(
         operationId=operation_id,
         title=entry.title,
+        cached=False if cache_schema else None,
         available=outcome.state.value == "succeeded",
         collectedAt=collected,
         columns=[c.name for c in rs.columns] if rs else [],
@@ -158,13 +199,19 @@ def _panel(
         error=outcome.error,
     )
 
+    if key is not None and panel.available and not panel.truncated and panel.error is None:
+        state.schema_panel_cache.put(key, panel, outcome.execution_id, ttl, generation)
+    return panel
+
 
 @router.get("/{profile_id}/schemas", response_model=PanelResult)
 def list_schemas(profile_id: str, principal: CurrentUser, db: Db, state: State) -> PanelResult:
     profile = load_profile(db, profile_id)
     grant = load_grant(db, principal, profile_id)
     grant = state.execution.policy.require_grant(principal, profile, grant)
-    return _panel(state, db, principal, profile, grant, "schema.list_schemas", {})
+    return _panel(
+        state, db, principal, profile, grant, "schema.list_schemas", {}, cache_schema=True
+    )
 
 
 @router.get("/{profile_id}/objects", response_model=ObjectPage)

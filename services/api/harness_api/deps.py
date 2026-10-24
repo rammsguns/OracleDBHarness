@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated
 
 from fastapi import Depends, Header, Request
@@ -16,6 +16,7 @@ from harness_api.execution import ExecutionService
 from harness_api.models import AppRole
 from harness_api.recovery import ReconciliationReport
 from harness_api.runbooks import RunbookService
+from harness_api.schema_panel_cache import SchemaPanelCache
 from harness_api.security import Authenticator, Principal
 from harness_worker.errors import AuthorizationError
 
@@ -35,6 +36,7 @@ class AppState:
     # report without digging through the log of a container that has already restarted.
     runtime_id: str
     reconciliation: ReconciliationReport
+    schema_panel_cache: SchemaPanelCache = field(default_factory=SchemaPanelCache)
 
 
 def get_state(request: Request) -> AppState:

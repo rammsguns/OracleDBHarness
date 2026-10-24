@@ -316,6 +316,11 @@ class CapacityRun:
                 f"{workload.base_url}/api/v1/system/info answered {info.status_code}."
             )
         report.environment = info.json()
+        report.notes.append(
+            "Schema panel cache TTL: "
+            f"{report.environment.get('schemaPanelCacheSeconds', 'unknown')} seconds; "
+            "metadata measures the panel as served, including cache hits."
+        )
         server_deadline = float(report.environment.get("limits", {}).get("deadlineSeconds", 0) or 0)
         if server_deadline and workload.limits.statement_deadline_seconds > server_deadline:
             report.notes.append(
