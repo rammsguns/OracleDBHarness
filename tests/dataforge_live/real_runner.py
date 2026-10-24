@@ -144,7 +144,12 @@ class DataForgeProcess:
                     f"DataForge process exited early (code {self._proc.returncode}). Log:\n{self.log()}"
                 )
             try:
-                resp = httpx.get(f"{self.base_url}/api/health", timeout=1.0)
+                auth_token = self.extra_env.get("DATAFORGE_AUTH_TOKEN")
+                resp = httpx.get(
+                    f"{self.base_url}/api/health",
+                    timeout=1.0,
+                    auth=("dataforge", auth_token) if auth_token else None,
+                )
                 if resp.status_code == 200:
                     return
             except httpx.TransportError:
