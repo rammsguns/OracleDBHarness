@@ -598,6 +598,52 @@ The report is in the ignored report directory
 identity registration: NP-06 itself needs `pilot` mode against the pilot IdP, signed in by
 hand. Pilot mode's refusals are unchanged.
 
+### Re-qualification at current main, 2026-10-24 (A3, NP-01/03)
+
+Run by Claude (AI agent, acting DBA, not a human) on the z4g5 test databases. The harness
+code was main `c471651` (the reported builds `90d63ae` and `3776489` add only capacity
+tooling and touch nothing under `services/`). python-oracledb was 4.0.2, Instant Client
+21.4.0.0.0 in thick mode. Each profile ran
+`scripts/qual_run.sh <profile> tests/qualification tests/integration tests/e2e`, which
+covers the qualification, process-death and two-target isolation suites, with each
+profile's `HARNESS_QUAL_REQUIRE`.
+
+| Profile | Target (second target) | Mode | Result |
+| --- | --- | --- | --- |
+| r1 | D1 19.9.1 non-CDB (D2) | thin | 158 passed, 27 skipped, 4 errors; the 4 `test_connection_loss` tests then passed (see below) |
+| r3 | D1 19.9.1 non-CDB (D2) | thick | 157 passed, 28 skipped, 4 errors; the 4 `test_connection_loss` tests then passed |
+| r2 | D2 23.26.3 Free PDB (D1) | thin | 171 passed, 18 skipped |
+| r3-d2 | D2 23.26.3 Free PDB (D1) | thick | 170 passed, 19 skipped on a rerun; the first run had 59 errors (see below) |
+| r4-d4 | D4 19.9.1 non-CDB, remote (D1) | thin | 161 passed, 28 skipped in 1,400 s |
+| r3-d4 | D4 19.9.1 non-CDB, remote (D1) | thick | 160 passed, 29 skipped in 1,466 s |
+
+The process-death scenarios behaved as on 2026-10-14 on every target:
+- Death before dispatch was cancelled.
+- Death after COMMIT returned was durable, and listed under `commitsUnknown`.
+- Death before COMMIT was sent was not durable.
+- Death during a write was `outcome_unknown`, and the transaction was rolled back.
+- Death while waiting on a row lock was `outcome_unknown`, and the lock was freed on release.
+
+The dead sessions cleaned up in 0.0 to 1.1 s.
+
+Two anomalies, both environmental, neither a harness defect:
+
+- **D1 connection loss (r1, r3).** The privileged connection failed with ORA-01017. The
+  git-ignored profile still points at the D1 `SYSTEM` password file from 2026-10-14,
+  and that password was rotated on 2026-10-22. The repeated attempts then locked
+  `SYSTEM` (ORA-28000). The acting DBA unlocked it through local SYSDBA in the test
+  container. The 4 tests then passed in thin and thick mode with the current password
+  file: 4 passed each. The profile's password file still needs refreshing.
+- **D2 thick (r3-d2), first run.** Fixture step `lobs_rows` could not see
+  `HARNESS_APP.HARNESS_LOBS` right after the `lobs` step created it, so every test that
+  used the fixtures erred (59). The step passed when rerun on its own (`test_lobs.py`, 6
+  passed), and the whole profile passed on a rerun with nothing else using D2. The cause
+  was not identified. If it recurs it should be investigated as a fixture-ordering or
+  concurrency problem.
+
+Reports are in the ignored report directory (`databases/reports/2026-10-24-<profile>*.md`).
+This is agent-qualified on test stand-ins, not a production or pilot qualification.
+
 ## Recording a run
 
 ### Live non-copilot API workflows, 2026-10-19 (Wave 1C)

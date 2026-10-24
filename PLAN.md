@@ -2393,10 +2393,14 @@ Tasks, one at a time:
 - [ ] **A2 NP-07 capacity.** Run the three-database (D1, D2, D4), ten-user run against
   the thresholds agreed in A1, with observed API CPU and memory. Record the result in
   `docs/compatibility.md` and a report.
-- [ ] **A3 NP-01/03 Oracle re-qualification at current main.** Re-run the
+- [x] **A3 NP-01/03 Oracle re-qualification at current main.** Re-run the
   qualification, process-death and isolation suites on D1 and D4 (thin and thick) and
   on D2, against current main (the last run was 2026-10-14). Append the commands,
   versions and outcomes.
+  - Done 2026-10-24, agent-qualified on test stand-ins. All six profiles pass. There
+    were two environmental anomalies: a stale D1 `SYSTEM` password file, and a
+    one-off D2 thick fixture error that passed on a rerun. Evidence is in
+    docs/compatibility.md, "Re-qualification at current main".
 - [x] **A4 NP-02 install, restore and upgrade.** Run the compose install and restore
   drill on PostgreSQL. Exercise an upgrade from the oldest released or tagged version
   (or the earliest schema-version commit if there are no tags) to main with retained
