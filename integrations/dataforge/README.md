@@ -163,6 +163,38 @@ capability negotiation (`GET /api/ai/capabilities`), streaming assist with SSE c
 (`POST /api/ai/chat`), proposal apply verification (stale rejection and reviewable match),
 harness outage and disabled mode fallback, and invalid token and incompatible protocol refusal.
 
+### B1: Oracle test targets and the local model
+
+The Oracle mode selects only `load-db-1` (D1) and `load-db-2` (D2), both as
+`harness_app`, from the capacity configuration. It starts disposable PostgreSQL,
+provisions a credential-free manifest with `scripts/bootstrap_targets.py`, starts
+the thin `oracledb` backend and places it behind `deploy/nginx.conf` in
+`nginx:1.27-alpine`. The local provider must already report the requested
+`qwen3.8-flash-next-iq3_s` model healthy at `http://127.0.0.1:8080/health`.
+Its key is copied privately from `/home/kiwi/llm-rig/strata/.config/strata/api-key`
+and registered as a file-backed `copilot_api_key_ref`; it is never a command argument.
+
+```bash
+mkdir -p /home/kiwi/.cache/harness-capacity-tmp
+TMPDIR=/home/kiwi/.cache/harness-capacity-tmp \
+UV_CACHE_DIR=/home/kiwi/.cache/harness-uv \
+uv run python -m tests.dataforge_live dataforge \
+  --backend oracledb --targets databases/capacity/a2-run.json \
+  --dataforge-dir /home/kiwi/harness-drills/dataforge \
+  --report databases/reports/2026-10-24-b1-dataforge-oracle.md
+```
+
+Docker bind mounts require this daemon-visible `TMPDIR` on the test host. The
+runner serializes model calls, injects a malformed SSE frame only after a real
+provider delta for the partial-response check, and removes its containers,
+processes, temporary secrets and owned D2 table/procedure when finished. It
+returns nonzero for failed checks and preserves them in Markdown and JSON.
+Worksheet, compilation, confirmation and viewer-principal regression checks use
+harness HTTP routes while DataForge is running; they do not claim DataForge UI
+coverage. The setup timer starts after both applications and nginx are healthy,
+and ends after consuming the first successful assist's terminal event; its exact
+included and excluded steps are recorded in the report.
+
 ## Not done yet
 
 This is the adapter side of a two-repository change. The DataForge repository still

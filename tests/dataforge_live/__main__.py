@@ -51,23 +51,24 @@ def run_dataforge_command(arguments: argparse.Namespace) -> int:
 
     harness_url = arguments.harness_url
 
-    if arguments.workdir is not None:
-        report = run_dataforge_integration(
-            dataforge_dir=df_dir,
-            harness_url=harness_url,
-            token=token,
-            workdir=arguments.workdir,
+    def execute(workdir: Path):
+        if getattr(arguments, "backend", "fake") == "oracledb":
+            from tests.dataforge_live.oracle_runner import run_oracle_integration
+
+            if not arguments.targets or harness_url or token:
+                raise ValueError("Oracle mode requires --targets and a disposable harness")
+            return run_oracle_integration(df_dir, arguments.targets, workdir)
+        return run_dataforge_integration(
+            dataforge_dir=df_dir, harness_url=harness_url, token=token, workdir=workdir
         )
+
+    if arguments.workdir is not None:
+        report = execute(arguments.workdir)
     else:
         with tempfile.TemporaryDirectory(
             prefix="dataforge-real-", ignore_cleanup_errors=True
         ) as tmp:
-            report = run_dataforge_integration(
-                dataforge_dir=df_dir,
-                harness_url=harness_url,
-                token=token,
-                workdir=Path(tmp),
-            )
+            report = execute(Path(tmp))
 
     print(report.to_markdown())
 
@@ -137,6 +138,11 @@ def main(argv: list[str] | None = None) -> int:
         "--workdir",
         type=Path,
         help="where the disposable harness keeps its store and logs",
+    )
+
+    df_runner.add_argument("--backend", choices=("fake", "oracledb"), default="fake")
+    df_runner.add_argument(
+        "--targets", type=Path, help="capacity JSON; Oracle mode selects D1/D2 only"
     )
 
     arguments = parser.parse_args(argv)

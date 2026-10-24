@@ -76,3 +76,85 @@ def test_missing_dataforge_dir_returns_2(tmp_path: Path) -> None:
     )
     code = run_dataforge_command(args)
     assert code == 2
+
+
+def test_b1_target_loader_selects_only_d1_d2(tmp_path: Path) -> None:
+    import json
+
+    from tests.dataforge_live.oracle_stack import load_b1_targets
+
+    path = tmp_path / "targets.json"
+    path.write_text(
+        json.dumps(
+            {
+                "targets": [
+                    {
+                        "name": "load-db-2",
+                        "dsn": "localhost:1522/PDB",
+                        "user": "harness_app",
+                        "passwordFile": "/not/read/d2",
+                    },
+                    {
+                        "name": "load-db-1",
+                        "dsn": "localhost:1521/ORCL",
+                        "user": "harness_app",
+                        "passwordFile": "/not/read/d1",
+                    },
+                    {"name": "load-db-3", "dsn": "ignored", "user": "ignored"},
+                ],
+                "apiPort": "not used",
+                "postgres": "not used",
+            }
+        )
+    )
+    config = load_b1_targets(path)
+    assert [t.name for t in config.targets] == ["load-db-1", "load-db-2"]
+    assert config.targets[1].service_name == "PDB"
+    assert config.targets[0].password_file == "/not/read/d1"
+    assert config.postgres.url is None
+
+
+def test_b1_target_loader_refuses_wrong_user_or_duplicate(tmp_path: Path) -> None:
+    import json
+
+    import pytest
+
+    from tests.dataforge_live.oracle_stack import load_b1_targets
+
+    targets = [
+        {
+            "name": name,
+            "dsn": "localhost:1521/ORCL",
+            "user": "harness_app",
+            "passwordFile": "unused",
+        }
+        for name in ("load-db-1", "load-db-2")
+    ]
+    path = tmp_path / "targets.json"
+    for bad in (
+        [targets[0]],
+        [*targets, targets[0]],
+        [dict(targets[0], user="system"), targets[1]],
+    ):
+        path.write_text(json.dumps({"targets": bad}))
+        with pytest.raises(ValueError, match="B1 requires"):
+            load_b1_targets(path)
+
+
+def test_b1_assist_context_cannot_select_another_profile() -> None:
+    from tests.dataforge_live.oracle_runner import assist_body
+
+    body = assist_body()
+    assert body["connectionId"] == "load-db-1"
+    assert "profileId" not in body
+    assert "attachments" not in body
+
+
+def test_real_report_includes_environment() -> None:
+    import json
+
+    report = RealRunReport(
+        REPORT_LABEL, "h", "d", "0.1.0", "1.1", [], True, "ok", {"setupSeconds": 1.25}
+    )
+    assert json.loads(report.to_json())["environment"]["setupSeconds"] == 1.25
+    assert '"setupSeconds": 1.25' in report.to_markdown()
