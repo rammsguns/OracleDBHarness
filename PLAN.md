@@ -2496,7 +2496,7 @@ section 6 stays deferred.
   - run the capacity main run.
   If everything passes, the acting DBA records an ADR to move the P4 pin. Otherwise
   record the failures and keep 4.0.2.
-- [ ] **B1 NP-05 Oracle and a real provider through DataForge.** Extend the A6 real
+- [x] **B1 NP-05 Oracle and a real provider through DataForge.** Extend the A6 real
   runner so the harness behind the deployed proxy uses the oracledb backend on the D1 and
   D2 test profiles, and the local model on this host as its copilot provider. Then show:
   - context, streaming, stale and reviewed diffs, and outages;
@@ -2505,6 +2505,10 @@ section 6 stays deferred.
     unchanged;
   - cancellation and partial responses;
   - a measured setup time.
+  Done 2026-10-24, agent-qualified on test stand-ins (AI agent, not a human): 16/16 checks
+  in B1c, setup 10.9 s scripted. B1 found and fixed two DataForge patch bugs: client abort
+  not passed upstream, and Analyst action filter not enforced on submit. See
+  integrations/dataforge/COMPATIBILITY.md.
 - [ ] **B2 NP-05 editor/UI.** Drive DataForge's own UI with the adapter in a browser
   (Playwright): the assist panel, a streamed answer, a diff review, cancellation and an
   outage message.
