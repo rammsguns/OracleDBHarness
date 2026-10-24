@@ -39,7 +39,7 @@ Nothing is pilot- or production-qualified. Section 6 production writes remain de
 | Metadata store | SQLite 3 | Full test suite |
 | Oracle backend | Local stand-in (SQLite) | Full test suite |
 | **Oracle Database** | **19c Enterprise Edition 19.9.1.0.0, non-CDB, AL32UTF8** | `tests/qualification` (47 checks), `tests/integration` and `tests/e2e` against one instance, two recorded runs on 2026-09-11 (Windows). Repeated on 2026-10-14 (Linux) against a second 19.9.1.0.0 non-CDB, in thin and thick mode, with a restricted account, the K-4 catalog and process death. See [Recording a run](#recording-a-run) |
-| **Oracle Database** | **Oracle AI Database 26ai Free 23.26.3.0.0, PDB `FREEPDB1` in a CDB, AL32UTF8** | The same three suites, thin mode, one recorded run on 2026-10-14 (Linux), including the PDB container identity, the restricted account, the K-4 catalog and process death |
+| **Oracle Database** | **Oracle AI Database 26ai Free 23.26.3.0.0, PDB `FREEPDB1` in a CDB, AL32UTF8** | The same three suites in thin and thick modes, recorded runs on 2026-10-14 (Linux), including the PDB container identity, the restricted account, the K-4 catalog and process death; rerun in both modes on 2026-10-24 (A3) |
 | **Oracle Database** | **19c Enterprise Edition 19.9.1.0.0, non-CDB, WE8MSWIN1252, on a remote host** | The whole test suite in thin mode, one recorded run on 2026-10-14 (Linux client, database across a real network), including the K-4 catalog and process death. Provisioned without `SYS`; the `SYS` grants were added later the same day, and the restricted account is now claimed. See "The D4 run, 2026-10-14" |
 | **Oracle Database** | **Autonomous Database 26ai (Always Free) 23.26.4.1.0, a PDB, AL32UTF8, over TCPS with its wallet** | The same three suites in thin mode and in thick mode with Instant Client 21.4, recorded runs on 2026-10-14 (Linux client, Oracle Cloud), with D1 as the second target, the admin account for the kills, the K-4 catalog and process death. A shared database, so no restricted or lab account. See "The D3 run, 2026-10-14" and "Thick mode over TCPS, and VECTOR binds, 2026-10-14" |
 | python-oracledb | 4.0.2, thin mode | The runs above |
@@ -60,7 +60,7 @@ D1–D4 pass does not qualify an upgraded environment.
 | Component | Status |
 | --- | --- |
 | **Oracle beyond two local instances** | Two instances have been qualified on 2026-10-14: a 19.9 non-CDB and a 23.26 Free PDB, each as the other's second target, so the two-target isolation check has run in both directions. A third, D4, was qualified the same day: a 19.9 non-CDB in `WE8MSWIN1252` on a remote host, with D1 as its second target. Not run: a later 19c release update, a PDB on 19c, `CDB$ROOT`, RAC, Standard Edition, and character sets other than AL32UTF8 and WE8MSWIN1252. The restricted account was the README's shape only (`CREATE SESSION` plus the two tablespace views); other partial grant sets have not been probed. |
-| **Restart after process death, on Oracle** | Run on 2026-10-14 against 19.9 (thin and thick) and 23.26 (thin), on a Linux host: on both releases the dead session left `V$SESSION` with its row lock freed at once, an applied but uncommitted write was rolled back, and both `COMMIT` cases were reconciled correctly. See the process-death entries under [Recording a run](#recording-a-run). Not run on Windows, where the 2026-09-11 runs were. A host that loses power or network, rather than a killed process, is not covered at all. |
+| **Restart after process death, on Oracle** | Run on 2026-10-14 against D1, D2, D3 and remote D4 in thin and thick modes on Linux; rerun on 2026-10-24 across all six D1/D2/D4 profiles (A3): the dead session left `V$SESSION` with its row lock freed, an applied but uncommitted write was rolled back, and both `COMMIT` cases were reconciled correctly. See the process-death entries under [Recording a run](#recording-a-run). Not run on Windows, where the 2026-09-11 runs were. A host that loses power or network, rather than a killed process, is not covered at all. |
 | **Kiwi's K-4 lookups on Oracle** | Run on 2026-10-14 against 19.9 and 23.26: every entry returned rows of the shape the stand-in returns, and PL/Scope absence was reported for the unit compiled without it. Needs the extra grants in `oracle/qualification/README.md` (`CREATE TRIGGER`, `CREATE JOB` and the rules-engine privileges for chains). No database link exists in either fixture, so `db_links_referenced` was checked for shape with no rows. |
 | Oracle 23ai/26ai beyond two databases | One Free 23.26.3.0.0 PDB and one Autonomous Database 23.26.4.1.0, each in thin mode and in thick mode with Instant Client 21.4. On both, `BOOLEAN` and `VECTOR` were checked as selected values, a `BOOLEAN` bind, `FLOAT32` and `INT8` vector binds into `VECTOR` columns, `VECTOR_DISTANCE` with a bound vector and an IVF vector index with an approximate search. An HNSW index was created on Autonomous Database only: the Free PDB has no vector memory pool (`ORA-51962`). Not checked: `BINARY` and `SPARSE` binds, hybrid and partitioned vector indexes, and `VECTOR` in PL/SQL. See "BOOLEAN and VECTOR, 2026-10-14" and "Thick mode over TCPS, and VECTOR binds, 2026-10-14" |
 | python-oracledb thick mode beyond one client | Instant Client 21.4 on Linux against 19.9 (D1 and D4) and 23.26 (the Free PDB, and Autonomous Database over TCPS). Other client versions (23.4 or later in particular, which knows `BOOLEAN` and `VECTOR`) and Windows are not run. |
@@ -175,9 +175,12 @@ Three constraints follow from the fixtures being a mirror of the demonstration s
 * The tuning checks read a cursor Oracle already has. `EXPLAIN PLAN` executes nothing,
   so the fixture setup runs the slow query once to put one in the shared pool.
 
-The runs recorded below support claims about those configurations only: 19c 19.9 as
-a non-CDB in thin and thick mode, and 23.26 Free as a PDB in thin mode, each with
-python-oracledb 4.0.2. The gaps listed under "What has not been tested" still stand,
+The runs recorded below support claims about those configurations only: D1 (19.9
+non-CDB), D2 (26ai Free 23.26.3 PDB), D3 (Autonomous Database 26ai 23.26.4.1.0 over
+TCPS with its wallet), and D4 (remote 19.9 non-CDB, WE8MSWIN1252), each with
+python-oracledb 4.0.2 in thin and thick modes. D1/D2/D4 were rerun on 2026-10-24
+(A3): agent-qualified on test stand-ins (AI agent, not a human). D3 retains its
+2026-10-14 evidence. The gaps listed under "Remaining coverage gaps" still stand,
 and no broader claim about Oracle support is supportable until they are run and
 recorded too.
 
@@ -298,8 +301,9 @@ in `ORA-00942` text where 19.9 does not; thin mode appends a `Help:` link to Ora
 error text where thick mode does not; and 23.26 is far faster on the 400,000-row
 update the connection-loss check uses.
 
-Still open after the 2026-10-14 runs: TCPS and wallets (R5, which needs Autonomous
-Database and has not been approved), and everything listed under "Still open after the 2026-09-11 run".
+Still open after the initial R1–R4 runs: TCPS and wallets (resolved later on
+2026-10-14 by R5 on D3; see "The D3 run, 2026-10-14"), and everything listed under
+"Still open after the 2026-09-11 run".
 
 ### BOOLEAN and VECTOR, 2026-10-14
 
