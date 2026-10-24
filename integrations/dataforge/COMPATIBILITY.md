@@ -2,6 +2,14 @@
 
 Nothing in this table is a certification. It records what has actually been run.
 
+## Current upstream status
+
+**upstream PR open, pending review**: [PR #77](https://github.com/rammsguns/OracleDataForge/pull/77), branch
+`feat/harness-assist`, head `a2c280430e95e8b357aeb8e22051067209165c00` on main
+`3404f1905da183e1903a35193a7d5b0df18d0870`. B3 is in progress; Claude owns
+completion after green CI, independent agent review and merge. Earlier entries
+below preserve the exact commits and qualification boundaries of historical runs.
+
 ## Tested
 
 | Component | Version | How it was tested |
@@ -200,3 +208,39 @@ upstream integration, hosted model providers, other proxies, production, or huma
 qualification. The Analyst action-enforcement bug found by B1 is fixed in the local patch.
 Disposable API/DataForge processes, PostgreSQL and nginx are removed after each run;
 the pre-existing Oracle stand-ins and unrelated API process are retained.
+
+### 2026-10-24, editor/UI (B2, agent stand-ins)
+
+Agent-qualified on test stand-ins (AI agent, not a human), using Playwright 1.62.0
+and Chromium 151.0.7922.34. Harness `a26f21ec02235ce4ef3f59a06f9d25213cd23bc6`,
+DataForge `6f3439a2d8f0fbaa3c418fe5fb04c40a8e85b926`, adapter 0.1.0,
+protocol 1.1 (harness 1.5), Oracle D1 19.9.1.0.0 and D2 23.26.3.0.0 test
+stand-ins, local provider and shipped nginx. **6/6 browser scenarios passed**:
+sign-in/context preview, streamed answer, reviewed proposal apply plus stale refusal,
+cancellation, actual harness outage with DataForge worksheet still usable, and
+Analyst explain-only UI. Streaming produced 159 DOM renders and 281 delta events.
+Local ignored evidence: `databases/reports/2026-10-24-b2-dataforge-ui.md`/`.json`
+and screenshots under `databases/reports/2026-10-24-b2-ui/`.
+Compile/confirmation UI, upstream integration, human pilot and production were not
+exercised. This records the prior B2 run, not a B3 live rerun.
+
+### 2026-10-24, upstream PR preparation (B3, in progress)
+
+PR #77 and its head are recorded above. All eight original feature/fix commits were
+preserved as a reviewable series and missing co-author trailers normalized; two
+additional commits document/gate opt-in behavior and add adapter regression checks.
+The resolver no longer claims a hard-coded Oracle version. Disabled installations
+hide assistance controls; invalid configuration is logged without URL/credential
+contents. No live database or model calls were made for this preparation.
+
+Local DataForge checks: `npm ci`, `npm test` (**292 passed**), `npm run typecheck`
+and `npm run build` passed, covering every command in its CI workflow. Build emits
+the existing large-chunk advisory. Harness checks: `pytest -q tests/test_dataforge_real.py`
+**7 passed**; Node adapter tests **39 passed, 4 live-launcher-only skips**;
+adapter TypeScript check, `ruff check` and `ruff format --check` passed.
+
+The spike patch is refreshed to the exact diff against upstream main, preserving
+the existing pinned-checkout reproduction workflow rather than replacing it with
+an online-only pointer. It includes no machine paths, credentials or live bench
+configuration. Upstream CI passed (build job, run `40121765646`); independent review and merge
+remain pending. No human sign-off is claimed.

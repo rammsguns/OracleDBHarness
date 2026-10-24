@@ -59,6 +59,8 @@ export interface AssistRequest {
   question?: string;
   editorId: string;
   editorRevision: string;
+  /** Complete buffer for safe whole-editor proposal apply; selection remains separate. */
+  editorText?: string;
   conversationId?: string;
 }
 
@@ -160,11 +162,13 @@ export class HarnessAdapter {
       if (!response.ok) {
         return {
           enabled: true,
-          reachable: true,
+          reachable: response.status < 500,
           compatible: false,
           actions: [],
           adapterVersion: ADAPTER_VERSION,
-          detail: `The harness refused the integration credential (${response.status}).`,
+          detail: response.status >= 500
+            ? `The harness is unavailable (${response.status}). Editing and running in DataForge are unaffected.`
+            : `The harness refused the integration credential (${response.status}).`,
           requestId,
         };
       }
@@ -206,6 +210,22 @@ export class HarnessAdapter {
         requestId,
       };
     }
+  }
+
+  /** Resolve exactly the permitted outgoing context without calling the provider. */
+  async preview(actor: DataForgeActor, request: AssistRequest) {
+    if (!this.config.enabled) throw new Error("integration_disabled");
+    if (!filterActionsForRole([request.action], actor.role).includes(request.action)) {
+      throw new Error("action_not_allowed");
+    }
+    return {
+      targetReference: this.resolver.targetReference(this.instanceId, request.connectionId, request.schema),
+      schema: request.schema ?? "",
+      action: request.action,
+      question: request.question ?? "",
+      editor: { editorId: request.editorId, revision: request.editorRevision, text: request.editorText ?? request.selection },
+      attachments: sanitize(await this.resolver.resolve(actor, request), this.config.maxContextBytes),
+    };
   }
 
   /**
@@ -261,7 +281,7 @@ export class HarnessAdapter {
         editor: {
           editorId: request.editorId,
           revision: request.editorRevision,
-          text: request.selection,
+          text: request.editorText ?? request.selection,
         },
         // An assertion about which of *our* users is acting, namespaced by the
         // harness. It is not a role and grants nothing.

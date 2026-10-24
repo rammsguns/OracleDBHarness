@@ -7,6 +7,17 @@ The code here is written to be copied or vendored into the DataForge repository.
 has no runtime dependencies, and its Express types are structural, so it drops into
 the existing app without changing DataForge's stack.
 
+## Upstream status
+
+**upstream PR open, pending review**: [OracleDataForge PR #77](https://github.com/rammsguns/OracleDataForge/pull/77),
+branch `feat/harness-assist`, head `a2c280430e95e8b357aeb8e22051067209165c00`,
+based on upstream main `3404f1905da183e1903a35193a7d5b0df18d0870`.
+B3 remains in progress until Claude merges after CI and independent agent review.
+The vendored `src/*.ts` matches this PR. The refreshed
+`spike/dataforge-3404f19.patch` is the exact binary-capable diff from upstream main
+to that head; retaining it preserves the existing pinned-checkout reproduction path.
+Prefer the PR branch when reviewing history. No live suite was rerun for B3.
+
 ## What each side owns
 
 | Owns | DataForge | OracleDBHarness |
@@ -39,8 +50,7 @@ against a DataForge connection.
    database execution, no harness target access, and no harness administration. A
    DataForge Administrator does not become a harness Administrator.
 
-3. **Configure DataForge.** These are new settings to add; they are not existing
-   DataForge environment variables:
+3. **Configure DataForge.** The upstream PR reads these server-side settings (disabled by default):
 
    ```
    DATAFORGE_HARNESS_ENABLED=true
@@ -133,13 +143,13 @@ role filtering, context sanitising, and the browser-supplied-field refusals.
 
 To run integration checks against a real OracleDataForge Express server:
 
-1. Clone `rammsguns/OracleDataForge` and apply the adapter spike patch:
+1. Clone `rammsguns/OracleDataForge` and apply the pinned PR diff:
 
    ```bash
    git clone https://github.com/rammsguns/OracleDataForge /path/to/dataforge
    git -C /path/to/dataforge checkout 3404f1905da183e1903a35193a7d5b0df18d0870
    git -C /path/to/dataforge apply integrations/dataforge/spike/dataforge-3404f19.patch
-   npm --prefix /path/to/dataforge install
+   npm --prefix /path/to/dataforge ci
    ```
 
 2. Run the integration runner against a disposable harness:
@@ -195,17 +205,14 @@ coverage. The setup timer starts after both applications and nginx are healthy,
 and ends after consuming the first successful assist's terminal event; its exact
 included and excluded steps are recorded in the report.
 
-## Not done yet
+## Remaining qualification
 
-This is the adapter side of a two-repository change. The DataForge repository still
-needs:
+PR #77 supplies the worksheet Assist panel, outgoing context preview, status,
+cancellation and reviewed buffer apply. Analysts have an explain-only documentation
+panel. Context currently includes supplied text only, without schema expansion or
+an Oracle version probe. Integration settings remain server-side.
 
-- Independent worksheet buffers with stable revisions. The inspected state store
-  shares one SQL buffer across tabs, which has to be fixed before named-editor apply
-  actions are safe.
-- The settings screen and status indicator described above.
-- A `resolveContextForActor` implementation over its existing authorization helpers,
-  extracted rather than called through an internal HTTP request with a shared
-  administrator credential.
-
-See `COMPATIBILITY.md` for what has and has not been tested.
+B1 passed 16/16 backend checks and B2 passed 6/6 Playwright scenarios on Oracle
+19c/23ai test stand-ins, agent-qualified (AI agents, not human sign-off). Upstream
+review/merge, a human pilot, hosted providers, other proxies, compile/confirmation
+UI and production qualification remain open. See `COMPATIBILITY.md`.
