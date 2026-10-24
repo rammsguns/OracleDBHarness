@@ -661,8 +661,10 @@ def main(argv: list[str] | None = None) -> int:
         pw = secrets.token_urlsafe(24)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(pw, encoding="utf-8")
+        # The postgres image reads the file after dropping to its own uid, so it must be
+        # world-readable; the run's 0700 temporary directory keeps it private on the host.
         if os.name == "posix":
-            args.output.chmod(0o600)
+            args.output.chmod(0o644)
         return 0
 
     if args.command == "prepare-secrets":

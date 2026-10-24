@@ -66,7 +66,7 @@ echo "Report Directory: $REPORT_DIR"
 # Validate configuration
 uv run python -m tests.capacity.driver validate-config "$CONFIG_PATH" --check-files
 
-TEMP_DIR="$(mktemp -d "/tmp/harness-capacity-run-XXXXXX")"
+TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/harness-capacity-run-XXXXXX")"
 chmod 700 "$TEMP_DIR"
 
 API_PID=""
