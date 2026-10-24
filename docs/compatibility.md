@@ -570,6 +570,34 @@ also needed configurable compose ports (`HARNESS_WEB_HOST_PORT`, `HARNESS_API_HO
 because the local model server holds 8080. The drills ran with `TMPDIR` under the
 operator's home, because the docker daemon does not see this sandbox's private `/tmp`.
 
+### Identity through the deployed proxy, 2026-10-24 (A5, NP-06 stand-in)
+
+Run by Claude (AI agent, acting application owner, not a human) on the z4g5 test host.
+`deploy/identity-standin-drill.sh` deployed `deploy/compose.yaml` behind its nginx, with
+OIDC against the disposable Keycloak realm (`tests/identity/keycloak`) standing in for the
+pilot registration. Two accounts were used: `alice` is registered and granted
+`development` only, and `bob` is authenticated but unregistered. The drill then ran
+`tests.browser` in the new `standin` mode against the deployed origin
+`http://127.0.0.1:18081`, in Chromium 151, at harness commit `c48c3c9`. The ports were
+moved off 8080 and 8000 with `HARNESS_WEB_HOST_PORT` and `HARNESS_API_HOST_PORT`.
+
+Verdict: **AGENT-QUALIFIED ON TEST STAND-IN (AI agent, not a human; not a pilot
+qualification)**. All 23 checks passed and 2 were observed. They covered:
+- discovery and issuer;
+- the dev-token refusal;
+- the unregistered account refused and told its subject;
+- PKCE with the registered redirect URI;
+- the callback code cleared, and no tokens left in storage;
+- API calls with the console's token;
+- a missing, altered or non-bearer token refused;
+- an admin-only endpoint and an ungranted target refused;
+- sign-out, sign-in again and token expiry, with the expired token refused by the API.
+
+The report is in the ignored report directory
+(`databases/reports/2026-10-24-a5-identity-standin.md`). This is not the pilot's
+identity registration: NP-06 itself needs `pilot` mode against the pilot IdP, signed in by
+hand. Pilot mode's refusals are unchanged.
+
 ## Recording a run
 
 ### Live non-copilot API workflows, 2026-10-19 (Wave 1C)

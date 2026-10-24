@@ -144,6 +144,10 @@ What to expect:
 Sign-in is qualified against Keycloak (docs/compatibility.md, "Identity providers"),
 not against other providers or your registration. Before the pilot, sign in through
 the console with your provider, using the checklist in tests/identity/README.md.
+For autonomous agent qualification of the compose stack behind nginx using the Keycloak
+fixture as an IdP stand-in, see `deploy/identity-standin-drill.sh` and `tests/identity/README.md`
+("Stand-in qualification"); plainly stated, that is an AI agent test stand-in, not the
+pilot registration.
 
 Providers report the subject (`sub`) as whatever they choose. Keycloak uses a UUID;
 Entra ID uses an id that differs for each application. Register that value, not a

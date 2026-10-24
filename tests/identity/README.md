@@ -43,13 +43,14 @@ drives Chromium through the console's own sign-in and checks what a person actua
 | Sign-out | Back to the sign-in screen, no authenticated call after a reload. Recorded, not judged: the token stays valid at the API until it expires, and the provider's session survives |
 | Expiry | The console returns to sign-in when the token expires, and the API refuses the expired token |
 
-It has three modes, and **only `pilot` can qualify anything about the pilot**. The report
+It has four modes, and **only `pilot` can qualify anything about the pilot**. The report
 states the mode and a verdict that says so.
 
 | Mode | Identity provider | API and console | Qualifies |
 | --- | --- | --- | --- |
 | `rehearsal` | A stand-in started by the run (`tests/browser/stub_provider.py`) | Started locally | Nothing but this tooling. For a machine without Docker |
 | `fixture` | The Keycloak realm in `keycloak/` | Started locally: API in OIDC mode over a throwaway store; the production console build under `vite preview` on `127.0.0.1:5173` | The console against a real provider registered as docs/setup.md says. Not the pilot's registration, origin or nginx proxy. CI runs this in the `identity` job |
+| `standin` | The Keycloak fixture realm (or external stand-in IdP) | Deployed compose stack behind nginx; nothing started by the run | Stand-in qualification by an AI agent under PLAN A5 / NP-06. Verdict is `AGENT-QUALIFIED ON TEST STAND-IN`; not a pilot qualification |
 | `pilot` | The pilot's own registration | The deployed console origin; nothing is started | The pilot registration, deployed origin and proxy, when every check passes and none is skipped |
 
 ```bash
@@ -66,6 +67,63 @@ HARNESS_BROWSER_MODE=fixture uv run --group browser python -m tests.browser run
 Chromium comes from `uv run --group browser playwright install chromium`, or set
 `HARNESS_BROWSER_CHANNEL=chrome` or `msedge` to use an installed browser. Port 5173 must
 be free for the local modes: the realm's redirect URIs fix it.
+
+### Stand-in qualification (NP-06, agent stand-in)
+
+Stand-in mode exercises the **deployed compose stack behind its nginx proxy**
+(`deploy/compose.yaml` and `deploy/nginx.conf`) using the disposable Keycloak
+fixture realm (`tests/identity/keycloak/compose.yaml`) as an automated stand-in for
+a pilot IdP registration.
+
+This mode is designed for autonomous AI agent verification under PLAN A5 / NP-06.
+Unlike `pilot` mode (which requires a human to sign in interactively without
+revealing credentials), `standin` mode supports automated `form` login with
+fixture accounts (`alice` and `bob`).
+
+**Plainly stated: this is an AI agent qualification on test stand-ins, NOT a human
+pilot qualification.** Its report verdict is always either
+`AGENT-QUALIFIED ON TEST STAND-IN (AI agent, not a human; not a pilot qualification)`
+or `FAILED` — it will never claim `QUALIFIED`.
+
+To run the complete automated drill (which brings up Keycloak, installs the compose
+stack behind nginx, seeds demonstration targets and user grants, runs browser qualification,
+and tears down in a trap):
+
+```bash
+deploy/identity-standin-drill.sh [--report PATH] [--keep]
+```
+
+Or run manually against an already-deployed compose stack:
+
+```bash
+export HARNESS_BROWSER_MODE=standin
+export HARNESS_BROWSER_CONSOLE_ORIGIN=http://127.0.0.1:8080
+export HARNESS_BROWSER_OIDC_ISSUER=http://keycloak.localhost:8180/realms/engineering
+export HARNESS_BROWSER_CLIENT_ID=oracledbharness-console
+export HARNESS_BROWSER_USER=alice
+export HARNESS_BROWSER_CHECK_UNREGISTERED=1
+export HARNESS_BROWSER_UNREGISTERED_USER=bob
+export HARNESS_BROWSER_FORBIDDEN_TARGET_ID=<target-id-not-granted-to-alice>
+export HARNESS_BROWSER_REPORT=./browser-report/standin.md
+uv run --group browser python -m tests.browser run
+```
+
+If the deployed nginx origin uses a self-signed TLS certificate, set
+`HARNESS_BROWSER_IGNORE_TLS_ERRORS=1` to ignore certificate errors (permitted
+strictly in `standin` mode; reported explicitly in the output).
+
+**Hostname resolution:**
+Keycloak names its issuer after the host it was reached on, and the API and browser
+must reach Keycloak using the exact same issuer URL (`http://keycloak.localhost:8180/realms/engineering`).
+On the host, `*.localhost` domains resolve to loopback (`127.0.0.1`) per RFC 6761 without
+touching `/etc/hosts`. Inside the API and web containers, Docker Compose maps
+`keycloak.localhost`, `nginx.localhost`, and `api.localhost` to `host-gateway` via `extra_hosts`,
+ensuring identical issuer URLs and port mappings across both the host and the container bridge network.
+The drill publishes Keycloak on `127.0.0.1:8180` and on the docker bridge gateway address
+only, never on every interface: the fixture realm has a fixed admin password. It also
+mounts a copy of the realm that accepts the console origin of this run, so
+`HARNESS_WEB_HOST_PORT` and `HARNESS_API_HOST_PORT` can move the console and API off
+8080 and 8000.
 
 ### Against the pilot
 

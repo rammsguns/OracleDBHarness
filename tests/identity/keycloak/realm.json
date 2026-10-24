@@ -62,10 +62,27 @@
   ],
   "users": [
     {
+      "id": "e7c65d62-1b14-41d3-8255-70e28d4d8ef8",
       "username": "alice",
       "email": "alice@example.internal",
       "emailVerified": true,
       "firstName": "Alice",
+      "lastName": "Example",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "qualification-only",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "f81d4fae-7dec-11d0-a765-00a0c91e6bf6",
+      "username": "bob",
+      "email": "bob@example.internal",
+      "emailVerified": true,
+      "firstName": "Bob",
       "lastName": "Example",
       "enabled": true,
       "credentials": [
