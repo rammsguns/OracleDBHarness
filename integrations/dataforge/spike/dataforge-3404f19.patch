@@ -1,0 +1,821 @@
+diff --git a/server/harness/adapter.ts b/server/harness/adapter.ts
+new file mode 100644
+index 0000000..effe83a
+--- /dev/null
++++ b/server/harness/adapter.ts
+@@ -0,0 +1,434 @@
++/**
++ * The OracleDataForge backend bridge.
++ *
++ * Ownership, restated because it is the whole point of the design:
++ *
++ * - DataForge owns its Oracle connections, wallets, user authorization, editor
++ *   buffers and every database operation. None of that moves here.
++ * - The harness owns provider configuration, the model call, the context rules,
++ *   request limits and copilot history.
++ * - The browser authenticates to DataForge only. This adapter authenticates to the
++ *   harness with a scoped service credential held on the server.
++ *
++ * The adapter never lets a browser choose which context is resolved: it asks the
++ * host application, through `ContextResolver`, using the *current* DataForge actor
++ * and that application's own permission checks.
++ */
++
++import { ADAPTER_VERSION, type HarnessIntegrationConfig } from "./config.ts";
++
++export const PROTOCOL_VERSION = "1.1";
++export const SUPPORTED_PROTOCOL_MAJOR = 1;
++
++/** Categories the adapter is willing to forward. Anything else is dropped. */
++export const ALLOWED_CONTEXT_CATEGORIES = [
++  "selected_source",
++  "object_definition",
++  "schema_metadata",
++  "error_text",
++  "plan_text",
++  "database_version",
++] as const;
++
++export type ContextCategory = (typeof ALLOWED_CONTEXT_CATEGORIES)[number];
++
++export interface ContextAttachment {
++  category: ContextCategory;
++  name: string;
++  content: string;
++  provenance: string;
++}
++
++/** The DataForge actor, as the DataForge backend already knows them. */
++export interface DataForgeActor {
++  /** Stable id where DataForge has named accounts; null for a local session. */
++  id: string | null;
++  /** DataForge's own capability-based role. Never sent to the harness as authority. */
++  role: string;
++  /** False when the installation has no named accounts. */
++  durable: boolean;
++}
++
++export interface AssistRequest {
++  action: string;
++  connectionId: string;
++  schema?: string;
++  selection: string;
++  errorText?: string;
++  planText?: string;
++  question?: string;
++  editorId: string;
++  editorRevision: string;
++  conversationId?: string;
++}
++
++/**
++ * Implemented by DataForge. It must re-check the current actor's permissions for
++ * every attachment it returns; the adapter does not know DataForge's rules.
++ */
++export interface ContextResolver {
++  /** Opaque, stable identity for the target. Display names are not identifiers. */
++  targetReference(instanceId: string, connectionId: string, schema?: string): string;
++  /** The database version DataForge already knows for that connection. */
++  databaseVersion(connectionId: string): Promise<string>;
++  /**
++   * Permission-filtered attachments for this actor and request. Returning fewer
++   * attachments is always allowed; returning something the actor may not see is not.
++   */
++  resolve(actor: DataForgeActor, request: AssistRequest): Promise<ContextAttachment[]>;
++}
++
++/**
++ * Stream events this adapter understands. Protocol 1.1 added Kiwi's lookup trace
++ * (plan_step, tool_call, tool_result, budget). Anything else a newer harness sends
++ * within the same major version is dropped rather than passed to the editor.
++ */
++export const KNOWN_STREAM_EVENTS = [
++  "start",
++  "delta",
++  "proposal",
++  "usage",
++  "done",
++  "error",
++  "plan_step",
++  "tool_call",
++  "tool_result",
++  "budget",
++] as const;
++
++export type StreamEventName = (typeof KNOWN_STREAM_EVENTS)[number];
++
++export interface StreamEvent {
++  event: StreamEventName;
++  data: Record<string, unknown>;
++}
++
++export interface Capabilities {
++  enabled: boolean;
++  reachable: boolean;
++  compatible: boolean;
++  protocolVersion?: string;
++  actions: string[];
++  providerReady?: boolean;
++  isFixtureProvider?: boolean;
++  limits?: Record<string, number>;
++  adapterVersion: string;
++  detail: string;
++  requestId: string;
++}
++
++export interface AdapterOptions {
++  config: HarnessIntegrationConfig;
++  resolver: ContextResolver;
++  instanceId: string;
++  fetchImpl?: typeof fetch;
++  now?: () => number;
++}
++
++export class HarnessAdapter {
++  private readonly config: HarnessIntegrationConfig;
++  private readonly resolver: ContextResolver;
++  private readonly instanceId: string;
++  private readonly fetchImpl: typeof fetch;
++
++  constructor(options: AdapterOptions) {
++    this.config = options.config;
++    this.resolver = options.resolver;
++    this.instanceId = options.instanceId;
++    this.fetchImpl = options.fetchImpl ?? fetch;
++  }
++
++  /**
++   * What the IDE may offer right now. It is safe to call with the feature disabled
++   * or the harness down: it answers, it does not throw.
++   */
++  async capabilities(actor: DataForgeActor): Promise<Capabilities> {
++    const requestId = newRequestId();
++    if (!this.config.enabled) {
++      return {
++        enabled: false,
++        reachable: false,
++        compatible: false,
++        actions: [],
++        adapterVersion: ADAPTER_VERSION,
++        detail: "The harness integration is disabled in this installation.",
++        requestId,
++      };
++    }
++    try {
++      const response = await this.call("GET", "/api/v1/integrations/capabilities");
++      if (!response.ok) {
++        return {
++          enabled: true,
++          reachable: true,
++          compatible: false,
++          actions: [],
++          adapterVersion: ADAPTER_VERSION,
++          detail: `The harness refused the integration credential (${response.status}).`,
++          requestId,
++        };
++      }
++      const body = (await response.json()) as {
++        protocolVersion: string;
++        actions: string[];
++        providerReady: boolean;
++        isFixtureProvider: boolean;
++        limits: Record<string, number>;
++        enabled: boolean;
++      };
++      const compatible = protocolCompatible(body.protocolVersion);
++      return {
++        enabled: body.enabled,
++        reachable: true,
++        compatible,
++        protocolVersion: body.protocolVersion,
++        actions: compatible ? filterActionsForRole(body.actions, actor.role) : [],
++        providerReady: body.providerReady,
++        isFixtureProvider: body.isFixtureProvider,
++        limits: body.limits,
++        adapterVersion: ADAPTER_VERSION,
++        detail: compatible
++          ? ""
++          : `The harness speaks protocol ${body.protocolVersion}; this adapter speaks ` +
++            `${PROTOCOL_VERSION}. Upgrade one of them.`,
++        requestId,
++      };
++    } catch (cause) {
++      return {
++        enabled: true,
++        reachable: false,
++        compatible: false,
++        actions: [],
++        adapterVersion: ADAPTER_VERSION,
++        detail:
++          "The harness could not be reached. Editing, running and compiling in " +
++          `DataForge are unaffected. (${(cause as Error).message})`,
++        requestId,
++      };
++    }
++  }
++
++  /**
++   * Run one assist request and yield the harness stream events.
++   *
++   * `signal` propagates a browser disconnect to the harness and the provider. A
++   * partially delivered request is never retried automatically.
++   */
++  async *assist(
++    actor: DataForgeActor,
++    request: AssistRequest,
++    signal?: AbortSignal,
++  ): AsyncGenerator<StreamEvent, void, unknown> {
++    if (!this.config.enabled) {
++      yield errorEvent("integration_disabled", "The harness integration is disabled.");
++      return;
++    }
++
++    const attachments = sanitize(
++      await this.resolver.resolve(actor, request),
++      this.config.maxContextBytes,
++    );
++    if (attachments.length === 0 && !request.question?.trim()) {
++      yield errorEvent(
++        "no_context",
++        "Nothing was selected and no question was asked, so there is nothing to send.",
++      );
++      return;
++    }
++
++    const targetReference = this.resolver.targetReference(
++      this.instanceId,
++      request.connectionId,
++      request.schema,
++    );
++
++    let response: Response;
++    try {
++      response = await this.call("POST", "/api/v1/copilot/requests", {
++        protocolVersion: PROTOCOL_VERSION,
++        action: request.action,
++        targetReference,
++        conversationId: request.conversationId ?? "",
++        userMessage: request.question ?? "",
++        databaseVersion: await this.resolver.databaseVersion(request.connectionId),
++        schema: request.schema ?? "",
++        attachments,
++        editor: {
++          editorId: request.editorId,
++          revision: request.editorRevision,
++          text: request.selection,
++        },
++        // An assertion about which of *our* users is acting, namespaced by the
++        // harness. It is not a role and grants nothing.
++        actorReference: actor.id ?? "local-session",
++        actorIsDurable: actor.durable,
++      }, signal);
++    } catch (cause) {
++      yield errorEvent(
++        "harness_unreachable",
++        `The harness could not be reached: ${(cause as Error).message}`,
++      );
++      return;
++    }
++
++    if (!response.ok || !response.body) {
++      yield errorEvent(
++        response.status === 401 || response.status === 403
++          ? "integration_unauthorized"
++          : "harness_error",
++        `The harness returned ${response.status}.`,
++      );
++      return;
++    }
++
++    for await (const event of readSse(response.body)) {
++      yield event;
++    }
++  }
++
++  /**
++   * Ask whether a proposal may still be applied. DataForge calls this immediately
++   * before touching the buffer, with the buffer text it is about to replace.
++   */
++  async applyCheck(
++    actor: DataForgeActor,
++    proposalId: string,
++    body: {
++      editorId: string;
++      revision: string;
++      currentText: string;
++      connectionId: string;
++      schema?: string;
++    },
++  ): Promise<{ canApply: boolean; reasons: string[]; proposedText?: string }> {
++    const response = await this.call(
++      "POST",
++      `/api/v1/copilot/proposals/${encodeURIComponent(proposalId)}/apply-check`,
++      {
++        editorId: body.editorId,
++        revision: body.revision,
++        currentText: body.currentText,
++        targetReference: this.resolver.targetReference(
++          this.instanceId,
++          body.connectionId,
++          body.schema,
++        ),
++        actorReference: actor.id ?? "local-session",
++      },
++    );
++    if (!response.ok) {
++      return {
++        canApply: false,
++        reasons: [`The harness refused the apply check (${response.status}).`],
++      };
++    }
++    return (await response.json()) as {
++      canApply: boolean;
++      reasons: string[];
++      proposedText?: string;
++    };
++  }
++
++  private call(
++    method: string,
++    path: string,
++    body?: unknown,
++    signal?: AbortSignal,
++  ): Promise<Response> {
++    const controller = new AbortController();
++    const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
++    if (signal) signal.addEventListener("abort", () => controller.abort(), { once: true });
++    return this.fetchImpl(`${this.config.baseUrl}${path}`, {
++      method,
++      headers: {
++        Authorization: `Bearer ${this.config.token}`,
++        "Content-Type": "application/json",
++        "X-Adapter-Version": ADAPTER_VERSION,
++      },
++      body: body === undefined ? undefined : JSON.stringify(body),
++      signal: controller.signal,
++    }).finally(() => clearTimeout(timeout));
++  }
++}
++
++/**
++ * DataForge roles are capability-based, not a privilege ladder. Analyst is
++ * restricted to table browsing, so it gets documentation-only assistance and no
++ * schema-context expansion until that has been reviewed separately.
++ */
++export function filterActionsForRole(actions: string[], role: string): string[] {
++  if (role.toLowerCase() === "analyst") {
++    return actions.filter((action) => action === "explain");
++  }
++  return actions;
++}
++
++/** Drop anything outside the allowed categories and bound what is left. */
++export function sanitize(
++  attachments: ContextAttachment[],
++  maxBytes: number,
++): ContextAttachment[] {
++  const allowed = new Set<string>(ALLOWED_CONTEXT_CATEGORIES);
++  const kept: ContextAttachment[] = [];
++  let used = 0;
++  for (const attachment of attachments) {
++    if (!allowed.has(attachment.category)) continue;
++    const size = Buffer.byteLength(attachment.content, "utf8");
++    if (used + size > maxBytes) continue;
++    used += size;
++    kept.push(attachment);
++  }
++  return kept;
++}
++
++export function protocolCompatible(theirVersion: string): boolean {
++  const major = Number.parseInt(theirVersion.split(".")[0] ?? "", 10);
++  return Number.isInteger(major) && major === SUPPORTED_PROTOCOL_MAJOR;
++}
++
++export function errorEvent(code: string, message: string): StreamEvent {
++  return { event: "error", data: { code, message } };
++}
++
++export async function* readSse(
++  body: ReadableStream<Uint8Array>,
++): AsyncGenerator<StreamEvent, void, unknown> {
++  const reader = body.getReader();
++  const decoder = new TextDecoder();
++  let buffer = "";
++  for (;;) {
++    const { done, value } = await reader.read();
++    if (done) break;
++    buffer += decoder.decode(value, { stream: true });
++    let boundary = buffer.indexOf("\n\n");
++    while (boundary !== -1) {
++      const chunk = buffer.slice(0, boundary);
++      buffer = buffer.slice(boundary + 2);
++      const parsed = parseSse(chunk);
++      if (parsed) yield parsed;
++      boundary = buffer.indexOf("\n\n");
++    }
++  }
++}
++
++export function parseSse(chunk: string): StreamEvent | null {
++  let event = "";
++  let data = "";
++  for (const line of chunk.split("\n")) {
++    if (line.startsWith("event: ")) event = line.slice(7).trim();
++    else if (line.startsWith("data: ")) data += line.slice(6);
++  }
++  if (!event || !data) return null;
++  if (!(KNOWN_STREAM_EVENTS as readonly string[]).includes(event)) return null;
++  try {
++    return { event: event as StreamEventName, data: JSON.parse(data) };
++  } catch {
++    return null;
++  }
++}
++
++let counter = 0;
++export function newRequestId(): string {
++  counter += 1;
++  return `df-${Date.now().toString(36)}-${counter.toString(36)}`;
++}
+diff --git a/server/harness/config.ts b/server/harness/config.ts
+new file mode 100644
+index 0000000..30c0e16
+--- /dev/null
++++ b/server/harness/config.ts
+@@ -0,0 +1,95 @@
++/**
++ * Adapter configuration.
++ *
++ * These are new settings to add to OracleDataForge, not existing ones. All three are
++ * read on the server. The token is a backend secret: it must never be sent to a
++ * browser, put in a URL, or written to an ordinary log line.
++ */
++
++export interface HarnessIntegrationConfig {
++  enabled: boolean;
++  /** Administrator-controlled base URL. Never taken from a chat prompt or a header. */
++  baseUrl: string;
++  token: string;
++  /** Milliseconds before the adapter gives up on the harness. */
++  timeoutMs: number;
++  /** Upper bound on the context one request may carry, before the harness limit. */
++  maxContextBytes: number;
++  adapterVersion: string;
++}
++
++export const ADAPTER_VERSION = "0.1.0";
++
++export class ConfigurationProblem extends Error {
++  readonly field: string;
++  constructor(field: string, message: string) {
++    super(message);
++    this.name = "ConfigurationProblem";
++    this.field = field;
++  }
++}
++
++export function readConfig(env: Record<string, string | undefined>): HarnessIntegrationConfig {
++  const enabled = (env.DATAFORGE_HARNESS_ENABLED ?? "false").toLowerCase() === "true";
++  const baseUrl = (env.DATAFORGE_HARNESS_URL ?? "").trim().replace(/\/$/, "");
++  const token = (env.DATAFORGE_HARNESS_TOKEN ?? "").trim();
++
++  if (enabled) {
++    if (!baseUrl) {
++      throw new ConfigurationProblem(
++        "DATAFORGE_HARNESS_URL",
++        "The integration is enabled but no harness URL is configured.",
++      );
++    }
++    let parsed: URL;
++    try {
++      parsed = new URL(baseUrl);
++    } catch {
++      throw new ConfigurationProblem(
++        "DATAFORGE_HARNESS_URL",
++        `${baseUrl} is not a valid URL.`,
++      );
++    }
++    if (parsed.protocol !== "https:" && !isLoopback(parsed.hostname)) {
++      throw new ConfigurationProblem(
++        "DATAFORGE_HARNESS_URL",
++        "Use https for a harness that is not on loopback; the integration credential " +
++          "travels on this connection.",
++      );
++    }
++    if (!token) {
++      throw new ConfigurationProblem(
++        "DATAFORGE_HARNESS_TOKEN",
++        "The integration is enabled but no integration credential is configured.",
++      );
++    }
++  }
++
++  return {
++    enabled,
++    baseUrl,
++    token,
++    timeoutMs: Number(env.DATAFORGE_HARNESS_TIMEOUT_MS ?? 60000),
++    maxContextBytes: Number(env.DATAFORGE_HARNESS_MAX_CONTEXT_BYTES ?? 131072),
++    adapterVersion: ADAPTER_VERSION,
++  };
++}
++
++function isLoopback(hostname: string): boolean {
++  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
++}
++
++/**
++ * A redacted view for the settings screen and for diagnostics. It never includes the
++ * credential, not even a prefix.
++ */
++export function describeConfig(config: HarnessIntegrationConfig): Record<string, unknown> {
++  return {
++    enabled: config.enabled,
++    baseUrl: config.baseUrl,
++    tokenConfigured: config.token.length > 0,
++    timeoutMs: config.timeoutMs,
++    maxContextBytes: config.maxContextBytes,
++    adapterVersion: config.adapterVersion,
++  };
++}
+diff --git a/server/harness/routes.ts b/server/harness/routes.ts
+new file mode 100644
+index 0000000..628d347
+--- /dev/null
++++ b/server/harness/routes.ts
+@@ -0,0 +1,174 @@
++/**
++ * Same-origin routes for the DataForge Express backend.
++ *
++ * These implement the two routes the DataForge AI-chat plan proposes, backed by the
++ * harness rather than by a second model-provider implementation.
++ *
++ * The Express types are declared structurally so this package adds no dependency to
++ * DataForge; it drops into the existing app with `app.use(createHarnessRoutes(...))`.
++ */
++
++import type { AssistRequest, DataForgeActor, HarnessAdapter } from "./adapter.ts";
++import { ALLOWED_CONTEXT_CATEGORIES } from "./adapter.ts";
++
++export interface MinimalRequest {
++  body: Record<string, unknown>;
++  params: Record<string, string>;
++  on(event: "close", listener: () => void): void;
++}
++
++export interface MinimalResponse {
++  status(code: number): MinimalResponse;
++  json(body: unknown): void;
++  setHeader(name: string, value: string): void;
++  write(chunk: string): void;
++  end(): void;
++  flushHeaders?(): void;
++  flush?(): void;
++}
++
++export interface RouteHandler {
++  (request: MinimalRequest, response: MinimalResponse): void | Promise<void>;
++}
++
++export interface MinimalRouter {
++  get(path: string, handler: RouteHandler): void;
++  post(path: string, handler: RouteHandler): void;
++}
++
++export interface RouteOptions {
++  adapter: HarnessAdapter;
++  /**
++   * Resolves the actor from the *existing* DataForge session. It must never read a
++   * role out of the request body: a browser cannot name its own role here.
++   */
++  currentActor: (request: MinimalRequest) => Promise<DataForgeActor | null>;
++  router: MinimalRouter;
++}
++
++export function registerHarnessRoutes({ adapter, currentActor, router }: RouteOptions): void {
++  router.get("/api/ai/capabilities", async (request, response) => {
++    const actor = await currentActor(request);
++    if (!actor) {
++      response.status(401).json({ error: "Sign in to DataForge first." });
++      return;
++    }
++    response.json(await adapter.capabilities(actor));
++  });
++
++  router.post("/api/ai/chat", async (request, response) => {
++    const actor = await currentActor(request);
++    if (!actor) {
++      response.status(401).json({ error: "Sign in to DataForge first." });
++      return;
++    }
++
++    const parsed = parseAssistRequest(request.body);
++    if ("error" in parsed) {
++      response.status(400).json({ error: parsed.error });
++      return;
++    }
++
++    const controller = new AbortController();
++    request.on("close", () => controller.abort());
++
++    response.setHeader("Content-Type", "text/event-stream");
++    response.setHeader("Cache-Control", "no-cache, no-transform");
++    // Proxies that buffer will hold the whole answer until the end; this asks the
++    // common ones not to.
++    response.setHeader("X-Accel-Buffering", "no");
++    response.flushHeaders?.();
++
++    try {
++      for await (const event of adapter.assist(actor, parsed.request, controller.signal)) {
++        response.write(`event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`);
++        response.flush?.();
++      }
++    } catch (cause) {
++      response.write(
++        `event: error\ndata: ${JSON.stringify({
++          code: "adapter_failure",
++          message: (cause as Error).message,
++        })}\n\n`,
++      );
++    } finally {
++      response.end();
++    }
++  });
++
++  router.post("/api/ai/proposals/:proposalId/apply-check", async (request, response) => {
++    const actor = await currentActor(request);
++    if (!actor) {
++      response.status(401).json({ error: "Sign in to DataForge first." });
++      return;
++    }
++    const body = request.body as {
++      editorId?: string;
++      revision?: string;
++      currentText?: string;
++      connectionId?: string;
++      schema?: string;
++    };
++    if (!body.editorId || !body.connectionId || typeof body.currentText !== "string") {
++      response
++        .status(400)
++        .json({ error: "editorId, connectionId and currentText are required." });
++      return;
++    }
++    response.json(
++      await adapter.applyCheck(actor, request.params.proposalId ?? "", {
++        editorId: body.editorId,
++        revision: body.revision ?? "",
++        currentText: body.currentText,
++        connectionId: body.connectionId,
++        schema: body.schema,
++      }),
++    );
++  });
++}
++
++export function parseAssistRequest(
++  body: Record<string, unknown>,
++): { request: AssistRequest } | { error: string } {
++  const action = typeof body.action === "string" ? body.action : "";
++  const connectionId = typeof body.connectionId === "string" ? body.connectionId : "";
++  const selection = typeof body.selection === "string" ? body.selection : "";
++  const editorId = typeof body.editorId === "string" ? body.editorId : "";
++  const editorRevision =
++    typeof body.editorRevision === "string" ? body.editorRevision : "";
++
++  if (!action) return { error: "An action is required." };
++  if (!connectionId) return { error: "A DataForge connection must be selected." };
++  if (!editorId || !editorRevision) {
++    return {
++      error:
++        "editorId and editorRevision are required so a proposal can be rejected if " +
++        "the document moves.",
++    };
++  }
++  // A browser cannot hand us arbitrary context. It sends its selection and its
++  // question; everything else is resolved server-side under the actor's permissions.
++  for (const forbidden of ["attachments", "role", "actorReference", "targetReference"]) {
++    if (forbidden in body) {
++      return { error: `The field ${forbidden} is not accepted from the browser.` };
++    }
++  }
++
++  return {
++    request: {
++      action,
++      connectionId,
++      schema: typeof body.schema === "string" ? body.schema : undefined,
++      selection,
++      errorText: typeof body.errorText === "string" ? body.errorText : undefined,
++      planText: typeof body.planText === "string" ? body.planText : undefined,
++      question: typeof body.question === "string" ? body.question : undefined,
++      editorId,
++      editorRevision,
++      conversationId:
++        typeof body.conversationId === "string" ? body.conversationId : undefined,
++    },
++  };
++}
++
++export { ALLOWED_CONTEXT_CATEGORIES };
+diff --git a/server/index.ts b/server/index.ts
+index f7c76d4..26a6ec1 100644
+--- a/server/index.ts
++++ b/server/index.ts
+@@ -8,6 +8,9 @@ import { readDbmsOutput, withDbmsOutput, type DbmsOutput } from "./dbmsOutput.ts
+ import { appendDbaAudit, readDbaAudit } from "./dbaAudit.ts";
+ import { storageChangeSql, type StorageChange } from "../src/utils/dbaSql.ts";
+ import { selectManagementQueries } from "./dbaManagement.ts";
++import { HarnessAdapter, type AssistRequest, type ContextAttachment, type DataForgeActor } from "./harness/adapter.ts";
++import { readConfig, type HarnessIntegrationConfig } from "./harness/config.ts";
++import { registerHarnessRoutes } from "./harness/routes.ts";
+ import { globalSessionsSql, localSessionsSql, globalConnectInfoSql, localConnectInfoSql, killSessionSql, sessionIdentifier, sessionResourcesSql, sessionResourceStats } from "./oracleSessions.ts";
+ import compression from "compression";
+ import { AuthConcurrency } from "./authConcurrency.ts";
+@@ -4703,6 +4706,85 @@ app.use(express.json({ limit: "16mb" })); // generous headroom for CSV/JSON impo
+ 
+ app.get("/api/health", (_req, res) => res.json({ ok: true, connections: registry.size }));
+ 
++let harnessConfig: HarnessIntegrationConfig;
++try {
++  harnessConfig = readConfig(process.env);
++} catch (err) {
++  console.warn("Harness configuration error:", err);
++  harnessConfig = {
++    enabled: false,
++    baseUrl: "",
++    token: "",
++    timeoutMs: 60000,
++    maxContextBytes: 131072,
++    adapterVersion: "0.1.0",
++  };
++}
++
++const installationId = process.env.DATAFORGE_INSTANCE_ID || "dataforge-default";
++
++async function resolveContextForActor(
++  actor: DataForgeActor,
++  request: AssistRequest,
++): Promise<ContextAttachment[]> {
++  const attachments: ContextAttachment[] = [];
++  if (request.selection) {
++    attachments.push({
++      category: "selected_source",
++      name: "selection",
++      content: request.selection,
++      provenance: "editor selection",
++    });
++  }
++  if (request.errorText) {
++    attachments.push({
++      category: "error_text",
++      name: "error",
++      content: request.errorText,
++      provenance: "user-supplied error text",
++    });
++  }
++  if (request.planText) {
++    attachments.push({
++      category: "plan_text",
++      name: "plan",
++      content: request.planText,
++      provenance: "explain plan output",
++    });
++  }
++  if (actor.role.toLowerCase() === "analyst") {
++    return attachments;
++  }
++  return attachments;
++}
++
++const harnessAdapter = new HarnessAdapter({
++  config: harnessConfig,
++  instanceId: installationId,
++  resolver: {
++    targetReference: (instanceId, connectionId, schema) =>
++      `dataforge:${instanceId}:${connectionId}:${schema ?? ""}`,
++    databaseVersion: async (_connectionId) => "19.0.0.0.0",
++    resolve: (actor, request) => resolveContextForActor(actor, request),
++  },
++});
++
++registerHarnessRoutes({
++  router: app,
++  adapter: harnessAdapter,
++  currentActor: async (req) => {
++    const res = (req as express.Request).res;
++    const role = res?.locals?.role as string | undefined;
++    if (!role) return null;
++    const email = (res?.locals?.userEmail as string | undefined) ?? null;
++    return {
++      id: email,
++      role,
++      durable: Boolean(email),
++    };
++  },
++});
++
+ /** Tells the browser who it's actually authenticated as, so the UI reflects the role the
+  *  server will enforce instead of a client-chosen guess. */
+ app.get("/api/session", (_req, res) => {

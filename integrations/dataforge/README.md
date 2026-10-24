@@ -129,6 +129,40 @@ node --test integrations/dataforge/test/adapter.test.ts
 The tests cover disabled mode, outage, protocol negotiation, credential revocation,
 role filtering, context sanitising, and the browser-supplied-field refusals.
 
+## Running against a real DataForge
+
+To run integration checks against a real OracleDataForge Express server:
+
+1. Clone `rammsguns/OracleDataForge` and apply the adapter spike patch:
+
+   ```bash
+   git clone https://github.com/rammsguns/OracleDataForge /path/to/dataforge
+   git -C /path/to/dataforge checkout 3404f1905da183e1903a35193a7d5b0df18d0870
+   git -C /path/to/dataforge apply integrations/dataforge/spike/dataforge-3404f19.patch
+   npm --prefix /path/to/dataforge install
+   ```
+
+2. Run the integration runner against a disposable harness:
+
+   ```bash
+   uv run python -m tests.dataforge_live dataforge --dataforge-dir /path/to/dataforge --report report.md
+   ```
+
+   Or point it at an already running harness or deployment proxy:
+
+   ```bash
+   uv run python -m tests.dataforge_live dataforge \
+     --dataforge-dir /path/to/dataforge \
+     --harness-url http://127.0.0.1:18081 \
+     --token-file /path/to/token \
+     --report report.md
+   ```
+
+The runner exercises real HTTP requests through DataForge's own Express routes:
+capability negotiation (`GET /api/ai/capabilities`), streaming assist with SSE chunking
+(`POST /api/ai/chat`), proposal apply verification (stale rejection and reviewable match),
+harness outage and disabled mode fallback, and invalid token and incompatible protocol refusal.
+
 ## Not done yet
 
 This is the adapter side of a two-repository change. The DataForge repository still

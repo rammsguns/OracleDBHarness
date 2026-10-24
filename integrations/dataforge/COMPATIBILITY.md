@@ -73,3 +73,35 @@ lines above, not NP-05 itself.
   delivered at the end, proving the passthrough assertion is not passing by accident.
 - Owed for this preparation to become NP-05 evidence: everything in "Not tested"
   above, principally a real DataForge checkout and its own release gates.
+
+### 2026-10-24, first run against a real OracleDataForge (A6, agent stand-in)
+
+Run by Claude (AI agent, acting application owner, not a human), with tooling by agy, on
+the z4g5 test host. This is agent-qualified on test stand-ins, not a pilot qualification.
+
+| Item | Value |
+| --- | --- |
+| DataForge commit | `3404f1905da183e1903a35193a7d5b0df18d0870` (public HEAD on 2026-10-24) with the adapter patch `spike/dataforge-3404f19.patch` applied on a local branch. The patch was not pushed to DataForge |
+| Adapter / protocol | 0.1.0 / 1.0. The adapter route now also flushes each SSE event and sends `Cache-Control: no-cache, no-transform` |
+| Harness | Disposable harness (fake Oracle backend, fixture copilot provider) behind the shipped `deploy/nginx.conf`, with only its upstream and listen address rewritten, in `nginx:1.27-alpine` |
+| DataForge's own checks | `npm test` 279/279 passed, `typecheck` clean, `build` clean. These match the baseline at the pinned commit |
+| Through DataForge's real Express routes, via the proxy | 7/7 passed (`python -m tests.dataforge_live dataforge`) |
+
+The 7 checks:
+- capability negotiation;
+- streamed `/api/ai/chat`: 9 SSE events arrived as chunks through nginx;
+- a stale-revision proposal rejected, and a matching one accepted as reviewable, with no database or git mutation;
+- harness outage: a typed `harness_unreachable`, and DataForge's non-AI health route still answered;
+- disabled mode;
+- a revoked or invalid token refused;
+- an incompatible protocol refused.
+
+Still not done, so NP-05 stays open:
+- The DataForge editor and UI work: independent worksheet buffers, the apply UI and the
+  context preview.
+- The integration upstream in the DataForge repository.
+- Oracle 19c through DataForge.
+- A real model provider.
+- Worksheet commit/rollback, compile and confirmation-dialog regression inside DataForge
+  beyond its own test suite.
+- The ten-minute setup measurement.

@@ -2416,10 +2416,15 @@ Tasks, one at a time:
     `deploy/identity-standin-drill.sh` passed all 23 checks, with 2 observed, through the
     compose nginx. Evidence is in docs/compatibility.md, "Identity through the deployed
     proxy". Pilot NP-06 stays open.
-- [ ] **A6 NP-05 DataForge.** Pin a real OracleDataForge checkout (a public repo commit)
+- [x] **A6 NP-05 DataForge.** Pin a real OracleDataForge checkout (a public repo commit)
   and run it with the adapter through a deployed proxy: context, streaming,
   stale/reviewed diffs and outages, in both projects. Update
   `integrations/dataforge/COMPATIBILITY.md`.
+  - Done 2026-10-24 as a first slice, agent-qualified on test stand-ins. DataForge was
+    pinned at `3404f19` with the adapter patch (local only). Its own 279 tests,
+    typecheck and build still pass. All 7 checks through the real DataForge routes passed
+    via the shipped nginx config. The editor/UI work, the upstream DataForge change,
+    Oracle through DataForge and a real provider remain, so NP-05 stays open.
 - [ ] **A7 G2 security review.** An independent AI security review (two models) of the
   production boundary, authentication, secrets and audit. Change approval: acting DBA
   (AI) for test targets only.
