@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import oracledb
 from sqlalchemy import select
 
 from harness_api.db import build_engine, build_session_factory
@@ -105,6 +104,8 @@ class _FailingProvider(http.server.BaseHTTPRequestHandler):
 
 def dataforge_session_count(target_dsn: str) -> int:
     """Observe D1 as SYSTEM; read credentials without ever echoing them."""
+    import oracledb  # the oracle extra; imported here so offline tests need not install it
+
     values = {}
     for line in (REPOSITORY / "databases/qual/r1.env").read_text().splitlines():
         parts = shlex.split(line, comments=True)
@@ -132,6 +133,8 @@ def dataforge_session_count(target_dsn: str) -> int:
 
 
 def run_oracle_integration(dataforge_dir: Path, targets: Path, workdir: Path) -> RealRunReport:
+    import oracledb  # the oracle extra; see dataforge_session_count
+
     stack = OracleHarness(workdir, targets)
     checks: list[CheckResult] = []
     metadata: dict[str, Any] = {
