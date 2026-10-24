@@ -64,6 +64,7 @@ class Report:
     browser: str = ""
     started: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.UTC))
     commit: str = field(default_factory=_commit)
+    ignore_tls_errors: bool = False
     checks: list[Check] = field(default_factory=list)
     _secrets: set[str] = field(default_factory=set, repr=False)
 
@@ -120,6 +121,8 @@ class Report:
             return False
         if self.mode == "pilot":
             return self.qualified or self.allow_partial
+        if self.mode == "standin":
+            return not self.skips
         return True
 
     @property
@@ -138,6 +141,10 @@ class Report:
                 "FIXTURE PASSED - the local Keycloak realm and a local console preview; not "
                 "qualification of the pilot identity registration, origin or proxy"
             )
+        if self.mode == "standin":
+            if self.skips:
+                return f"FAILED - {len(self.skips)} check(s) did not run"
+            return "AGENT-QUALIFIED ON TEST STAND-IN (AI agent, not a human; not a pilot qualification)"
         if self.skips:
             state = "PARTIAL" if self.allow_partial else "NOT QUALIFIED"
             return f"{state} - {len(self.skips)} check(s) did not run"
@@ -159,6 +166,7 @@ class Report:
             "browser": self.browser,
             "platform": f"{platform.platform()}, Python {platform.python_version()}",
             "allowPartial": self.allow_partial,
+            "ignoreTlsErrors": self.ignore_tls_errors,
             "checks": [check.__dict__ for check in self.checks],
         }
 
@@ -174,10 +182,16 @@ class Report:
             f"- Client: `{self.client_id}`",
             f"- Browser: {self.browser or 'not started'}",
             f"- Platform: {platform.platform()}, Python {platform.python_version()}",
-            "",
-            "| Check | Outcome | Detail |",
-            "| --- | --- | --- |",
         ]
+        if self.ignore_tls_errors:
+            lines.append("- TLS: certificate verification disabled (stand-in opt-in)")
+        lines.extend(
+            [
+                "",
+                "| Check | Outcome | Detail |",
+                "| --- | --- | --- |",
+            ]
+        )
         for check in self.checks:
             detail = check.detail.replace("|", "\\|").replace("\n", "<br>")
             lines.append(f"| {check.title} | {check.outcome} | {detail} |")

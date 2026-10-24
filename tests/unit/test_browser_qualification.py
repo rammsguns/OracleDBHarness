@@ -117,6 +117,80 @@ def test_partial_runs_are_a_pilot_only_notion(monkeypatch: pytest.MonkeyPatch) -
         browser_config.load()
 
 
+def test_standin_mode_requires_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    configure(monkeypatch, HARNESS_BROWSER_MODE="standin")
+    with pytest.raises(browser_config.ConfigurationProblem) as refused:
+        browser_config.load()
+    assert "CONSOLE_ORIGIN" in str(refused.value)
+
+
+def test_standin_mode_defaults_and_fixture_accounts(monkeypatch: pytest.MonkeyPatch) -> None:
+    configure(
+        monkeypatch,
+        HARNESS_BROWSER_MODE="standin",
+        HARNESS_BROWSER_CONSOLE_ORIGIN="http://127.0.0.1:8080",
+    )
+    config = browser_config.load()
+    assert config.login == "form"
+    assert config.starts_local_stack is False
+    assert config.qualifies_pilot is False
+    assert config.issuer == browser_config.FIXTURE_ISSUER
+    assert config.client_id == browser_config.FIXTURE_CLIENT_ID
+    assert config.account is not None and config.account.username == "alice"
+    assert config.unregistered is not None and config.unregistered.username == "bob"
+    assert config.check_unregistered is True
+    assert config.ignore_tls_errors is False
+
+
+def test_standin_mode_allows_remote_and_loopback_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    configure(
+        monkeypatch,
+        HARNESS_BROWSER_MODE="standin",
+        HARNESS_BROWSER_CONSOLE_ORIGIN="https://harness.deployed.example",
+    )
+    config = browser_config.load()
+    assert config.origin == "https://harness.deployed.example"
+
+
+def test_standin_mode_refuses_partial_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    configure(
+        monkeypatch,
+        HARNESS_BROWSER_MODE="standin",
+        HARNESS_BROWSER_CONSOLE_ORIGIN="http://127.0.0.1:8080",
+        HARNESS_BROWSER_ALLOW_PARTIAL="1",
+    )
+    with pytest.raises(browser_config.ConfigurationProblem, match="only means something in pilot"):
+        browser_config.load()
+
+
+@pytest.mark.parametrize("mode", ["rehearsal", "fixture", "pilot"])
+def test_tls_errors_opt_in_refused_outside_standin(
+    monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    vars_to_set = {
+        "HARNESS_BROWSER_MODE": mode,
+        "HARNESS_BROWSER_IGNORE_TLS_ERRORS": "1",
+    }
+    if mode == "pilot":
+        vars_to_set.update(PILOT)
+    configure(monkeypatch, **vars_to_set)
+    with pytest.raises(
+        browser_config.ConfigurationProblem, match="only means something in standin"
+    ):
+        browser_config.load()
+
+
+def test_standin_mode_allows_ignore_tls(monkeypatch: pytest.MonkeyPatch) -> None:
+    configure(
+        monkeypatch,
+        HARNESS_BROWSER_MODE="standin",
+        HARNESS_BROWSER_CONSOLE_ORIGIN="https://127.0.0.1:8443",
+        HARNESS_BROWSER_IGNORE_TLS_ERRORS="1",
+    )
+    config = browser_config.load()
+    assert config.ignore_tls_errors is True
+
+
 # -- the verdict -----------------------------------------------------------------------
 
 
@@ -152,6 +226,44 @@ def test_a_partial_pilot_run_can_succeed_but_never_qualifies() -> None:
     assert partial.succeeded is True
     assert partial.qualified is False
     assert partial.verdict.startswith("PARTIAL")
+
+
+def test_standin_mode_verdict_and_qualification() -> None:
+    complete = _report("standin", "passed", "observed")
+    assert complete.qualified is False
+    assert complete.succeeded is True
+    assert (
+        complete.verdict
+        == "AGENT-QUALIFIED ON TEST STAND-IN (AI agent, not a human; not a pilot qualification)"
+    )
+
+    failed = _report("standin", "passed", "failed")
+    assert failed.qualified is False
+    assert failed.succeeded is False
+    assert failed.verdict.startswith("FAILED")
+
+    skipped = _report("standin", "passed", "skipped")
+    assert skipped.qualified is False
+    assert skipped.succeeded is False
+    assert skipped.verdict.startswith("FAILED")
+
+    empty = _report("standin")
+    assert empty.qualified is False
+    assert empty.succeeded is False
+    assert empty.verdict == "INCOMPLETE - no checks ran"
+
+
+def test_standin_tls_opt_in_reported(tmp_path: Path) -> None:
+    report = _report("standin", "passed")
+    report.ignore_tls_errors = True
+    text = report.as_markdown()
+    assert "- TLS: certificate verification disabled (stand-in opt-in)" in text
+    assert report.as_dict()["ignoreTlsErrors"] is True
+    report.write(tmp_path / "report.md")
+    assert (tmp_path / "report.md").exists()
+    payload = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
+    assert payload["ignoreTlsErrors"] is True
+    assert payload["qualified"] is False
 
 
 # -- no secret reaches the report --------------------------------------------------------

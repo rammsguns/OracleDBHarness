@@ -30,8 +30,10 @@ ENV_CHANNEL = f"{ENV_PREFIX}CHANNEL"
 ENV_HEADED = f"{ENV_PREFIX}HEADED"
 ENV_LOGIN_TIMEOUT = f"{ENV_PREFIX}LOGIN_TIMEOUT_SECONDS"
 ENV_REPORT = f"{ENV_PREFIX}REPORT"
+ENV_IGNORE_TLS = f"{ENV_PREFIX}IGNORE_TLS"
+ENV_IGNORE_TLS_ERRORS = f"{ENV_PREFIX}IGNORE_TLS_ERRORS"
 
-MODES = ("rehearsal", "fixture", "pilot")
+MODES = ("rehearsal", "fixture", "pilot", "standin")
 LOGINS = ("form", "manual")
 CHANNELS = ("chromium", "chrome", "msedge")
 
@@ -44,7 +46,7 @@ FIXTURE_USER = "alice"
 FIXTURE_PASSWORD = "qualification-only"  # noqa: S105
 
 NOT_CONFIGURED = (
-    f"{ENV_MODE} is not set. Set it to rehearsal, fixture or pilot; see "
+    f"{ENV_MODE} is not set. Set it to rehearsal, fixture, standin or pilot; see "
     "tests/identity/README.md, 'Browser qualification'."
 )
 
@@ -82,6 +84,7 @@ class BrowserConfig:
     headed: bool
     login_timeout_seconds: float
     report_path: Path | None
+    ignore_tls_errors: bool = False
 
     @property
     def qualifies_pilot(self) -> bool:
@@ -134,11 +137,15 @@ def load() -> BrowserConfig:
     if mode not in MODES:
         raise ConfigurationProblem([f"{ENV_MODE}={mode!r}; expected one of {', '.join(MODES)}."])
 
-    origin = _get(ENV_ORIGIN).rstrip("/")
+    origin = (_get(ENV_ORIGIN) or _get(f"{ENV_PREFIX}ORIGIN")).rstrip("/")
     issuer = _get(ENV_ISSUER)
     client_id = _get(ENV_CLIENT_ID)
     login = _get(ENV_LOGIN).lower() or ("manual" if mode == "pilot" else "form")
     channel = _get(ENV_CHANNEL).lower() or "chromium"
+    ignore_tls = _flag(ENV_IGNORE_TLS_ERRORS) or _flag(ENV_IGNORE_TLS)
+
+    if ignore_tls and mode != "standin":
+        problems.append(f"{ENV_IGNORE_TLS_ERRORS} only means something in standin mode.")
 
     if login not in LOGINS:
         problems.append(f"{ENV_LOGIN}={login!r}; expected form or manual.")
@@ -169,6 +176,13 @@ def load() -> BrowserConfig:
                 "window: login forms and second factors differ by provider, and a pilot "
                 "account's password has no place in a test run."
             )
+    elif mode == "standin":
+        if not origin:
+            problems.append(
+                f"{ENV_ORIGIN} is required in standin mode: the run checks against a deployed origin."
+            )
+        issuer = issuer or FIXTURE_ISSUER
+        client_id = client_id or FIXTURE_CLIENT_ID
     elif mode == "fixture":
         origin = origin or FIXTURE_ORIGIN
         issuer = issuer or FIXTURE_ISSUER
@@ -182,7 +196,7 @@ def load() -> BrowserConfig:
                 "provider. Unset it, or use fixture or pilot mode."
             )
 
-    if mode != "pilot" and not _is_loopback(origin):
+    if mode not in ("pilot", "standin") and not _is_loopback(origin):
         problems.append(
             f"{mode} mode starts the console locally, so {ENV_ORIGIN} must be a loopback "
             f"origin; got {origin!r}."
@@ -191,17 +205,22 @@ def load() -> BrowserConfig:
     account: Account | None = None
     unregistered: Account | None = None
     if login == "form":
-        if mode == "fixture":
+        if mode in ("fixture", "standin"):
             account = Account(_get(ENV_USER) or FIXTURE_USER, FIXTURE_PASSWORD)
             if _get(ENV_PASSWORD_FILE):
                 account = Account(account.username, _read_password(ENV_PASSWORD_FILE, problems))
         elif mode == "rehearsal":
             account = None  # the stand-in provider creates its own account for the run
     unregistered_user = _get(ENV_UNREGISTERED_USER)
+    if not unregistered_user and mode == "standin":
+        unregistered_user = "bob"
     if unregistered_user:
-        password = (
-            _read_password(ENV_UNREGISTERED_PASSWORD_FILE, problems) if login == "form" else ""
-        )
+        password = ""
+        if login == "form":
+            if _get(ENV_UNREGISTERED_PASSWORD_FILE):
+                password = _read_password(ENV_UNREGISTERED_PASSWORD_FILE, problems)
+            elif unregistered_user == "bob":
+                password = FIXTURE_PASSWORD
         unregistered = Account(unregistered_user, password)
 
     expiry_text = _get(ENV_EXPIRY_WAIT)
@@ -241,4 +260,5 @@ def load() -> BrowserConfig:
         headed=login == "manual" or _flag(ENV_HEADED),
         login_timeout_seconds=login_timeout,
         report_path=Path(report) if report else None,
+        ignore_tls_errors=ignore_tls,
     )

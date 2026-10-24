@@ -92,7 +92,12 @@ class Run:
         self.origin = config.origin
         self.traffic = Traffic()
         self.authorization_endpoint = ""
-        self.http = httpx.Client(base_url=self.origin, timeout=20.0, follow_redirects=False)
+        self.http = httpx.Client(
+            base_url=self.origin,
+            timeout=20.0,
+            follow_redirects=False,
+            verify=not config.ignore_tls_errors,
+        )
 
     # -- preflight ---------------------------------------------------------------------
 
@@ -148,7 +153,9 @@ class Run:
 
         try:
             discovery = httpx.get(
-                f"{self.issuer.rstrip('/')}/.well-known/openid-configuration", timeout=15.0
+                f"{self.issuer.rstrip('/')}/.well-known/openid-configuration",
+                timeout=15.0,
+                verify=not self.config.ignore_tls_errors,
             ).json()
             discovered = discovery.get("issuer")
         except (httpx.HTTPError, ValueError) as exc:
@@ -268,7 +275,7 @@ class Run:
         forbidden_target_id: str,
     ) -> None:
         report, config = self.report, self.config
-        context = browser.new_context()
+        context = browser.new_context(ignore_https_errors=config.ignore_tls_errors)
         self.watch(context)
         page = context.new_page()
 
@@ -294,7 +301,7 @@ class Run:
             )
             register(match.group(1), "")
         elif config.check_unregistered:
-            other = browser.new_context()
+            other = browser.new_context(ignore_https_errors=config.ignore_tls_errors)
             self.watch(other)
             refused = self.sign_in(
                 other.new_page(),
@@ -589,6 +596,7 @@ def run(config: BrowserConfig, workdir: Path | None = None) -> Report:
         issuer=config.issuer,
         client_id=config.client_id,
         allow_partial=config.allow_partial,
+        ignore_tls_errors=config.ignore_tls_errors,
     )
     workdir = workdir or Path(tempfile.mkdtemp(prefix="harness-browser-"))
     provider: StubProvider | None = None
@@ -606,9 +614,11 @@ def run(config: BrowserConfig, workdir: Path | None = None) -> Report:
             issuer, jwks = provider.issuer, provider.jwks_url
         elif config.mode == "fixture":
             try:
-                jwks = httpx.get(f"{issuer}/.well-known/openid-configuration", timeout=15.0).json()[
-                    "jwks_uri"
-                ]
+                jwks = httpx.get(
+                    f"{issuer}/.well-known/openid-configuration",
+                    timeout=15.0,
+                    verify=not config.ignore_tls_errors,
+                ).json()["jwks_uri"]
             except (httpx.HTTPError, ValueError, KeyError) as exc:
                 report.failed(
                     "prerequisite.provider",
