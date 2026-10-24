@@ -11,6 +11,7 @@ import json
 import math
 import os
 import secrets
+import shlex
 import shutil
 import signal
 import subprocess
@@ -23,7 +24,6 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from dotenv import dotenv_values
 
 from tests.capacity.driver import find_free_port, split_dsn
 
@@ -44,6 +44,19 @@ GATE = Path("/home/kiwi/OracleDBHarness-B4/databases/reports/2026-10-24-b4/capac
 
 class RehearsalFailure(RuntimeError):
     """A safe, locally authored evidence-gate failure message."""
+
+
+def load_admin_settings(path: Path, repository: Path) -> dict[str, str]:
+    """Read shell-style assignments without executing them; expand only the known REPO placeholder."""
+    values: dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        parts = shlex.split(line, comments=True)
+        if parts and "=" in parts[-1]:
+            key, value = parts[-1].split("=", 1)
+            values[key] = value.replace("${REPO}", str(repository)).replace(
+                "$REPO", str(repository)
+            )
+    return values
 
 
 def compare_budget(cost: dict[str, float], budget: dict[str, float]) -> list[str]:
@@ -118,11 +131,11 @@ def run(args: argparse.Namespace) -> int:
         "label": LABEL,
         "gate": "G3 blocked (no production target)",
         "acting_dba_release_owner": "Claude (AI agent, not a human)",
-        "cost_scope": "All HARNESS_APP parsing-schema cursors on D4; acting DBA queries excluded. Sessions sampled every 250 ms (brief peaks may escape sampling). Cursor aging/reset fails verification.",
+        "cost_scope": "All HARNESS_APP parsing-schema cursors on D4; acting DBA queries excluded. Sessions polled with a 250 ms pause plus query latency (brief peaks may escape sampling). Cursor aging/reset fails verification.",
         "deviations": [
             "Local dev authentication instead of deployed OIDC/TLS",
             "Compressed passes instead of two weeks; no human DBA sign-off",
-            "Target disable uses removal of all harness read permissions through the admin API; no target-disable endpoint exists",
+            "Target disable revokes all four application target grants through the admin API; no target-disable endpoint exists",
         ],
         "budget": BUDGET,
         "budget_justification": JUSTIFICATION,
@@ -132,6 +145,20 @@ def run(args: argparse.Namespace) -> int:
         "phase": "waiting for D4",
         "restored": False,
     }
+    if args.drill_only:
+        existing = json.loads((args.report_dir / "report.json").read_text())
+        if existing.get("budget") != BUDGET or not existing.get("passes"):
+            raise RehearsalFailure(
+                "Drill-only requires retained passes with the same predeclared budget"
+            )
+        report["passes"] = existing["passes"]
+        report["incidents"] = existing.get("incidents", [])
+    if not args.drill_only and (args.report_dir / "report.json").exists():
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        for extension in ("json", "md"):
+            previous = args.report_dir / f"report.{extension}"
+            if previous.exists():
+                shutil.copyfile(previous, args.report_dir / f"previous-{stamp}.{extension}")
     persist(report, args.report_dir)  # Budget retained BEFORE any connection.
     try:
         wait_for_d4()
@@ -149,7 +176,7 @@ def run(args: argparse.Namespace) -> int:
     host, port, service = split_dsn(target["dsn"], "D4")
     if target["user"].upper() != "HARNESS_APP":
         raise RehearsalFailure("D4 must use HARNESS_APP")
-    admin_env = dotenv_values("databases/qual/r3-d4.env")
+    admin_env = load_admin_settings(Path("databases/qual/r3-d4.env"), Path.cwd())
     if admin_env["HARNESS_QUAL_ADMIN_DSN"] != target["dsn"]:
         raise RehearsalFailure("Acting DBA DSN differs from D4")
 
@@ -164,6 +191,7 @@ def run(args: argparse.Namespace) -> int:
             .read_text()
             .strip(),
             dsn=target["dsn"],
+            expire_time=1,
         )
 
     def snapshot(db: Any) -> dict[str, Any]:
@@ -355,15 +383,22 @@ def run(args: argparse.Namespace) -> int:
                     )
                     if cursor.fetchone()[0] != "OPEN":
                         raise RehearsalFailure("HARNESS_APP was not initially OPEN; refusing drill")
-                for index in range(args.passes):
+                for index in range(0 if args.drill_only else args.passes):
                     report["phase"] = f"pass {index + 1}"
                     p = PRINCIPALS[index % 3]
+                    if index:
+                        try:
+                            db.close()
+                        except Exception:
+                            pass
+                        db = connect(True)
                     before = snapshot(db)
                     samples = [before["sessions"]]
                     sample_errors: list[str] = []
                     stop_sampling = threading.Event()
 
                     def sample_sessions(
+                        db: Any = db,
                         stop_sampling: threading.Event = stop_sampling,
                         samples: list[int] = samples,
                         sample_errors: list[str] = sample_errors,
@@ -498,6 +533,13 @@ def run(args: argparse.Namespace) -> int:
                         raise RehearsalFailure("Database-cost budget exceeded")
                     if index + 1 < args.passes:
                         time.sleep(args.interval)
+                if args.observe_only:
+                    report["phase"] = (
+                        "observation passes complete; failure-gate drill pending coordinator decision"
+                    )
+                    report["account_changes"] = 0
+                    persist(report, args.report_dir)
+                    return 0
                 report["phase"] = "failure-gate drill"
                 report["lock_choice"] = (
                     "ACCOUNT LOCK preserves existing grants; ACCOUNT UNLOCK avoids revoke/re-grant ambiguity."
@@ -526,21 +568,38 @@ def run(args: argparse.Namespace) -> int:
                             payload={
                                 "subject": principal,
                                 "profileId": pid,
-                                "permissions": ["read"] if enabled else [],
+                                "permissions": ["read"],
                             },
                         )
                         response.raise_for_status()
+                        if not enabled:
+                            revoked = request("DELETE", f"/admin/grants/{response.json()['id']}")
+                            revoked.raise_for_status()
 
-                def refused_read() -> str:
-                    response = request(
-                        "GET", f"/targets/{pid}/objects?owner=HARNESS_APP&limit=1", PRINCIPALS[0]
-                    )
-                    code = response.json().get("error", {}).get("code")
-                    if not code or response.status_code < 400:
-                        raise RehearsalFailure(
-                            "Disabled target did not refuse access with typed error"
+                def refused_read() -> dict[str, str]:
+                    codes: dict[str, str] = {}
+                    # Revocation must also block the connection-test path, which an
+                    # existing but empty-permission grant would still allow to probe.
+                    for method, path in (
+                        ("GET", f"/targets/{pid}/objects?owner=HARNESS_APP&limit=1"),
+                        ("POST", f"/targets/{pid}/test"),
+                    ):
+                        old = {r["id"] for r in request("GET", "/audit?limit=1000").json()}
+                        response = request(method, path, PRINCIPALS[0])
+                        code = response.json().get("error", {}).get("code")
+                        if code != "not_authorized" or response.status_code != 403:
+                            raise RehearsalFailure(
+                                "Revoked target did not refuse access with not_authorized"
+                            )
+                        check_audit(
+                            request("GET", "/audit?limit=1000").json(),
+                            old,
+                            PRINCIPALS[0],
+                            pid,
+                            "refused",
                         )
-                    return str(code)
+                        codes[method + " " + path] = code
+                    return codes
 
                 try:
                     set_read_access(False)
@@ -593,14 +652,24 @@ def run(args: argparse.Namespace) -> int:
                                 cursor.execute("SELECT 1 FROM dual")
                                 if cursor.fetchone()[0] != 1:
                                     raise RehearsalFailure("Restored direct read failed")
-                        response = request(
-                            "GET",
-                            f"/targets/{pid}/objects?owner=HARNESS_APP&limit=1",
-                            PRINCIPALS[0],
-                        )
-                        response.raise_for_status()
-                        if observation_errors(response.json()):
-                            raise RehearsalFailure("Restored HTTP read failed")
+                        restored_audits = 0
+                        for principal in PRINCIPALS:
+                            old = {r["id"] for r in request("GET", "/audit?limit=1000").json()}
+                            response = request(
+                                "GET",
+                                f"/targets/{pid}/objects?owner=HARNESS_APP&limit=1",
+                                principal,
+                            )
+                            response.raise_for_status()
+                            if observation_errors(response.json()):
+                                raise RehearsalFailure("Restored HTTP read failed")
+                            restored_audits += check_audit(
+                                request("GET", "/audit?limit=1000").json(),
+                                old,
+                                principal,
+                                pid,
+                                "succeeded",
+                            )
                         report["restored"] = True
                         report["oracle_grants_unchanged"] = True
                         event(
@@ -609,6 +678,8 @@ def run(args: argparse.Namespace) -> int:
                             direct_read=True,
                             harness_read=True,
                             oracle_grants_unchanged=True,
+                            restored_principals=len(PRINCIPALS),
+                            restored_read_audits=restored_audits,
                         )
                     except Exception:
                         event("CRITICAL: restoration failed; acting DBA must restore immediately")
@@ -663,13 +734,24 @@ def main() -> int:
         action="store_true",
         help="Explicitly accept the grant-based target-disable deviation",
     )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--observe-only",
+        action="store_true",
+        help="Run authorized observation passes; leave the account-lock drill pending",
+    )
+    mode.add_argument(
+        "--drill-only",
+        action="store_true",
+        help="Retain prior pass evidence and run only the failure-gate drill",
+    )
     parser.add_argument("--passes", type=int, default=6)
     parser.add_argument("--interval", type=float, default=300)
     parser.add_argument(
         "--report-dir", type=Path, default=Path("databases/reports/2026-10-24-b5-canary")
     )
     args = parser.parse_args()
-    if not args.disable_via_read_grants:
+    if not args.disable_via_read_grants and not args.observe_only:
         parser.error(
             "The app has no target-disable API; grant-based disable requires --disable-via-read-grants"
         )

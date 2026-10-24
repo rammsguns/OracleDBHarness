@@ -46,3 +46,15 @@ def test_unavailable_panel_does_not_look_like_a_success():
     assert observation_errors({"panels": {"sessions": {"available": False}}})
     assert observation_errors({"outcome": "degraded", "steps": []})
     assert not observation_errors({"available": True, "rows": []})
+
+
+def test_shell_repo_placeholder_is_expanded_without_execution(tmp_path):
+    from tests.canary.rehearsal import load_admin_settings
+
+    env = tmp_path / "settings.env"
+    env.write_text(
+        'export HARNESS_QUAL_ADMIN_PASSWORD_FILE="$REPO/secrets/admin.pw"\n# comment\nHARNESS_QUAL_ADMIN_DSN=example:1521/ORCL\n'
+    )
+    settings = load_admin_settings(env, tmp_path)
+    assert settings["HARNESS_QUAL_ADMIN_PASSWORD_FILE"] == str(tmp_path / "secrets/admin.pw")
+    assert settings["HARNESS_QUAL_ADMIN_DSN"] == "example:1521/ORCL"

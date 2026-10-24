@@ -40,7 +40,7 @@ from harness_api.routers import (
 )
 from harness_api.runbooks import RunbookService, register_definitions
 from harness_api.security import Authenticator, Principal
-from harness_worker.errors import HarnessError, PolicyError
+from harness_worker.errors import AuthorizationError, HarnessError, PolicyError
 
 log = logging.getLogger("harness.api")
 
@@ -135,7 +135,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def harness_error_handler(request: Request, exc: HarnessError) -> JSONResponse:
         # Every failure the caller sees carries a stable code, so the console and IDE
         # adapters can react without parsing message text.
-        if isinstance(exc, PolicyError) and not getattr(exc, "refusal_audited", False):
+        target_access_denial = isinstance(exc, AuthorizationError) and bool(
+            exc.detail.get("profileId")
+        )
+        if (isinstance(exc, PolicyError) or target_access_denial) and not getattr(
+            exc, "refusal_audited", False
+        ):
             principal = getattr(request.state, "principal", Principal(subject="anonymous"))
             try:
                 with request.app.state.harness.session_factory() as db:

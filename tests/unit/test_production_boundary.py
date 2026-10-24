@@ -479,3 +479,25 @@ def test_unknown_stored_environment_treated_as_production_fail_closed(
     assert events[0][1]["code"] == "policy_refused"
 
     connect.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "method,suffix", [("GET", "/objects?owner=HARNESS_APP&limit=1"), ("POST", "/test")]
+)
+def test_revoked_target_access_is_audited_before_connect(
+    client, dba, production, monkeypatch, method, suffix
+):
+    with client.app.state.harness.session_factory() as db:
+        for grant in db.scalars(
+            select(UserTargetGrant).where(UserTargetGrant.profile_id == production)
+        ):
+            db.delete(grant)
+        db.commit()
+    connect = Mock(side_effect=AssertionError("must not connect after revocation"))
+    monkeypatch.setattr(client.app.state.harness.execution._backend, "connect", connect)
+    path = f"/api/v1/targets/{production}{suffix}"
+    response = client.request(method, path, headers=dba)
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "not_authorized"
+    connect.assert_not_called()
+    assert_one_refusal(client, path.split("?")[0], production)
