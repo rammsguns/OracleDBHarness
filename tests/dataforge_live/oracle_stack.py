@@ -168,7 +168,7 @@ class OracleHarness(LiveHarness):
                 for profile in db.scalars(select(ConnectionProfile)):
                     self.profiles[profile.name] = profile.id
                     self.versions[profile.name] = str(
-                        profile.identity_json.get("version", "unknown")
+                        (profile.identity_json or {}).get("version", "unknown")
                     )
         finally:
             engine.dispose()

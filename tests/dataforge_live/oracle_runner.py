@@ -458,13 +458,16 @@ def run_oracle_integration(dataforge_dir: Path, targets: Path, workdir: Path) ->
                     password = secrets.token_urlsafe(24)
                     admin_auth = httpx.BasicAuth("b1-admin@example.invalid", password)
                     analyst_auth = httpx.BasicAuth("b1-analyst@example.invalid", password)
-                    for role, email, auth in (
+                    users: tuple[tuple[str, str, httpx.BasicAuth | None], ...] = (
                         ("Administrator", "b1-admin@example.invalid", None),
                         ("Analyst", "b1-analyst@example.invalid", admin_auth),
-                    ):
+                    )
+                    for role, email, auth in users:
+                        # The first user is created without credentials (DataForge's
+                        # bootstrap); later ones are created by that administrator.
                         created_user = client.post(
                             f"{analyst_df.base_url}/api/users",
-                            auth=auth,
+                            auth=auth if auth is not None else httpx.USE_CLIENT_DEFAULT,
                             json={
                                 "name": f"B1 {role}",
                                 "email": email,
