@@ -2385,7 +2385,7 @@ instead a person to continue").
 
 Tasks, one at a time:
 
-- [ ] **A1 Decisions (acting owner).**
+- [x] **A1 Decisions (acting owner).** Done 2026-10-24, recorded as ADR-0013 in docs/decisions.md.
   - K1 retry default. Decide from the K-7 evidence and record the decision.
   - K5 grade vs the `absence_inference` check. Record which stands.
   - NP-07 capacity thresholds. Agree them before A2 runs; take them from
