@@ -50,7 +50,7 @@ jobs:
       - name: Types
         # The process-death tooling and the Oracle switch mostly run against Oracle, so
         # type checking is the only thing that looks at all of them before a qualification run.
-        run: uv run mypy services/api/harness_api services/worker/harness_worker tests/copilot/eval tests/process_death tests/oracle_config.py tests/browser tests/capacity tests/dataforge_live
+        run: uv run mypy services/api/harness_api services/worker/harness_worker tests/copilot/eval tests/process_death tests/oracle_config.py tests/browser tests/capacity tests/dataforge_live tests/dataforge_real
       - name: Tests
         run: uv run pytest -q
       - name: Contracts are current

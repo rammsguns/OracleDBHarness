@@ -1,31 +1,99 @@
 """``python -m tests.dataforge_live`` - real-harness checks for the DataForge adapter.
 
     uv run python -m tests.dataforge_live run [--report PATH]
+    uv run python -m tests.dataforge_live dataforge [--dataforge-dir DIR] [--harness-url URL] [--report PATH]
 
-Starts a disposable harness API (fake Oracle backend, fixture copilot provider),
-issues it a real ``dataforge`` integration credential, and runs the adapter and
-route-registration code in ``integrations/dataforge/src`` against that live process,
-including through a proxy. See ``tests/dataforge_live/__init__.py`` for what this
-does and does not establish, and ``integrations/dataforge/COMPATIBILITY.md`` for
-what remains owed for NP-05.
+Commands:
+- `run`: starts a disposable harness API and runs the adapter's Node tests against it.
+- `dataforge`: starts the real OracleDataForge Express server and runs full integration checks.
 
 Exit codes: 0 when every check passed; 1 when a check failed; 2 when a prerequisite
-(node, `npm install`) is missing and nothing could be checked.
+(node, `npm install`, dataforge checkout) is missing and nothing could be checked.
 """
 
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 import tempfile
 from pathlib import Path
 
+from tests.dataforge_live.real_runner import run_dataforge_integration
 from tests.dataforge_live.runner import run
+
+
+def run_dataforge_command(arguments: argparse.Namespace) -> int:
+    df_dir: Path = arguments.dataforge_dir.resolve()
+    if not df_dir.exists() or not (df_dir / "package.json").exists():
+        print(f"DataForge directory not found at {df_dir}", file=sys.stderr)
+        return 2
+
+    if not (df_dir / "node_modules").exists():
+        print(
+            f"DataForge dependencies not installed in {df_dir}. Run `npm install` there.",
+            file=sys.stderr,
+        )
+        return 2
+
+    if shutil.which("node") is None:
+        print("`node` is not on PATH.", file=sys.stderr)
+        return 2
+
+    token = arguments.token
+    if arguments.token_file:
+        token_file = Path(arguments.token_file)
+        if not token_file.exists():
+            print(f"Token file {token_file} does not exist.", file=sys.stderr)
+            return 2
+        token = token_file.read_text(encoding="utf-8").strip()
+
+    harness_url = arguments.harness_url
+
+    if arguments.workdir is not None:
+        report = run_dataforge_integration(
+            dataforge_dir=df_dir,
+            harness_url=harness_url,
+            token=token,
+            workdir=arguments.workdir,
+        )
+    else:
+        with tempfile.TemporaryDirectory(
+            prefix="dataforge-real-", ignore_cleanup_errors=True
+        ) as tmp:
+            report = run_dataforge_integration(
+                dataforge_dir=df_dir,
+                harness_url=harness_url,
+                token=token,
+                workdir=Path(tmp),
+            )
+
+    print(report.to_markdown())
+
+    if arguments.report:
+        report_path = Path(arguments.report)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(report.to_markdown() + "\n", encoding="utf-8")
+        print(f"Markdown report written to {report_path}", file=sys.stderr)
+        if not arguments.report_json:
+            json_path = report_path.with_suffix(".json")
+            json_path.write_text(report.to_json() + "\n", encoding="utf-8")
+            print(f"JSON report written to {json_path}", file=sys.stderr)
+
+    if arguments.report_json:
+        json_path = Path(arguments.report_json)
+        json_path.parent.mkdir(parents=True, exist_ok=True)
+        json_path.write_text(report.to_json() + "\n", encoding="utf-8")
+        print(f"JSON report written to {json_path}", file=sys.stderr)
+
+    return 0 if report.ok else 1
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m tests.dataforge_live", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+
+    # 1. run command (Node adapter checks against live harness)
     runner = commands.add_parser(
         "run", help="start a disposable harness and run the adapter against it"
     )
@@ -33,6 +101,48 @@ def main(argv: list[str] | None = None) -> int:
     runner.add_argument(
         "--workdir", type=Path, help="where the disposable harness keeps its store and logs"
     )
+
+    # 2. dataforge command (checks against real DataForge Express server)
+    df_runner = commands.add_parser(
+        "dataforge", help="start real DataForge server and run full integration checks"
+    )
+    df_runner.add_argument(
+        "--dataforge-dir",
+        type=Path,
+        default=Path("/home/kiwi/harness-drills/dataforge"),
+        help="path to DataForge clone directory (default: /home/kiwi/harness-drills/dataforge)",
+    )
+    df_runner.add_argument(
+        "--harness-url",
+        type=str,
+        help="base URL of running harness API or proxy (e.g. http://127.0.0.1:18081). If omitted, starts disposable harness.",
+    )
+    df_runner.add_argument(
+        "--token",
+        type=str,
+        help="integration credential token (used with --harness-url)",
+    )
+    df_runner.add_argument(
+        "--token-file",
+        type=Path,
+        help="path to file containing integration credential token",
+    )
+    df_runner.add_argument(
+        "--report",
+        type=Path,
+        help="path to write Markdown report",
+    )
+    df_runner.add_argument(
+        "--report-json",
+        type=Path,
+        help="path to write JSON report",
+    )
+    df_runner.add_argument(
+        "--workdir",
+        type=Path,
+        help="where the disposable harness keeps its store and logs",
+    )
+
     arguments = parser.parse_args(argv)
 
     # node's default reporter uses non-ASCII glyphs (checkmarks, "ℹ"); a Windows
@@ -42,6 +152,9 @@ def main(argv: list[str] | None = None) -> int:
     reconfigure = getattr(sys.stdout, "reconfigure", None)
     if reconfigure is not None:
         reconfigure(errors="replace")
+
+    if arguments.command == "dataforge":
+        return run_dataforge_command(arguments)
 
     if arguments.workdir is not None:
         outcome = run(arguments.workdir)
