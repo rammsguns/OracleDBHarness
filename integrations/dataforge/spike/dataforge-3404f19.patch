@@ -83,10 +83,10 @@ index bfeedbd..f9e5e0a 100644
      "build": "tsc -b && vite build",
 diff --git a/server/harness/adapter.ts b/server/harness/adapter.ts
 new file mode 100644
-index 0000000..7dbb80b
+index 0000000..56962e8
 --- /dev/null
 +++ b/server/harness/adapter.ts
-@@ -0,0 +1,463 @@
+@@ -0,0 +1,466 @@
 +/**
 + * The OracleDataForge backend bridge.
 + *
@@ -415,6 +415,9 @@ index 0000000..7dbb80b
 +      schema?: string;
 +    },
 +  ): Promise<{ canApply: boolean; reasons: string[]; proposedText?: string }> {
++    if (!this.config.enabled) {
++      return { canApply: false, reasons: ["integration_disabled"] };
++    }
 +    // Applying a proposal requires proposal assistance under the current role.
 +    if (!filterActionsForRole(["propose"], actor.role).includes("propose")) {
 +      return { canApply: false, reasons: ["action_not_allowed"] };
@@ -518,28 +521,28 @@ index 0000000..7dbb80b
 +    const { done, value } = await reader.read();
 +    if (done) break;
 +    buffer += decoder.decode(value, { stream: true });
-+    let boundary = buffer.indexOf("\n\n");
-+    while (boundary !== -1) {
-+      const chunk = buffer.slice(0, boundary);
-+      buffer = buffer.slice(boundary + 2);
++    let boundary: RegExpExecArray | null;
++    while ((boundary = /\r?\n\r?\n/.exec(buffer))) {
++      const chunk = buffer.slice(0, boundary.index);
++      buffer = buffer.slice(boundary.index + boundary[0].length);
 +      const parsed = parseSse(chunk);
 +      if (parsed) yield parsed;
-+      boundary = buffer.indexOf("\n\n");
 +    }
 +  }
 +}
 +
 +export function parseSse(chunk: string): StreamEvent | null {
 +  let event = "";
-+  let data = "";
-+  for (const line of chunk.split("\n")) {
-+    if (line.startsWith("event: ")) event = line.slice(7).trim();
-+    else if (line.startsWith("data: ")) data += line.slice(6);
++  const data: string[] = [];
++  for (const line of chunk.split(/\r?\n/)) {
++    if (line.startsWith(":")) continue;
++    if (line.startsWith("event:")) event = line.slice(6).trim();
++    else if (line.startsWith("data:")) data.push(line.slice(5).replace(/^ /, ""));
 +  }
-+  if (!event || !data) return null;
++  if (!event || !data.length) return null;
 +  if (!(KNOWN_STREAM_EVENTS as readonly string[]).includes(event)) return null;
 +  try {
-+    return { event: event as StreamEventName, data: JSON.parse(data) };
++    return { event: event as StreamEventName, data: JSON.parse(data.join("\n")) };
 +  } catch {
 +    return null;
 +  }
@@ -850,13 +853,13 @@ index 0000000..1121057
 +export { ALLOWED_CONTEXT_CATEGORIES };
 diff --git a/server/harnessAdapter.test.ts b/server/harnessAdapter.test.ts
 new file mode 100644
-index 0000000..77202c0
+index 0000000..9e021c2
 --- /dev/null
 +++ b/server/harnessAdapter.test.ts
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,190 @@
 +import assert from "node:assert/strict";
 +import test from "node:test";
-+import { HarnessAdapter, type AssistRequest, type ContextResolver, type DataForgeActor } from "./harness/adapter.ts";
++import { parseSse, readSse, HarnessAdapter, type AssistRequest, type ContextResolver, type DataForgeActor } from "./harness/adapter.ts";
 +import { readConfig } from "./harness/config.ts";
 +
 +const ACTOR: DataForgeActor = { id: "df-user-7", role: "Developer", durable: true };
@@ -984,6 +987,65 @@ index 0000000..77202c0
 +  assert.equal(caps.reachable, true);
 +  assert.equal(caps.compatible, false);
 +  assert.match(caps.detail, /credential/);
++});
++
++for (const method of ["capabilities", "preview", "assist", "applyCheck"] as const) {
++  test(`disabled ${method} never fetches or resolves context`, async () => {
++    let calls = 0;
++    const adapter = new HarnessAdapter({
++      config: readConfig({}), instanceId: "disabled",
++      resolver: {
++        targetReference: () => assert.fail("must not resolve target"),
++        databaseVersion: async () => assert.fail("must not resolve version"),
++        resolve: async () => assert.fail("must not resolve context"),
++      },
++      fetchImpl: async () => { calls++; return new Response("{}"); },
++    });
++    if (method === "capabilities") assert.equal((await adapter.capabilities(ACTOR)).enabled, false);
++    if (method === "preview") await assert.rejects(adapter.preview(ACTOR, REQUEST), /integration_disabled/);
++    if (method === "assist") {
++      const events = [];
++      for await (const event of adapter.assist(ACTOR, REQUEST)) events.push(event);
++      assert.equal(events.length, 1);
++      assert.equal(events[0]?.data.code, "integration_disabled");
++    }
++    if (method === "applyCheck") assert.deepEqual(await adapter.applyCheck(ACTOR, "proposal", {
++      editorId: "editor", revision: "1", currentText: "SELECT 1", connectionId: "conn",
++    }), { canApply: false, reasons: ["integration_disabled"] });
++    assert.equal(calls, 0);
++  });
++}
++
++test("SSE parses CRLF, comments and multiline data with optional field spaces", () => {
++  assert.deepEqual(parseSse(': keepalive\r\nevent:delta\r\ndata: {\r\ndata: "text": "hello"\r\ndata: }'), {
++    event: "delta", data: { text: "hello" },
++  });
++  // Concatenating these lines would incorrectly turn two numbers into 12.
++  assert.equal(parseSse('event: delta\ndata: {"value":1\ndata: 2}'), null);
++});
++
++for (const newline of ["\n", "\r\n"]) {
++  test(`SSE retains events across every chunk split (${JSON.stringify(newline)})`, async () => {
++    const wire = [": comment", "event: delta", 'data: {', 'data: "text": "héllo"', 'data: }', "", "event: done", 'data: {}', "", ""].join(newline);
++    const bytes = new TextEncoder().encode(wire);
++    for (let split = 1; split < bytes.length; split++) {
++      const stream = new ReadableStream<Uint8Array>({ start(controller) {
++        controller.enqueue(bytes.slice(0, split));
++        controller.enqueue(bytes.slice(split));
++        controller.close();
++      } });
++      const events = [];
++      for await (const event of readSse(stream)) events.push(event);
++      assert.deepEqual(events, [{ event: "delta", data: { text: "héllo" } }, { event: "done", data: {} }], `split ${split}`);
++    }
++  });
++}
++
++test("SSE preserves existing behavior of dropping an unterminated trailing event", async () => {
++  const stream = new Response('event: delta\ndata: {"text":"complete"}\n\nevent: done\ndata: {}').body!;
++  const events = [];
++  for await (const event of readSse(stream)) events.push(event);
++  assert.deepEqual(events, [{ event: "delta", data: { text: "complete" } }]);
 +});
 diff --git a/server/harnessRoutes.test.ts b/server/harnessRoutes.test.ts
 new file mode 100644

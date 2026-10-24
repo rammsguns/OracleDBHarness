@@ -10,7 +10,7 @@ the existing app without changing DataForge's stack.
 ## Upstream status
 
 **upstream PR open, pending review**: [OracleDataForge PR #77](https://github.com/rammsguns/OracleDataForge/pull/77),
-branch `feat/harness-assist`, head `a2c280430e95e8b357aeb8e22051067209165c00`,
+branch `feat/harness-assist`, head `a40cf9c8a91046371e10598100f55021067624d6`,
 based on upstream main `3404f1905da183e1903a35193a7d5b0df18d0870`.
 B3 remains in progress until Claude merges after CI and independent agent review.
 The vendored `src/*.ts` matches this PR. The refreshed

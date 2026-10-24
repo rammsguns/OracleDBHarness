@@ -5,7 +5,7 @@ Nothing in this table is a certification. It records what has actually been run.
 ## Current upstream status
 
 **upstream PR open, pending review**: [PR #77](https://github.com/rammsguns/OracleDataForge/pull/77), branch
-`feat/harness-assist`, head `a2c280430e95e8b357aeb8e22051067209165c00` on main
+`feat/harness-assist`, head `a40cf9c8a91046371e10598100f55021067624d6` on main
 `3404f1905da183e1903a35193a7d5b0df18d0870`. B3 is in progress; Claude owns
 completion after green CI, independent agent review and merge. Earlier entries
 below preserve the exact commits and qualification boundaries of historical runs.
@@ -244,3 +244,20 @@ the existing pinned-checkout reproduction workflow rather than replacing it with
 an online-only pointer. It includes no machine paths, credentials or live bench
 configuration. Upstream CI passed (build job, run `40121765646`); independent review and merge
 remain pending. No human sign-off is claimed.
+
+### 2026-10-24, B3b independent review fixes
+
+PR #77 head `a40cf9c8a91046371e10598100f55021067624d6` adds the missing disabled apply-check
+guard and aligns server SSE parsing with CRLF boundaries, multiline data and
+comment handling. Unit tests cover all four public adapter methods refusing
+network access while disabled, every stream chunk split, and the existing
+behavior of dropping unterminated trailing events.
+
+The two post-B2 changes (Assist hidden when disabled; the resolver no longer
+hard-codes the Oracle version) and these review fixes were not re-run live
+against the Oracle stand-ins; they are covered by unit tests only. DataForge:
+300 tests passed, typecheck and build passed (existing large-chunk advisory).
+Harness Node suite: 47 passed and 4 live-launcher-only skips.
+Harness `ruff check` and `ruff format --check` passed (394 files);
+`pytest -q tests/test_dataforge_real.py` passed all 7 tests. Upstream CI
+build passed in run `40122712957`; PR #77 remains open and unmerged.
