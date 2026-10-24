@@ -6,9 +6,12 @@ through the API the way the console does, a steady phase, a saturation phase and
 recovery phase, and a check afterwards that no user's or target's work turned up anywhere
 it should not.
 
-This page is the procedure. A three-database Oracle run completed on 2026-10-19
-against proposed thresholds. It is not a pilot qualification; see
-docs/compatibility.md for the measured results and remaining approval gate.
+This page is the procedure. Thresholds were agreed in ADR-0013 on 2026-10-24 by
+AI agent (acting owner), not a human. A2 failed; A10 met latency criteria but still
+had remote D4 probe timeouts. After A11 enabled Oracle keepalive, the three-database
+ten-user main run and soak met every agreed criterion: agent-qualified on test
+stand-ins (AI agent, not a human). Pilot NP-07 remains open (human-owned); see
+[the evidence](compatibility.md#capacity-re-run-with-oracle-keepalive-2026-10-24-a11-np-07-stand-in).
 
 ## What a run does
 
@@ -122,7 +125,7 @@ For the NP-07 three-database, ten-user capacity run against test databases, the 
 4. **API.** Starts the API with the `oracledb` thin backend, `HARNESS_AUTH_MODE=dev` (`HARNESS_ALLOW_DEV_AUTH_OUTSIDE_DEVELOPMENT=true`), and the declared resource limits from `workload.example.json` (`HARNESS_WORKER_PROCESSES=4`, `HARNESS_STATEMENT_TIMEOUT_SECONDS=30`, `HARNESS_MAX_ROWS=50`).
    *Limitation:* `devToken` authentication issues local tokens and does not exercise OIDC token verification.
 5. **Workload files.** Queries registered target profile IDs and generates:
-   - The main workload JSON with baseUrl `http://127.0.0.1:<port>`, `devToken` auth, and ADR-0013 agreed thresholds (`status: agreed`, agreed by Claude on 2026-10-24, reference `docs/decisions.md ADR-0013`), leaving all threshold values and phase durations unchanged from `tests/capacity/workload.example.json`.
+   - The main workload JSON with baseUrl `http://127.0.0.1:<port>`, `devToken` auth, and ADR-0013 agreed thresholds (`status: agreed`, agreed by Claude, AI agent (acting owner), not a human, on 2026-10-24, reference `docs/decisions.md ADR-0013`), leaving all threshold values and phase durations unchanged from `tests/capacity/workload.example.json`.
    - A separate soak workload JSON with a 3600 s steady phase. Saturation and recovery are both omitted; declaring either requires both. Only declared phases run. The saturation error-rate, allowed-code and recovery criteria remain in the criteria table as `not applicable (steady-only soak)` (`N/A`, JSON `passed: null`), counted as neither met nor failed. All steady latency, overhead and error-rate criteria, verification completeness, contamination, lost-commit, unknown-outcome and session-leak checks still apply. A declared saturation phase never receives this exemption.
 6. **Marker schema.** Connects to each target as the `harness_app` account and applies `oracle/capacity/load_schema.sql` idempotently.
 7. **Runs.** Sequentially executes `validate`, `baseline`, and `run` for the main workload (`pilot.md`), followed by the soak workload (`soak.md`), writing markdown reports and JSON sidecars to `<report_dir>`.

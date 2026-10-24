@@ -2469,5 +2469,12 @@ Tasks, one at a time:
     main run and the soak, with 0 failed probes. Evidence is in docs/compatibility.md,
     "Capacity re-run with Oracle keepalive". NP-07 is therefore agent-qualified on test
     stand-ins; the pilot gate stays open.
-- [ ] **A9 NP-08 documentation.** Reconcile setup, caveats, compatibility and release
+- [x] **A9 NP-08 documentation.** Reconcile setup, caveats, compatibility and release
   status with A1–A8. Make no unsupported qualification claim.
+  - Done 2026-10-24 by AI agent (documentation reviewer), not a human: reconciled
+    README.md, docs/setup.md, docs/operations.md, docs/architecture.md, docs/capacity.md,
+    docs/compatibility.md, integrations/dataforge/COMPATIBILITY.md and .env.example
+    with A1–A8 and A10/A11, including agreed capacity results, deployed stand-in
+    identity/DataForge evidence, administrative audit, environment labels, cache and
+    keepalive settings. NP-04/K-7 remains not met; human gates stay open and production
+    gates blocked, with section 6 writes deferred and no pilot/production qualification.
