@@ -50,6 +50,7 @@ class Settings(BaseSettings):
 
     oracle_backend: str = "fake"
     oracle_driver_mode: str = "thin"
+    oracle_expire_time_minutes: int = Field(default=1, ge=0)
     oracle_client_lib_dir: str = ""
     oracle_fake_data_dir: str = ""
 

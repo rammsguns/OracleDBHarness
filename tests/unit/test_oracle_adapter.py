@@ -1305,3 +1305,23 @@ def test_a_vector_read_back_from_a_bind_is_json() -> None:
 
     assert values == {"a": [1.5]}
     json.dumps(values)
+
+
+@pytest.mark.parametrize("minutes", [0, 1, 3])
+@pytest.mark.parametrize("mode", ["thin", "thick"])
+@pytest.mark.parametrize("protocol", ["tcp", "tcps"])
+def test_keepalive_reaches_the_driver_and_thick_descriptor(
+    monkeypatch, driver: StubDriver, minutes: int, mode: str, protocol: str
+) -> None:
+    monkeypatch.setattr(oracle_backend, "_initialized_mode", mode)
+    OracleDbBackend(mode).connect(_spec(oracle_expire_time_minutes=minutes, protocol=protocol))
+    assert driver.params["expire_time"] == minutes
+    if mode == "thick":
+        assert driver.params["dsn"].startswith(f"(DESCRIPTION=(EXPIRE_TIME={minutes})")
+    else:
+        assert "EXPIRE_TIME" not in driver.params["dsn"]
+
+
+def test_keepalive_is_enabled_by_default(driver: StubDriver) -> None:
+    OracleDbBackend().connect(_spec())
+    assert driver.params["expire_time"] == 1

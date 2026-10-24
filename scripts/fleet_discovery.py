@@ -23,6 +23,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, overload
 
+from harness_api.config import Settings
+
 try:
     import oracledb
 except ImportError:
@@ -978,7 +980,13 @@ def main(argv: list[str] | None = None) -> int:
                 continue
 
         try:
-            conn = oracledb.connect(user=user, password=password, dsn=dsn)
+            conn = oracledb.connect(
+                user=user,
+                password=password,
+                dsn=dsn,
+                expire_time=Settings().oracle_expire_time_minutes,
+                thick_mode_dsn_passthrough=False,
+            )
         except Exception as exc:  # noqa: BLE001
             red_dsn = redactor.redact_dsn(dsn)
             print(f"Connection failed for target '{label}' ({red_dsn}): {exc}", file=sys.stderr)

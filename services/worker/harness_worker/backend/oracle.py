@@ -790,6 +790,7 @@ class OracleDbBackend(OracleBackend):
             "password": spec.password,
             "dsn": _dsn(spec, thick=self._mode == "thick"),
             "tcp_connect_timeout": spec.connect_timeout_seconds,
+            "expire_time": spec.oracle_expire_time_minutes,
         }
         if spec.wallet_dir:
             params["config_dir"] = spec.wallet_dir
@@ -876,8 +877,11 @@ def _apply_default_schema(connection: Any, spec: ConnectionSpec, sql: str) -> No
 
 def _dsn(spec: ConnectionSpec, *, thick: bool = False) -> str:
     protocol = "tcps" if spec.protocol.lower() == "tcps" else "tcp"
+    # Thick mode passes this descriptor unchanged to Oracle Client by default
+    # (python-oracledb 4.0.2), so the keyword alone does not enable keepalive.
+    expire = f"(EXPIRE_TIME={spec.oracle_expire_time_minutes})" if thick else ""
     return (
-        f"(DESCRIPTION=(ADDRESS=(PROTOCOL={protocol})(HOST={spec.host})(PORT={spec.port}))"
+        f"(DESCRIPTION={expire}(ADDRESS=(PROTOCOL={protocol})(HOST={spec.host})(PORT={spec.port}))"
         f"(CONNECT_DATA=(SERVICE_NAME={spec.service_name})){_thick_wallet(spec, thick)})"
     )
 

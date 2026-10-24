@@ -320,6 +320,7 @@ class ExecutionService:
             wallet_dir=profile.wallet_dir or None,
             wallet_password=wallet_password,
             protocol=profile.protocol,
+            oracle_expire_time_minutes=self._settings.oracle_expire_time_minutes,
             default_schema=profile.default_schema or None,
         )
 

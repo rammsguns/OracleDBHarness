@@ -29,6 +29,7 @@ class SystemInfo(Schema):
     oracle_driver_mode: str = Field(alias="oracleDriverMode")
     metadata_schema_version: str = Field(alias="metadataSchemaVersion")
     schema_panel_cache_seconds: float = Field(default=60, alias="schemaPanelCacheSeconds")
+    oracle_expire_time_minutes: int = Field(default=1, alias="oracleExpireTimeMinutes")
     catalog_operations: int = Field(alias="catalogOperations")
     copilot_enabled: bool = Field(alias="copilotEnabled")
     warnings: list[str] = Field(default_factory=list)

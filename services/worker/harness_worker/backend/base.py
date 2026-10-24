@@ -43,6 +43,7 @@ class ConnectionSpec:
     protocol: str = "tcp"
     connect_timeout_seconds: int = 10
     default_schema: str | None = None
+    oracle_expire_time_minutes: int = 1
 
     def dsn(self) -> str:
         return f"{self.host}:{self.port}/{self.service_name}"

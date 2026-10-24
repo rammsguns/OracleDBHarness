@@ -744,6 +744,19 @@ and the report states the TTL. The p95 is a cache miss: a fresh `ALL_OBJECTS` co
 timeouts appeared in every A2 and A10 run, and only on the remote link. A10 does not
 explain them; A11 investigates.
 
+#### Known network behaviour (A11)
+
+Claude (AI agent, acting DBA, 2026-10-24) isolated the D4 remote-link idle drop in
+`databases/reports/2026-10-24-a11/idle-probe.jsonl`: thin connections idle for
+1–3 minutes survived, but connections idle for at least 5 minutes were silently
+dropped. The next statement hung about 120 seconds before DPY-4011 (socket timed
+out while recovering from a previous socket timeout). With `expire_time=1`, idle
+durations through 15 minutes answered in about 150 ms. This explains the D4
+capacity probe timeouts: their worksheet sessions idle for minutes between uses.
+`HARNESS_ORACLE_EXPIRE_TIME_MINUTES=1` now enables keepalive by default in both
+driver modes (0 disables); the capacity workload still needs a re-run to verify
+all probes complete with the fix.
+
 ## Recording a run
 
 ### Live non-copilot API workflows, 2026-10-19 (Wave 1C)
