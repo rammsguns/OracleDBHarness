@@ -2404,10 +2404,14 @@ Tasks, one at a time:
   - Done 2026-10-24, agent-qualified on test stand-ins. Both drills passed; the upgrade
     ran from `c31c97e` (schema 3) to main (schema 5). Evidence is in
     docs/compatibility.md, "Install, restore and upgrade drills".
-- [ ] **A5 NP-06 identity.** Deploy the compose stack behind nginx with Keycloak as a
+- [x] **A5 NP-06 identity.** Deploy the compose stack behind nginx with Keycloak as a
   stand-in pilot IdP registration (two accounts, an ungranted target). Run
   `tests/browser` against the deployed origin through the proxy: callback, expiry,
   logout and authorization.
+  - Done 2026-10-24, agent-qualified on test stand-ins. The new `standin` mode and
+    `deploy/identity-standin-drill.sh` passed all 23 checks, with 2 observed, through the
+    compose nginx. Evidence is in docs/compatibility.md, "Identity through the deployed
+    proxy". Pilot NP-06 stays open.
 - [ ] **A6 NP-05 DataForge.** Pin a real OracleDataForge checkout (a public repo commit)
   and run it with the adapter through a deployed proxy: context, streaming,
   stale/reviewed diffs and outages, in both projects. Update

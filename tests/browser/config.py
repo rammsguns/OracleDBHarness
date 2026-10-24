@@ -30,7 +30,6 @@ ENV_CHANNEL = f"{ENV_PREFIX}CHANNEL"
 ENV_HEADED = f"{ENV_PREFIX}HEADED"
 ENV_LOGIN_TIMEOUT = f"{ENV_PREFIX}LOGIN_TIMEOUT_SECONDS"
 ENV_REPORT = f"{ENV_PREFIX}REPORT"
-ENV_IGNORE_TLS = f"{ENV_PREFIX}IGNORE_TLS"
 ENV_IGNORE_TLS_ERRORS = f"{ENV_PREFIX}IGNORE_TLS_ERRORS"
 
 MODES = ("rehearsal", "fixture", "pilot", "standin")
@@ -137,12 +136,12 @@ def load() -> BrowserConfig:
     if mode not in MODES:
         raise ConfigurationProblem([f"{ENV_MODE}={mode!r}; expected one of {', '.join(MODES)}."])
 
-    origin = (_get(ENV_ORIGIN) or _get(f"{ENV_PREFIX}ORIGIN")).rstrip("/")
+    origin = _get(ENV_ORIGIN).rstrip("/")
     issuer = _get(ENV_ISSUER)
     client_id = _get(ENV_CLIENT_ID)
     login = _get(ENV_LOGIN).lower() or ("manual" if mode == "pilot" else "form")
     channel = _get(ENV_CHANNEL).lower() or "chromium"
-    ignore_tls = _flag(ENV_IGNORE_TLS_ERRORS) or _flag(ENV_IGNORE_TLS)
+    ignore_tls = _flag(ENV_IGNORE_TLS_ERRORS)
 
     if ignore_tls and mode != "standin":
         problems.append(f"{ENV_IGNORE_TLS_ERRORS} only means something in standin mode.")

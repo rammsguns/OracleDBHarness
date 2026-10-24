@@ -22,8 +22,9 @@
 #
 # 1. Host side: RFC 6761 specifies that *.localhost always resolves to loopback (127.0.0.1)
 #    without requiring any modifications to /etc/hosts.
-# 2. Keycloak container: Bound to 8180:8080 on the host via an override compose file so that
-#    requests arriving on host interfaces (including Docker bridge gateway) reach port 8080.
+# 2. Keycloak container: published on 127.0.0.1:8180 and on the docker bridge gateway
+#    address :8180 only (never every interface: it is a development realm with a fixed
+#    admin password), from a realm copy that also accepts this run's console origin.
 # 3. Docker container side: compose.override.yaml configures extra_hosts on api and web:
 #      - keycloak.localhost:host-gateway
 #      - nginx.localhost:host-gateway
@@ -65,6 +66,7 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/harness-identity-drill-XXXXXX")"
 chmod 700 "$WORK"
 REPORT="${REPORT:-$WORK/harness-standin-report.md}"
 KEYCLOAK_COMPOSE="$REPO_ROOT/tests/identity/keycloak/compose.yaml"
+KEYCLOAK_REALM="$REPO_ROOT/tests/identity/keycloak/realm.json"
 
 WROTE=()
 
@@ -107,6 +109,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Host ports of the console and the API (deploy/compose.yaml); override them on a host
+# where 8080 or 8000 is already taken.
+WEB_PORT="${HARNESS_WEB_HOST_PORT:-8080}"
+API_PORT="${HARNESS_API_HOST_PORT:-8000}"
+export HARNESS_WEB_HOST_PORT="$WEB_PORT" HARNESS_API_HOST_PORT="$API_PORT"
+
 # -- 1. safety checks ------------------------------------------------------------------
 
 say "checking this checkout has nothing of its own to lose"
@@ -147,12 +155,32 @@ WROTE+=(.env)
 # -- 3. start Keycloak fixture ---------------------------------------------------------
 
 say "starting Keycloak fixture with host port publishing"
-cat > "$WORK/keycloak.override.yaml" <<'EOF'
+# The API container reaches Keycloak through the docker bridge gateway (host-gateway),
+# so Keycloak listens there as well as on loopback, never on every interface: this is a
+# development realm with a fixed admin password.
+GATEWAY="$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}')"
+[[ -n "$GATEWAY" ]] || fail "could not read the docker bridge gateway address"
+# A copy of the fixture realm that also accepts this run's console origin.
+python3 - "$KEYCLOAK_REALM" "$WORK/realm.json" "http://127.0.0.1:$WEB_PORT" <<'PY'
+import json, sys
+source, target, origin = sys.argv[1:]
+realm = json.load(open(source))
+for client in realm["clients"]:
+    if client.get("clientId") == "oracledbharness-console":
+        client["redirectUris"].append(f"{origin}/auth/callback")
+        client["webOrigins"].append(origin)
+json.dump(realm, open(target, "w"), indent=2)
+PY
+chmod 644 "$WORK/realm.json"
+cat > "$WORK/keycloak.override.yaml" <<YAML
 services:
   keycloak:
-    ports:
-      - "8180:8080"
-EOF
+    ports: !override
+      - "127.0.0.1:8180:8080"
+      - "$GATEWAY:8180:8080"
+    volumes: !override
+      - "$WORK/realm.json:/opt/keycloak/data/import/realm.json:ro"
+YAML
 chmod 644 "$WORK/keycloak.override.yaml"
 
 docker compose -f "$KEYCLOAK_COMPOSE" -f "$WORK/keycloak.override.yaml" up -d --wait
@@ -204,13 +232,13 @@ fi
 
 say "verifying console is served through nginx"
 for attempt in $(seq 1 30); do
-  if curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+  if curl -fsS http://127.0.0.1:$WEB_PORT/healthz >/dev/null 2>&1; then
     break
   fi
-  [[ "$attempt" == 30 ]] && fail "the console did not answer /healthz on 127.0.0.1:8080"
+  [[ "$attempt" == 30 ]] && fail "the console did not answer /healthz on 127.0.0.1:$WEB_PORT"
   sleep 2
 done
-curl -fsS http://127.0.0.1:8080/api/v1/system/info >/dev/null || fail "nginx proxy /api failed"
+curl -fsS http://127.0.0.1:$WEB_PORT/api/v1/system/info >/dev/null || fail "nginx proxy /api failed"
 
 # -- 5. seed targets and user grants ---------------------------------------------------
 
@@ -221,19 +249,38 @@ docker compose exec -T \
   api python -m harness_api.seed --no-probe
 
 say "registering Alice and granting target 'development' (production ungranted)"
-docker compose exec -T metadata psql -U harness -d harness -c "
-  INSERT INTO users (id, subject, display_name, roles)
-  VALUES ('usr_alice', '$ALICE_SUB', 'Alice Example', '[\"developer\"]')
-  ON CONFLICT (subject) DO NOTHING;
-"
+# Through the application's own models in the API container, as an administrator's
+# registration would be: Alice is a developer granted 'development' only.
+docker compose exec -T -e ALICE_SUB="$ALICE_SUB" api python - <<'PY'
+import os
 
-docker compose exec -T metadata psql -U harness -d harness -c "
-  INSERT INTO user_target_grants (id, user_id, profile_id, permissions)
-  SELECT 'grt_alice_dev', u.id, p.id, '[\"read\", \"worksheet\"]'
-  FROM users u, connection_profiles p
-  WHERE u.subject = '$ALICE_SUB' AND p.name = 'development'
-  ON CONFLICT DO NOTHING;
-"
+from sqlalchemy import select
+
+from harness_api.config import get_settings
+from harness_api.db import build_engine, build_session_factory
+from harness_api.models import ConnectionProfile, User, UserTargetGrant
+from harness_api.policy import PERMISSION_READ, PERMISSION_WORKSHEET
+
+subject = os.environ["ALICE_SUB"]
+with build_session_factory(build_engine(get_settings()))() as db:
+    user = db.scalars(select(User).where(User.subject == subject)).one_or_none()
+    if user is None:
+        user = User(subject=subject, display_name="Alice Example", roles=["developer"])
+        db.add(user)
+        db.flush()
+    profile = db.scalars(
+        select(ConnectionProfile).where(ConnectionProfile.name == "development")
+    ).one()
+    db.add(
+        UserTargetGrant(
+            user_id=user.id,
+            profile_id=profile.id,
+            permissions=[PERMISSION_READ, PERMISSION_WORKSHEET],
+        )
+    )
+    db.commit()
+print(f"registered {subject} with a grant on 'development'")
+PY
 
 FORBIDDEN_TARGET_ID="$(docker compose exec -T metadata psql -U harness -d harness -At -c "
   SELECT id FROM connection_profiles WHERE name = 'production';
@@ -247,7 +294,7 @@ say "running browser qualification in standin mode"
 mkdir -p "$(dirname "$REPORT")"
 
 export HARNESS_BROWSER_MODE=standin
-export HARNESS_BROWSER_CONSOLE_ORIGIN="http://127.0.0.1:8080"
+export HARNESS_BROWSER_CONSOLE_ORIGIN="http://127.0.0.1:$WEB_PORT"
 export HARNESS_BROWSER_OIDC_ISSUER="http://keycloak.localhost:8180/realms/engineering"
 export HARNESS_BROWSER_CLIENT_ID="oracledbharness-console"
 export HARNESS_BROWSER_USER="alice"
@@ -287,7 +334,7 @@ cat <<SUMMARY
 
 == identity stand-in drill passed
 
-  Deployment origin: http://127.0.0.1:8080 (via nginx proxy)
+  Deployment origin: http://127.0.0.1:$WEB_PORT (via nginx proxy)
   Stand-in IdP:      http://keycloak.localhost:8180/realms/engineering
   Registered user:   alice ($ALICE_SUB) -> granted target 'development'
   Unregistered user: bob (refused identity checked)

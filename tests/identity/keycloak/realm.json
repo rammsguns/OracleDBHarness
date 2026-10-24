@@ -17,15 +17,11 @@
       "serviceAccountsEnabled": false,
       "redirectUris": [
         "http://127.0.0.1:8080/auth/callback",
-        "http://nginx.localhost:8080/auth/callback",
-        "http://localhost:8080/auth/callback",
         "http://127.0.0.1:5173/auth/callback",
         "http://localhost:5173/auth/callback"
       ],
       "webOrigins": [
         "http://127.0.0.1:8080",
-        "http://nginx.localhost:8080",
-        "http://localhost:8080",
         "http://127.0.0.1:5173",
         "http://localhost:5173"
       ],

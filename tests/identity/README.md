@@ -119,6 +119,11 @@ On the host, `*.localhost` domains resolve to loopback (`127.0.0.1`) per RFC 676
 touching `/etc/hosts`. Inside the API and web containers, Docker Compose maps
 `keycloak.localhost`, `nginx.localhost`, and `api.localhost` to `host-gateway` via `extra_hosts`,
 ensuring identical issuer URLs and port mappings across both the host and the container bridge network.
+The drill publishes Keycloak on `127.0.0.1:8180` and on the docker bridge gateway address
+only, never on every interface: the fixture realm has a fixed admin password. It also
+mounts a copy of the realm that accepts the console origin of this run, so
+`HARNESS_WEB_HOST_PORT` and `HARNESS_API_HOST_PORT` can move the console and API off
+8080 and 8000.
 
 ### Against the pilot
 
