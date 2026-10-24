@@ -34,8 +34,8 @@ The coordinator checked both High findings against the code.
 
 | Finding | Severity | Checked | Disposition |
 | --- | --- | --- | --- |
-| C-1. The observation-only rule keys on the exact free-text label `production` (`schemas.py` `ProfileIn.environment: str`; `policy.py:83`, `execution.py:347`, `routers/admin.py:170`). A target labelled `Production` or `prod` gets the non-production treatment | High | Confirmed | **Fix now**: validate the environment against a closed set |
-| C-2. Administrative changes (users, secret references, targets, grants, integration credentials, revocations) write no audit event | High | Confirmed by reading `routers/admin.py` | **Fix now**: audit every admin mutation |
+| C-1. The observation-only rule keys on the exact free-text label `production` (`schemas.py` `ProfileIn.environment: str`; `policy.py:83`, `execution.py:347`, `routers/admin.py:170`). A target labelled `Production` or `prod` gets the non-production treatment | High | Confirmed | **Fixed** (`0014d56`). The API accepts only `development`, `test` and `production` (422 otherwise), and the shared `policy.is_production` treats any other stored value as production (fails closed). Tests are in `tests/unit/test_production_boundary.py` |
+| C-2. Administrative changes (users, secret references, targets, grants, integration credentials, revocations) write no audit event | High | Confirmed by reading `routers/admin.py` | **Fixed** (`1f6b5cf`). Every admin mutation writes one `admin.*` audit event in the same transaction, with no token or secret values. Tests are in `tests/unit/test_admin_audit.py` |
 | C-3, rest. The defaults fail open (dev auth, development env); the shipped compose sets OIDC | Medium | | Track |
 | C-4. An empty endpoint allowlist allows any endpoint; a host-only entry allows any port | Medium | | Track |
 | C-5. Failed, outcome-unknown and refused-access executions are not audited | Medium | | Track |
