@@ -134,6 +134,7 @@ def test_a_statement_in_flight_when_the_process_died_is_not_rerun(
 
     reached_the_backend = threading.Event()
     let_it_finish = threading.Event()
+    writer: threading.Thread | None = None
     try:
         client = doomed()
         headers = _developer(client)
@@ -200,12 +201,13 @@ def test_a_statement_in_flight_when_the_process_died_is_not_rerun(
             )
     finally:
         let_it_finish.set()
+        if writer is not None:
+            writer.join(30.0)
+            assert not writer.is_alive(), "the abandoned write did not finish within 30 seconds"
 
     # The abandoned worker now finishes, inside a process that no longer owns the store.
     # Its late answer must not overwrite the verdict the restart already recorded and an
     # operator may already be acting on.
-    writer.join(10.0)
-    assert not writer.is_alive(), "the abandoned write never finished, so nothing was proved"
     late = {row.id: row.state for row in _executions(settings)}[interrupted_id]
     assert late == ExecutionState.OUTCOME_UNKNOWN.value, (
         f"a late completion overwrote the reconciled record with {late!r}"

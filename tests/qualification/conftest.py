@@ -17,6 +17,7 @@ from tests import oracle_config as qual_config
 from tests.oracle_fixtures import apply_fixtures, drop_fixtures
 from tests.qualification.evidence import Evidence
 from tests.qualification.requirements import skip_or_fail
+from tests.qualification.threads import assert_connection_idle
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -123,6 +124,7 @@ def connection(
     try:
         yield session
     finally:
+        assert_connection_idle(session)
         try:
             if not session.is_broken and session.transaction_open:
                 session.rollback()
@@ -142,6 +144,7 @@ def second_connection(
     try:
         yield session
     finally:
+        assert_connection_idle(session)
         try:
             if not session.is_broken and session.transaction_open:
                 session.rollback()
@@ -168,6 +171,7 @@ def admin_connection(
     try:
         yield session
     finally:
+        assert_connection_idle(session)
         session.close()
 
 
@@ -186,6 +190,7 @@ def second_target_connection(
     try:
         yield session
     finally:
+        assert_connection_idle(session)
         session.close()
 
 
@@ -202,6 +207,7 @@ def restricted_connection(
     try:
         yield session
     finally:
+        assert_connection_idle(session)
         session.close()
 
 

@@ -343,3 +343,39 @@ caller remain uncached.
 
 **Revisit when.** Schema freshness requirements change, or multi-process cache
 coordination is needed. Real-database capacity verification remains a separate run.
+
+## ADR-0015: Move the P4 python-oracledb pin to 26.0.1
+
+**Status.** Accepted 2026-10-24 by Claude, acting DBA (AI agent, not a human),
+on agent-qualified test stand-in evidence. A human owner may overturn this decision.
+
+**Context.** P4 pinned 4.0.2 pending G5 upgrade evidence. B4 reviewed the
+26.x release changes and reran A3's six D1/D2/D4 profiles plus the capacity
+main run and one-hour soak on Python 3.11.16.
+
+**Decision.** Pin `oracledb==26.0.1` in the worker's `oracle` extra and retain
+the matching `uv.lock`. This qualifies test stand-ins only; production promotion,
+D3 requalification and fleet-specific staging/DBA acceptance remain outstanding.
+
+**Evidence.** Six profiles passed: r1 162/38, r3 161/39, r2 171/29,
+r3-d2 171/29, r4-d4 161/39 and r3-d4 161/39 (passed/skipped).
+Capacity main `cap-c08b08882cd8` and soak `cap-b8444ab9841d` met every
+applicable unchanged ADR-0013 criterion, with zero errors, contamination,
+lost commits, unknown outcomes or leaked sessions. The dated B4 record in
+[compatibility.md](compatibility.md) compares A3 counts and 4.0.2 capacity;
+the two thick-profile one-pass differences are not conclusively explained.
+D1 password drift was repaired by the acting DBA; r2 passed after `dcb0679`
+joined the test's kill thread before teardown.
+
+**Consequences.** The thin driver segfaults rather than raising on concurrent
+use of one connection from two threads, observed on Python 3.11 and 3.12.
+The product does not perform those concurrent ordinary operations: session
+execution/disposal is locked; intentional cancellation uses `cancel()`.
+See [the B4 audit](b4-oracledb26-rehearsal.md) for the code inspection.
+Keep `tests/qualification/threads.py` and the fixture teardown guard so an
+unjoined helper cannot race connection closure. The existing fatal-session
+`call_timeout` guard remains necessary; B4 does not establish that crash fixed.
+
+**Rollback.** Revert the worker pin and `uv.lock` to 4.0.2 together, retaining
+the test lifecycle guard and historical evidence. Requalify affected shapes
+before any later production promotion.

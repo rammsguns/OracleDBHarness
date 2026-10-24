@@ -2490,12 +2490,16 @@ Results are agent-rehearsed or agent-qualified on test stand-ins only. No produc
 access is used, no fleet facts are invented, no named human sign-off is claimed, and
 section 6 stays deferred.
 
-- [ ] **B4 G5 driver-upgrade rehearsal.** In a separate worktree, move python-oracledb
+- [x] **B4 G5 driver-upgrade rehearsal.** In a separate worktree, move python-oracledb
   from 4.0.2 to 26.0.1. Then:
   - re-run A3's six qualification profiles (D1, D2, D4; thin and thick);
   - run the capacity main run.
   If everything passes, the acting DBA records an ADR to move the P4 pin. Otherwise
   record the failures and keep 4.0.2.
+  Done 2026-10-24, agent-qualified on test stand-ins (AI agent, not a human):
+  six profiles and capacity main/soak passed on 26.0.1 / Python 3.11.16.
+  Claude, acting DBA, moved the P4 pin via ADR-0015; incidents and count
+  differences are recorded in docs/compatibility.md. Production G5 remains open.
 - [x] **B1 NP-05 Oracle and a real provider through DataForge.** Extend the A6 real
   runner so the harness behind the deployed proxy uses the oracledb backend on the D1 and
   D2 test profiles, and the local model on this host as its copilot provider. Then show:

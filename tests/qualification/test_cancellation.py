@@ -18,6 +18,7 @@ from harness_worker.backend import OracleConnection
 from harness_worker.errors import CancelledError_, HarnessError, TimeoutError_
 from harness_worker.types import ExecutionLimits, StatementKind
 from tests.qualification.evidence import Evidence
+from tests.qualification.threads import join_connection_thread, start_connection_thread
 
 # Long enough that the break lands mid-statement on any plausible machine, short
 # enough that a failed cancellation does not stall the suite for minutes.
@@ -31,7 +32,7 @@ def _cancel_after(connection: OracleConnection, delay: float) -> threading.Threa
         connection.cancel()
 
     thread = threading.Thread(target=worker, name="qualification-cancel", daemon=True)
-    thread.start()
+    start_connection_thread(connection, thread)
     return thread
 
 
@@ -50,15 +51,17 @@ def test_a_running_statement_can_be_broken(
     thread = _cancel_after(connection, _CANCEL_AFTER_SECONDS)
     started = time.monotonic()
 
-    with pytest.raises(HarnessError) as raised:
-        connection.execute(
-            "BEGIN harness_burn(:seconds); END;",
-            {"seconds": _BURN_SECONDS},
-            StatementKind.PLSQL_BLOCK,
-            generous,
-        )
-    elapsed = time.monotonic() - started
-    thread.join(timeout=5)
+    try:
+        with pytest.raises(HarnessError) as raised:
+            connection.execute(
+                "BEGIN harness_burn(:seconds); END;",
+                {"seconds": _BURN_SECONDS},
+                StatementKind.PLSQL_BLOCK,
+                generous,
+            )
+        elapsed = time.monotonic() - started
+    finally:
+        join_connection_thread(connection, thread)
 
     error = raised.value
     evidence.note(
@@ -88,14 +91,16 @@ def test_the_connection_is_reusable_after_a_cancellation(
 
     generous = limits.model_copy(update={"deadline_seconds": 120.0})
     thread = _cancel_after(connection, _CANCEL_AFTER_SECONDS)
-    with pytest.raises(HarnessError):
-        connection.execute(
-            "BEGIN harness_burn(:seconds); END;",
-            {"seconds": _BURN_SECONDS},
-            StatementKind.PLSQL_BLOCK,
-            generous,
-        )
-    thread.join(timeout=5)
+    try:
+        with pytest.raises(HarnessError):
+            connection.execute(
+                "BEGIN harness_burn(:seconds); END;",
+                {"seconds": _BURN_SECONDS},
+                StatementKind.PLSQL_BLOCK,
+                generous,
+            )
+    finally:
+        join_connection_thread(connection, thread)
 
     assert not connection.is_broken
     assert connection.is_healthy()
@@ -131,14 +136,16 @@ def test_cancelling_one_statement_leaves_earlier_work_in_the_transaction(
 
     generous = limits.model_copy(update={"deadline_seconds": 120.0})
     thread = _cancel_after(connection, _CANCEL_AFTER_SECONDS)
-    with pytest.raises(HarnessError):
-        connection.execute(
-            "BEGIN harness_burn(:seconds); END;",
-            {"seconds": _BURN_SECONDS},
-            StatementKind.PLSQL_BLOCK,
-            generous,
-        )
-    thread.join(timeout=5)
+    try:
+        with pytest.raises(HarnessError):
+            connection.execute(
+                "BEGIN harness_burn(:seconds); END;",
+                {"seconds": _BURN_SECONDS},
+                StatementKind.PLSQL_BLOCK,
+                generous,
+            )
+    finally:
+        join_connection_thread(connection, thread)
 
     try:
         result = connection.execute(
