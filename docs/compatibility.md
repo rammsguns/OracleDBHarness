@@ -5,29 +5,31 @@ claim. Where something has not been tested, it says so.
 
 ## Gate status, 2026-10-24
 
-Recorded against [PLAN.md section A](../PLAN.md#a-agent-stand-ins-for-human-owned-work--2026-10-24).
+Recorded against [PLAN.md section A](../PLAN.md#a-agent-stand-ins-for-human-owned-work--2026-10-24)
+and [section B](../PLAN.md#b-agent-stand-ins-second-round--2026-10-24).
 Agent roles are AI agent (acting DBA/application owner/reviewer), not a human.
-Nothing is pilot- or production-qualified. Section 6 production writes remain deferred.
+Nothing is pilot- or production-qualified. There is no production target; G3–G5
+remain blocked for production. Section 6 production writes remain deferred.
 
 | Gate / scope | Status | Evidence / remaining work |
 | --- | --- | --- |
-| NP-01/03 test rerun | agent-qualified on test stand-ins (AI agent, not a human) | A3: six D1/D2/D4 profiles passed; D3 retains 2026-10-14 evidence. |
+| NP-01/03 test rerun | agent-qualified on test stand-ins (AI agent, not a human) | A3 and B4: six D1/D2/D4 profiles, now on 26.0.1; D3 retains 2026-10-14 evidence on 4.0.2. |
 | NP-01/03 pilot | open (human-owned) | Production-shaped staging and named DBA approval remain. |
 | NP-02 test drills | agent-qualified on test stand-ins (AI agent, not a human) | A4: PostgreSQL install/restore and earliest schema commit upgrade passed; no released baseline exists. |
 | NP-02 pilot | open (human-owned) | Operations acceptance remains. |
 | NP-04 / K-7 | not met | K-7 closure: NOT QUALIFIED, 2026-10-23; Kiwi stays off by default. |
-| NP-05 first slice | agent-qualified on test stand-ins (AI agent, not a human) | A6: pinned DataForge plus local patch, real routes through nginx. |
-| NP-05 completion | open (human-owned) | Editor/UI, upstream change, Oracle, real provider and setup measurement remain. |
+| NP-05 integration | agent-qualified on test stand-ins (AI agent, not a human) | A6/B1: 16/16 Oracle and real local-provider checks through nginx; B2: 6/6 browser scenarios. B3: upstream PR #77 merged as `431147a`; final review fixes are unit-tested only. |
+| NP-05 pilot | open (human-owned) | Human setup/editor acceptance, broader UI regression and live rerun of final upstream head remain; B1 setup was 10.938 s on an already-running stack. See [integration gates](../integrations/dataforge/COMPATIBILITY.md#release-gates-still-open). |
 | NP-06 stand-in | agent-qualified on test stand-ins (AI agent, not a human) | A5: deployed nginx/Keycloak browser drill, 23 passed, 2 observed. |
 | NP-06 pilot | open (human-owned) | Pilot IdP registration and deployed origin still required. |
-| NP-07 test capacity | agent-qualified on test stand-ins (AI agent, not a human) | A2 failed; A10 cache fixed latency; A11 keepalive main run and soak met every agreed criterion. |
+| NP-07 test capacity | agent-qualified on test stand-ins (AI agent, not a human) | A2 failed; A10 cache fixed latency; A11 keepalive main run and soak met every agreed criterion; B4 repeated on 26.0.1. |
 | NP-07 pilot | open (human-owned) | Pilot acceptance remains. |
-| NP-08 reconciliation | agent-qualified on test stand-ins (AI agent, not a human) | A9: documentation reconciled with section A; no human acceptance implied. |
+| NP-08 reconciliation | agent-qualified on test stand-ins (AI agent, not a human) | A9/B6: documentation reconciled with sections A and B; no human acceptance implied. |
 | G1 | open (human-owned) | Agent role assignment does not supply named human owners and dates. |
 | G2 | open (human-owned) | A7 independent AI reviews and C-1/C-2 fixes do not replace named human security review and DBA approval. |
-| G3 | blocked (no production access) | No production canary; rehearsed on D4 (B5), with grant-based disabling. |
-| G4 | blocked (no production access) | No production expansion. |
-| G5 / P4 | agent-qualified on test stand-ins (AI agent, not a human) | B4: 26.0.1 six-profile rerun and capacity main/soak passed; ADR-0015 moves the pin. Production promotion and fleet qualification remain blocked (no production access). |
+| G3 | blocked (no production target) | B5 agent-rehearsed on D4: 6/6 compressed canary passes within budget. B7 agent-rehearsed disable → lock → restore using the audited target endpoint; connection-test authorization fixed. No production canary or human sign-off. |
+| G4 | blocked (no production target) | No production expansion. |
+| G5 / P4 | agent-qualified on test stand-ins; G5 blocked for production (AI agent, not a human) | B4: 26.0.1 six-profile rerun and capacity main/soak; ADR-0015 moved the P4 pin. No production target, fleet qualification or human promotion approval. |
 | P5 | blocked (no production access) | A8 discovery tool/runbook tried only on D1/D2/D4; no production fleet facts. |
 
 ## What has been tested
@@ -42,15 +44,16 @@ Nothing is pilot- or production-qualified. Section 6 production writes remain de
 | **Oracle Database** | **Oracle AI Database 26ai Free 23.26.3.0.0, PDB `FREEPDB1` in a CDB, AL32UTF8** | The same three suites in thin and thick modes, recorded runs on 2026-10-14 (Linux), including the PDB container identity, the restricted account, the K-4 catalog and process death; rerun in both modes on 2026-10-24 (A3) |
 | **Oracle Database** | **19c Enterprise Edition 19.9.1.0.0, non-CDB, WE8MSWIN1252, on a remote host** | The whole test suite in thin mode, one recorded run on 2026-10-14 (Linux client, database across a real network), including the K-4 catalog and process death. Provisioned without `SYS`; the `SYS` grants were added later the same day, and the restricted account is now claimed. See "The D4 run, 2026-10-14" |
 | **Oracle Database** | **Autonomous Database 26ai (Always Free) 23.26.4.1.0, a PDB, AL32UTF8, over TCPS with its wallet** | The same three suites in thin mode and in thick mode with Instant Client 21.4, recorded runs on 2026-10-14 (Linux client, Oracle Cloud), with D1 as the second target, the admin account for the kills, the K-4 catalog and process death. A shared database, so no restricted or lab account. See "The D3 run, 2026-10-14" and "Thick mode over TCPS, and VECTOR binds, 2026-10-14" |
-| python-oracledb | 4.0.2, thin mode | The runs above |
-| python-oracledb | 4.0.2, thick mode, Oracle Instant Client 21.4.0.0.0 | The same three suites against the 19.9 non-CDB, the 23.26 Free PDB, D4 (19.9, `WE8MSWIN1252`, remote) and D3 (Autonomous Database 23.26.4.1.0 over TCPS), recorded runs on 2026-10-14 (Linux). Against 23.26 this client predates `BOOLEAN` and `VECTOR`; see "Thick mode against 23.26, 2026-10-14" |
-| Copilot provider | Fixture provider | Copilot test suite |
+| python-oracledb | 26.0.1, thin and thick modes, Oracle Instant Client 21.4.0.0.0 for thick | B4: D1/D2/D4 six-profile rerun and capacity main/soak, agent-qualified on test stand-ins; D3 not rerun. See [driver upgrade](#driver-upgrade-qualification-2026-10-24-b4-g5--p4). |
+| python-oracledb | 4.0.2, thin mode (historical) | The 2026-10-14 runs above and A3 |
+| python-oracledb | 4.0.2, thick mode, Oracle Instant Client 21.4.0.0.0 (historical) | The same three suites against the 19.9 non-CDB, the 23.26 Free PDB, D4 (19.9, `WE8MSWIN1252`, remote) and D3 (Autonomous Database 23.26.4.1.0 over TCPS), recorded runs on 2026-10-14 (Linux). Against 23.26 this client predates `BOOLEAN` and `VECTOR`; see "Thick mode against 23.26, 2026-10-14" |
+| Copilot provider | Fixture and local model providers | Copilot test suite; B1 exercised the real local model through DataForge/nginx on test stand-ins. See [integration evidence](../integrations/dataforge/COMPATIBILITY.md#2026-10-24-oracle-and-real-local-provider-b1b1bb1c-agent-stand-ins). |
 | Protocol | 1.0 | Contract tests, adapter tests |
 | Identity provider | Keycloak 26.3, local container | `tests/identity` and `apps/web/src/oidc.keycloak.test.ts`, in CI. See [Identity providers](#identity-providers) |
 
 **Pinned version.** python-oracledb is pinned to `26.0.1` in
 `services/worker/pyproject.toml` (the `oracle` extra) and resolved as such in
-`uv.lock`. This move is **qualified on test stand-ins (B4)** by Claude (AI agent, acting DBA),
+`uv.lock`. This move is **agent-qualified on test stand-ins (B4)** by Claude (AI agent, acting DBA),
 under [ADR-0015](decisions.md#adr-0015-move-the-p4-python-oracledb-pin-to-2601).
 Requalify each affected staging shape (old/new versions, thin/thick modes where deployed,
 regression results and DBA approval) before production promotion. A historical
@@ -184,7 +187,9 @@ non-CDB), D2 (26ai Free 23.26.3 PDB), D3 (Autonomous Database 26ai 23.26.4.1.0 o
 TCPS with its wallet), and D4 (remote 19.9 non-CDB, WE8MSWIN1252), each with
 python-oracledb 4.0.2 in thin and thick modes. D1/D2/D4 were rerun on 2026-10-24
 (A3): agent-qualified on test stand-ins (AI agent, not a human). D3 retains its
-2026-10-14 evidence. The gaps listed under "Remaining coverage gaps" still stand,
+2026-10-14 evidence. B4 subsequently reran D1/D2/D4 on the current `26.0.1` pin;
+see [driver upgrade qualification](#driver-upgrade-qualification-2026-10-24-b4-g5--p4).
+The gaps listed under "Remaining coverage gaps" still stand,
 and no broader claim about Oracle support is supportable until they are run and
 recorded too.
 

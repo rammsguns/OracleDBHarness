@@ -26,9 +26,11 @@ Deliver observation-only production Oracle 19c access, complete pilot qualificat
 and qualify Kiwi separately for development targets. The MVP workflows and local
 qualification tooling exist. Oracle D1–D4 qualification is recorded for 2026-10-14
 in [compatibility](docs/compatibility.md) (python-oracledb 4.0.2, thin and thick).
-The 2026-10-19 three-database, ten-user capacity run met proposed criteria; agreed
-thresholds and a fresh run are still owed ([capacity](docs/capacity.md)). Pilot
-OIDC and real DataForge integration remain separate from fixture checks.
+The current pin is `26.0.1` (B4 / ADR-0015), agent-qualified on D1/D2/D4 test stand-ins;
+D3 retains its 4.0.2 evidence. A11 and B4 capacity main/soak met the agreed ADR-0013
+thresholds ([capacity](docs/capacity.md)). DataForge is opt-in and merged upstream
+(B3, `431147a`), with B1 16/16 route/backend checks and B2 6/6 browser scenarios.
+Human pilot acceptance, pilot OIDC and production gates remain open.
 
 K-7 remains **NOT QUALIFIED**. State as of 2026-10-22, verified against the tree:
 
@@ -136,11 +138,12 @@ artifacts included in changes. Documentation consolidation alone does not pass i
 - [x] **P3** Check the diagnostic catalog for licensed features (fixed list above)
   and verify restricted grants degrade to explicit permission states rather than
   false healthy results.
-- [x] **P4 Pin the driver.** `services/worker/pyproject.toml` declares
-  `oracle = ["oracledb>=2.4"]` and `uv.lock` resolves it unpinned. Change it to
-  `oracledb==4.0.2`, run `uv lock`, and check the deployment image installs that
-  version. **Verify:** `uv run python -c "import oracledb; print(oracledb.__version__)"`
-  prints `4.0.2`; standard checks pass.
+- [x] **P4 Pin the driver.** Initially pinned `oracledb==4.0.2` in the worker's
+  `oracle` extra and lockfile; the original checks are retained in its completion
+  record. B4 / ADR-0015 subsequently moved the current pin to `oracledb==26.0.1`,
+  agent-qualified on test stand-ins only. **Verify current pin:**
+  `uv run python -c "import oracledb; print(oracledb.__version__)"` prints `26.0.1`
+  when the `oracle` extra is installed. Production G5 remains blocked.
 - [ ] **P5 HUMAN.** Fleet shape (RAC, Data Guard, CDB/PDB, TCPS) is established by
   the DBA. Do not implement shape-dependent session/blocker diagnostics before it
   is recorded under "Decisions still needed".
@@ -2481,6 +2484,8 @@ Tasks, one at a time:
 
 ## B. Agent stand-ins, second round — 2026-10-24
 
+Section B complete 2026-10-24 (agent stand-ins); production gates G3–G5, human sign-offs and section 6 remain open.
+
 On 2026-10-24 the user asked to continue "use agents instead humans, use databases if
 you need". Roles and rules are those of section A: Claude coordinates and acts as DBA,
 application owner, integration owner and release owner; codex and agy implement and
@@ -2539,10 +2544,21 @@ section 6 stays deferred.
   Done 2026-10-24, agent-rehearsed on a test stand-in (AI agent, not a human): 6/6 passes on
   D4 within the pre-set budget (peak 1 session, 1.3 s SQL, 105k buffer gets, 16 executions);
   every request audited, writes refused; drill revoke -> lock (ORA-28000) -> restore verified.
-  Found: no target-disable endpoint, and the connection test ignores grant permissions (B7).
+  Found at B5: no target-disable endpoint, and the connection test ignored grant
+  permissions; both resolved by B7 below.
 - [x] **B7 Target disable and connection-test authorization.** From the B5 review: the
   connection test now requires read permission (not just a grant), and administrators can
   disable/enable a target (audited, with a reason; a disabled target refuses everything but
   listing and enable). Done 2026-10-24: agy review APPROVE; live drill on D4 used the endpoint.
-- [ ] **B6 Documentation.** Reconcile the README, the gate status table and the
-  compatibility docs with B1–B5.
+- [x] **B6 Documentation.** Reconcile the README, the gate status table and the
+  compatibility docs with B1–B5 and B7.
+  Done 2026-10-24 by AI agent (documentation reviewer), not a human: reconciled
+  the 26.0.1 pin, opt-in upstream DataForge integration, local provider and audited
+  target disable/enable; retained dated evidence and blocked production G3–G5.
+
+  Verification (B6, this commit): `UV_CACHE_DIR=/home/kiwi/.cache/harness-uv uv run
+  ruff check .` clean; `ruff format --check .` clean (403 files); with the same
+  cache, `uv run pytest -q tests/unit`: **842 passed, 8 skipped**, 143.96 s.
+  All 64 relative Markdown links in changed files resolve to existing files and
+  anchors; stale-reference search and `git diff --check` clean for current state.
+  Dated compatibility run records remain unchanged; no code or live database work.

@@ -1,6 +1,12 @@
 # OracleDataForge integration plan
 
-Status: Proposed design, not implemented or compatibility-certified. Companion to [PLAN.md](PLAN.md).
+Status, 2026-10-24: the opt-in integration is implemented and merged upstream in
+OracleDataForge as `431147a` (PR #77, B3). B1/B2 are agent-qualified on test stand-ins;
+human NP-05 acceptance remains open. See the current [setup guide](integrations/dataforge/README.md)
+and [compatibility evidence](integrations/dataforge/COMPATIBILITY.md).
+
+The design and inspected baseline below are historical planning context; their
+proposed settings and routes have since been implemented. Companion to [PLAN.md](PLAN.md).
 
 ## Objective
 
