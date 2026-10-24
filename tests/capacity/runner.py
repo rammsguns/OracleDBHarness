@@ -321,6 +321,11 @@ class CapacityRun:
             f"{report.environment.get('schemaPanelCacheSeconds', 'unknown')} seconds; "
             "metadata measures the panel as served, including cache hits."
         )
+        report.notes.append(
+            "Oracle TCP keepalive interval: "
+            f"{report.environment.get('oracleExpireTimeMinutes', 'unknown')} minutes "
+            "(0 disables)."
+        )
         server_deadline = float(report.environment.get("limits", {}).get("deadlineSeconds", 0) or 0)
         if server_deadline and workload.limits.statement_deadline_seconds > server_deadline:
             report.notes.append(

@@ -1589,6 +1589,11 @@
             "title": "Oracledrivermode",
             "type": "string"
           },
+          "oracleExpireTimeMinutes": {
+            "default": 1,
+            "title": "Oracleexpiretimeminutes",
+            "type": "integer"
+          },
           "schemaPanelCacheSeconds": {
             "default": 60,
             "title": "Schemapanelcacheseconds",

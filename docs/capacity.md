@@ -191,6 +191,12 @@ a measured failure. Read-only cross-user probes separately retry once with a fre
 session after an expired, unauthorized, quarantined, or missing session response.
 
 The metadata kind measures the console schema panel as served, including cache hits.
+`HARNESS_ORACLE_EXPIRE_TIME_MINUTES` is a nonnegative integer, default 1; 0 disables
+TCP keepalive. It applies to thin and thick Oracle connections. The capacity driver
+exports 1 minute to keep idle probe worksheet sessions alive on the remote link.
+The API exposes the interval as `oracleExpireTimeMinutes` in `/api/v1/system/info`;
+capacity reports record it in their environment and notes.
+
 `HARNESS_SCHEMA_PANEL_CACHE_SECONDS` defaults to 60 seconds (0 disables caching);
 `scripts/capacity_run.sh` explicitly sets 60. The API reports its configured TTL in
 `/api/v1/system/info` and the driver records it in report notes. Each API worker

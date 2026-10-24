@@ -271,9 +271,16 @@ def apply_marker_schema(config: DriverConfig) -> None:
     """Apply oracle/capacity/load_schema.sql to each target idempotently."""
     import oracledb
 
+    from harness_api.config import Settings
+
     for target in config.targets:
         password = Path(target.password_file).read_text(encoding="utf-8").strip()
-        with oracledb.connect(user=target.user, password=password, dsn=target.dsn) as conn:
+        with oracledb.connect(
+            user=target.user,
+            password=password,
+            dsn=target.dsn,
+            expire_time=Settings().oracle_expire_time_minutes,
+        ) as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
                     "SELECT COUNT(*) FROM user_tables WHERE table_name = 'HARNESS_LOAD_MARKERS'"
@@ -301,10 +308,17 @@ def teardown_marker_schema(config: DriverConfig) -> None:
     """Drop marker table on each target idempotently."""
     import oracledb
 
+    from harness_api.config import Settings
+
     for target in config.targets:
         try:
             password = Path(target.password_file).read_text(encoding="utf-8").strip()
-            with oracledb.connect(user=target.user, password=password, dsn=target.dsn) as conn:
+            with oracledb.connect(
+                user=target.user,
+                password=password,
+                dsn=target.dsn,
+                expire_time=Settings().oracle_expire_time_minutes,
+            ) as conn:
                 with conn.cursor() as cursor:
                     try:
                         cursor.execute("DROP TABLE harness_load_markers PURGE")

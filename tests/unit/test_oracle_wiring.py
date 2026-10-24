@@ -498,11 +498,15 @@ def test_seeding_against_overridden_endpoints_keeps_their_credentials_apart(
         assert secrets["test"].locator == "second.password"
 
 
-def test_a_seeded_target_carries_its_transport_to_the_connection(tmp_path: Path) -> None:
+@pytest.mark.parametrize("minutes", [0, 1, 7])
+def test_a_seeded_target_carries_its_transport_to_the_connection(
+    tmp_path: Path, minutes: int
+) -> None:
     """The profile keeps protocol, wallet and a reference to the wallet password, and
     the connection the API builds from it opens the wallet with that password."""
 
     settings = _seed_settings(tmp_path)
+    settings.oracle_expire_time_minutes = minutes
     (tmp_path / "secrets" / "wallet.password").write_text("a-wallet-password", encoding="utf-8")
 
     seed(
@@ -533,6 +537,7 @@ def test_a_seeded_target_carries_its_transport_to_the_connection(tmp_path: Path)
 
     spec = ExecutionService(settings, factory).connection_spec(cloud, None)
     assert (spec.protocol, spec.wallet_dir) == ("tcps", "/wallets/adb")
+    assert spec.oracle_expire_time_minutes == minutes
     assert spec.wallet_password == "a-wallet-password"
     assert "a-wallet-password" not in repr(spec)
 

@@ -2457,10 +2457,17 @@ Tasks, one at a time:
     there were no contamination, lost, unknown or leaked results. Every threshold was met
     except "verification complete": 4–5 probes per run timed out on the remote D4. Evidence
     is in docs/compatibility.md, "Capacity re-run with the schema panel cache".
-- [ ] **A11 Remote D4 statement stalls (from A2/A10).** Find why a few primary-key
+- [x] **A11 Remote D4 statement stalls (from A2/A10).** Find why a few primary-key
   probe counts on the remote D4 reach the 30 s deadline. The hypothesis is that the
   network drops idle connections, because the harness sets no `expire_time` keepalive.
   Fix it inside the product, or record it as a stand-in network limit with evidence.
   Then re-run until "verification complete" is met, or record why it cannot be.
+  - Done 2026-10-24, agent-qualified on test stand-ins. The cause is confirmed: D4's
+    network drops idle connections after 3–5 minutes, and with `expire_time=1` every idle
+    duration up to 15 minutes answered. `HARNESS_ORACLE_EXPIRE_TIME_MINUTES` now
+    defaults to 1 in both driver modes. The re-run met every ADR-0013 criterion in the
+    main run and the soak, with 0 failed probes. Evidence is in docs/compatibility.md,
+    "Capacity re-run with Oracle keepalive". NP-07 is therefore agent-qualified on test
+    stand-ins; the pilot gate stays open.
 - [ ] **A9 NP-08 documentation.** Reconcile setup, caveats, compatibility and release
   status with A1–A8. Make no unsupported qualification claim.
