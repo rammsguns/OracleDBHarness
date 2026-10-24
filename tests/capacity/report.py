@@ -107,7 +107,7 @@ class CapacityReport:
 
     @property
     def failed(self) -> bool:
-        return bool(self.prerequisite_failures) or any(not c.passed for c in self.criteria)
+        return bool(self.prerequisite_failures) or any(c.passed is False for c in self.criteria)
 
     @property
     def qualified(self) -> bool:
@@ -119,7 +119,7 @@ class CapacityReport:
             return "FAILED - prerequisites missing before measurement: " + "; ".join(
                 self.prerequisite_failures
             )
-        failed = [c.name for c in self.criteria if not c.passed]
+        failed = [c.name for c in self.criteria if c.passed is False]
         if self.rehearsal:
             findings = [name for name in failed if name not in self.CORRECTNESS]
             if not self.rehearsal_sound:
@@ -270,10 +270,20 @@ class CapacityReport:
             if examples:
                 lines += ["", "Example error per code:", ""]
                 lines += [f"- `{code}`: {message}" for code, message in examples.items()]
+        recovery = next((c for c in self.criteria if c.name == "recovery after saturation"), None)
+        recovery_text = (
+            "not applicable (steady-only soak)"
+            if recovery is not None and recovery.passed is None
+            else (
+                "did not recover within the phase"
+                if self.recovery_s is None
+                else f"{self.recovery_s:.0f}s after load dropped"
+            )
+        )
         v = self.verification
         lines += [
             "",
-            f"Recovery: {'did not recover within the phase' if self.recovery_s is None else f'{self.recovery_s:.0f}s after load dropped'}",
+            f"Recovery: {recovery_text}",
             "",
             f"Sessions replaced: {self.sessions_replaced}",
             "",
@@ -295,9 +305,8 @@ class CapacityReport:
             "| --- | --- | --- | --- |",
         ]
         for c in self.criteria:
-            lines.append(
-                f"| {c.name} | {c.threshold} | {c.measured} | {'yes' if c.passed else '**no**'} |"
-            )
+            met = "N/A" if c.passed is None else ("yes" if c.passed else "**no**")
+            lines.append(f"| {c.name} | {c.threshold} | {c.measured} | {met} |")
         if self.eligibility.reasons:
             lines += ["", "Why this is not a pilot qualification:", ""]
             lines += [f"- {reason}" for reason in self.eligibility.reasons]

@@ -263,18 +263,12 @@ def test_generate_workloads_thresholds_phases_and_soak_shape() -> None:
     assert main_doc["phases"]["saturation"]["seconds"] == 300
     assert main_doc["phases"]["recovery"]["seconds"] == 600
 
-    # Soak workload phases: 3600s steady, 1s saturation and recovery
+    # Soak workload: exactly one hour of steady load
     assert soak_doc["phases"]["steady"]["seconds"] == 3600
     assert soak_doc["phases"]["steady"]["streamsPerUser"] == 1
     assert soak_doc["phases"]["steady"]["thinkTimeScale"] == 1
 
-    assert soak_doc["phases"]["saturation"]["seconds"] == 1
-    assert soak_doc["phases"]["saturation"]["streamsPerUser"] == 1
-    assert soak_doc["phases"]["saturation"]["thinkTimeScale"] == 0
-
-    assert soak_doc["phases"]["recovery"]["seconds"] == 1
-    assert soak_doc["phases"]["recovery"]["streamsPerUser"] == 1
-    assert soak_doc["phases"]["recovery"]["thinkTimeScale"] == 1
+    assert set(soak_doc["phases"]) == {"steady"}
 
     # Ensure capacity parser accepts both generated workloads without error
     parsed_main = parse(main_doc)
@@ -484,3 +478,89 @@ def test_capacity_active_session_expiration_is_not_retried(monkeypatch):
     assert calls == ["active"]
     for client in run.users.values():
         client.http.close()
+
+
+@pytest.mark.parametrize("missing", ["saturation", "recovery", "steady"])
+def test_capacity_main_requires_all_phases(missing):
+    from tests.capacity.workload import WorkloadProblem
+
+    document = json.loads(EXAMPLE_WORKLOAD.read_text(encoding="utf-8"))
+    del document["phases"][missing]
+    with pytest.raises(WorkloadProblem, match=f"phases.{missing} is required"):
+        parse(document)
+
+
+@pytest.mark.parametrize("steady_only", [True, False])
+def test_capacity_declared_phases_run_and_soak_can_pass(monkeypatch, steady_only):
+    from tests.capacity import runner
+
+    config = validate_driver_config(_valid_config_dict())
+    main, soak = generate_workloads(
+        config, {target.name: target.name for target in config.targets}, EXAMPLE_WORKLOAD
+    )
+    workload = parse(soak if steady_only else main)
+    seen = []
+    checked = []
+
+    class FakeRun:
+        def __init__(self, workload, report):
+            self.report = report
+            self.samples = []
+            self.users = {}
+            self.verification = metrics.Verification()
+            self.gate = type("Gate", (), {"peak": 1})()
+
+        def prepare(self):
+            self.report.environment = {"oracleBackend": "oracledb"}
+            self.report.identities = {
+                target.name: {"hostName": target.name, "databaseName": target.name}
+                for target in workload.targets
+            }
+
+        def offset(self):
+            return 0
+
+        def run_phase(self, phase):
+            seen.append((phase.name, phase.seconds))
+            self.samples.extend(
+                metrics.Sample(phase.name, kind, "u", "t", 0, 10, True, db_ms=5)
+                for kind in workload.thresholds.latency_ms
+            )
+            return True
+
+        def check_ownership(self):
+            checked.append("ownership")
+
+        def verify(self):
+            checked.append("verification")
+
+        def close_and_check_leaks(self):
+            checked.append("leaks")
+
+    monkeypatch.setattr(runner, "CapacityRun", FakeRun)
+    report = runner.execute(workload)
+    assert seen == [(phase.name, phase.seconds) for phase in workload.phases]
+    assert checked == ["ownership", "verification", "leaks"]
+    assert report.completed_phases == [phase.name for phase in workload.phases]
+    phase_criteria = [c for c in report.criteria if c.name.startswith(("saturation ", "recovery "))]
+    assert len(phase_criteria) == 3
+    if steady_only:
+        assert seen == [("steady", 3600)]
+        assert all(c.passed is None for c in phase_criteria)
+        assert all(c.measured == "not applicable (steady-only soak)" for c in phase_criteria)
+        assert all(c.passed is True for c in report.criteria if c not in phase_criteria)
+        assert report.qualified
+        assert report.verdict.startswith("PASSED")
+        assert report.as_markdown().count("| N/A |") == 3
+        assert "Recovery: not applicable (steady-only soak)" in report.as_markdown()
+        assert sum(c["passed"] is None for c in report.as_dict()["criteria"]) == 3
+        for name in report.CORRECTNESS:
+            criterion = next(c for c in report.criteria if c.name == name)
+            criterion.passed = False
+            assert report.failed
+            assert report.verdict.startswith("FAILED")
+            criterion.passed = True
+    else:
+        assert all(c.passed is not None for c in phase_criteria)
+        assert not report.qualified  # Short fake recovery has no complete window.
+        assert phase_criteria[-1].passed is False

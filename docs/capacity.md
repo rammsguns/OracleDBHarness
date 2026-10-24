@@ -22,7 +22,7 @@ session per target it works on, and repeats a mix of four kinds of step:
 | `transaction` | Insert a marker row, then commit (80%) or roll back (20%) | Client time for the whole transaction; database time of the insert |
 | `cancellation` | Start the target's `slowRead`, cancel it after `cancelAfterMs` | Client, execution and database time. Cancelled, or finished first, both count as success |
 
-Three phases run back to back:
+The main workload requires three phases, run back to back:
 
 | Phase | Purpose |
 | --- | --- |
@@ -123,7 +123,7 @@ For the NP-07 three-database, ten-user capacity run against test databases, the 
    *Limitation:* `devToken` authentication issues local tokens and does not exercise OIDC token verification.
 5. **Workload files.** Queries registered target profile IDs and generates:
    - The main workload JSON with baseUrl `http://127.0.0.1:<port>`, `devToken` auth, and ADR-0013 agreed thresholds (`status: agreed`, agreed by Claude on 2026-10-24, reference `docs/decisions.md ADR-0013`), leaving all threshold values and phase durations unchanged from `tests/capacity/workload.example.json`.
-   - A separate soak workload JSON with a 3600 s steady phase. Minimal 1 s saturation and recovery phases are included because the `tests.capacity` runner requires all three phases (`steady`, `saturation`, `recovery`).
+   - A separate soak workload JSON with a 3600 s steady phase. Saturation and recovery are both omitted; declaring either requires both. Only declared phases run. The saturation error-rate, allowed-code and recovery criteria remain in the criteria table as `not applicable (steady-only soak)` (`N/A`, JSON `passed: null`), counted as neither met nor failed. All steady latency, overhead and error-rate criteria, verification completeness, contamination, lost-commit, unknown-outcome and session-leak checks still apply. A declared saturation phase never receives this exemption.
 6. **Marker schema.** Connects to each target as the `harness_app` account and applies `oracle/capacity/load_schema.sql` idempotently.
 7. **Runs.** Sequentially executes `validate`, `baseline`, and `run` for the main workload (`pilot.md`), followed by the soak workload (`soak.md`), writing markdown reports and JSON sidecars to `<report_dir>`.
 8. **Host metrics.** Continuously samples process-tree CPU% and RSS for both the API process tree and the load client process tree every 5 s via `/proc`, writing a time-series CSV and a summary JSON (peak, mean, p95) beside each report (`pilot-host-metrics.csv`/`.json` and `soak-host-metrics.csv`/`.json`).

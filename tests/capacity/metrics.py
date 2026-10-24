@@ -166,7 +166,7 @@ class Criterion:
     name: str
     threshold: str
     measured: str
-    passed: bool
+    passed: bool | None  # None means not applicable, neither met nor failed.
 
 
 @dataclass
@@ -269,6 +269,13 @@ def evaluate(
             recovery_s is not None and recovery_s <= thresholds.recovery_within_seconds,
         )
     )
+    # Applicability follows the declared workload, never missing traffic or recovery data.
+    if {phase.name for phase in workload.phases} == {"steady"}:
+        for criterion in criteria:
+            if criterion.name.startswith(("saturation ", "recovery ")):
+                criterion.measured = "not applicable (steady-only soak)"
+                criterion.passed = None
+
     unknown = sum(1 for s in samples if s.code == "outcome_unknown")
     criteria.append(
         Criterion(

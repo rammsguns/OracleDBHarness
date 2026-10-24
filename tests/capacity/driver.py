@@ -253,13 +253,11 @@ def generate_workloads(
     main_doc["thresholds"]["reference"] = "docs/decisions.md ADR-0013"
 
     # Soak workload:
-    # 3600s steady phase; short 1s saturation and recovery phases required by tests.capacity runner
+    # One hour of steady load, without saturation or recovery (ADR-0013).
     soak_doc = copy.deepcopy(main_doc)
     soak_doc["name"] = "pilot capacity - NP-07 soak run"
     soak_doc["phases"] = {
         "steady": {"seconds": 3600, "streamsPerUser": 1, "thinkTimeScale": 1},
-        "saturation": {"seconds": 1, "streamsPerUser": 1, "thinkTimeScale": 0},
-        "recovery": {"seconds": 1, "streamsPerUser": 1, "thinkTimeScale": 1},
     }
 
     # Validate offline with capacity parser
