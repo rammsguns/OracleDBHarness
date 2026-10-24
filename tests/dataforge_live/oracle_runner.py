@@ -8,6 +8,8 @@ from __future__ import annotations
 import http.server
 import json
 import secrets
+import shlex
+import shutil
 import threading
 import time
 from collections.abc import Callable
@@ -19,7 +21,7 @@ import oracledb
 from sqlalchemy import select
 
 from harness_api.db import build_engine, build_session_factory
-from harness_api.models import CopilotRequest, Execution
+from harness_api.models import ConnectionProfile, CopilotRequest
 from tests.dataforge_live.oracle_stack import DEVELOPER, MODEL, VIEWER, OracleHarness
 from tests.dataforge_live.real_runner import (
     ADAPTER_VERSION,
@@ -34,7 +36,7 @@ from tests.dataforge_live.real_runner import (
     check_proposal_apply,
     parse_sse_events,
 )
-from tests.dataforge_live.stack import REPOSITORY, _free_port
+from tests.dataforge_live.stack import ADMIN_SUBJECT, REPOSITORY, _free_port
 
 LABEL = "agent-qualified on test stand-ins (AI agent, not a human)"
 SELECTION = "SELECT 1 AS B1_MARKER FROM dual"
@@ -101,6 +103,34 @@ class _FailingProvider(http.server.BaseHTTPRequestHandler):
         pass
 
 
+def dataforge_session_count(target_dsn: str) -> int:
+    """Observe D1 as SYSTEM; read credentials without ever echoing them."""
+    values = {}
+    for line in (REPOSITORY / "databases/qual/r1.env").read_text().splitlines():
+        parts = shlex.split(line, comments=True)
+        if parts and "=" in parts[-1]:
+            key, value = parts[-1].split("=", 1)
+            values[key] = value.replace("${REPO}", str(REPOSITORY)).replace(
+                "$REPO", str(REPOSITORY)
+            )
+    assert values["HARNESS_QUAL_ADMIN_DSN"] == target_dsn, "Admin DSN must be D1"
+    assert values["HARNESS_QUAL_ADMIN_USER"].lower() == "system", "D1 SYSTEM required"
+    with (
+        oracledb.connect(
+            user=values["HARNESS_QUAL_ADMIN_USER"],
+            password=Path(values["HARNESS_QUAL_ADMIN_PASSWORD_FILE"]).read_text().rstrip("\r\n"),
+            dsn=target_dsn,
+        ) as connection,
+        connection.cursor() as cursor,
+    ):
+        cursor.execute(
+            "SELECT COUNT(*) FROM v$session WHERE "
+            "LOWER(program) LIKE '%dataforge%' OR LOWER(program) LIKE '%node%' "
+            "OR LOWER(module) LIKE '%dataforge%' OR LOWER(module) LIKE '%node%'"
+        )
+        return int(cursor.fetchone()[0])
+
+
 def run_oracle_integration(dataforge_dir: Path, targets: Path, workdir: Path) -> RealRunReport:
     stack = OracleHarness(workdir, targets)
     checks: list[CheckResult] = []
@@ -145,7 +175,7 @@ def run_oracle_integration(dataforge_dir: Path, targets: Path, workdir: Path) ->
         df.start()
         setup_start = time.monotonic()
         metadata["setupIncluded"] = (
-            "From DataForge configured, Express healthy and disposable harness plus nginx running: minting development principal tokens, GET connection list, capability negotiation, scripted selected-statement assist request, and consumption through its successful done event. Excludes provisioning PostgreSQL, target bootstrap/probes, provider health check, credential issuance and process startup. No human interaction."
+            "From DataForge configured, Express healthy and disposable harness plus nginx running: minting development/viewer/administrator principal tokens, admin-authenticated target/profile count and D1 SYSTEM session baseline, GET connection list, capability negotiation, scripted selected-statement assist request, and consumption through its successful done event. Excludes provisioning PostgreSQL, target bootstrap/probes, provider health check, credential issuance and process startup. No human interaction."
         )
         assert stack._settings is not None
         engine = build_engine(stack._settings)
@@ -153,6 +183,18 @@ def run_oracle_integration(dataforge_dir: Path, targets: Path, workdir: Path) ->
         dev = stack._dev_token(DEVELOPER, ["developer", "dba"])
         viewer = stack._dev_token(VIEWER, ["viewer"])
         with httpx.Client(timeout=240) as client:
+            admin = stack._dev_token(ADMIN_SUBJECT, ["administrator"])
+            admin_headers = {"Authorization": f"Bearer {admin}"}
+
+            def registered_targets() -> list[dict[str, Any]]:
+                # Targets are the public API representation of connection profiles.
+                response = client.get(f"{stack.proxy_url}/api/v1/targets", headers=admin_headers)
+                response.raise_for_status()
+                return response.json()
+
+            targets_before = registered_targets()
+            assert len(targets_before) == 2, "Admin must see exactly D1/D2"
+            sessions_before = dataforge_session_count(stack.config.targets[0].dsn)
             before = client.get(f"{df.base_url}/api/connections").json()
             checks.append(check_capabilities(client, df.base_url))
             captured: list[tuple[str, dict]] = []
@@ -191,20 +233,26 @@ def run_oracle_integration(dataforge_dir: Path, targets: Path, workdir: Path) ->
             check("context_and_connection_registry", context)
 
             def oracle_explain() -> str:
+                assert captured and captured[-1][0] == "done"
+                start = next(data for name, data in captured if name == "start")
+                assert start["contextPreview"]["targetReference"].endswith(":load-db-1:HARNESS_APP")
+                assert captured[-1][1].get("outcome") == "succeeded"
+                assert client.get(f"{df.base_url}/api/connections").json() == before
+                assert registered_targets() == targets_before, (
+                    "Harness target/profile registry changed"
+                )
                 with sessions() as db:
-                    executions = db.scalars(
-                        select(Execution).where(Execution.profile_id == stack.profiles["load-db-1"])
-                    ).all()
-                    copilot = db.scalars(
-                        select(CopilotRequest).order_by(CopilotRequest.created_at.desc())
-                    ).first()
-                    assert executions, (
-                        "No D1 harness execution record: DataForge assist sends text and opaque targetReference only; no registered-profile EXPLAIN bridge exists"
-                    )
-                    assert (
-                        copilot is not None and copilot.profile_id == stack.profiles["load-db-1"]
-                    ), "Assist did not resolve D1 profile"
-                return "D1 execution record and unchanged DataForge connections verified"
+                    assert len(db.scalars(select(ConnectionProfile)).all()) == 2
+                sessions_after = dataforge_session_count(stack.config.targets[0].dsn)
+                assert sessions_after == sessions_before, "D1 DataForge/node session count changed"
+                metadata["selectedStatementExplain"] = {
+                    "harnessTargetsBefore": len(targets_before),
+                    "harnessTargetsAfter": len(registered_targets()),
+                    "d1DataForgeSessionsBefore": sessions_before,
+                    "d1DataForgeSessionsAfter": sessions_after,
+                    "liveExplainPlan": "Not a feature: no integration bridge exists, by design",
+                }
+                return f"Selected D1 statement explained successfully with D1 target reference; DataForge connections unchanged, admin API targets/profiles 2 -> 2, D1 DataForge/node sessions {sessions_before} -> {sessions_after}; live EXPLAIN PLAN has no bridge, by design"
 
             check("selected_statement_oracle_explain", oracle_explain)
 
@@ -364,6 +412,15 @@ def run_oracle_integration(dataforge_dir: Path, targets: Path, workdir: Path) ->
                 assert worksheet_response.status_code == 403, (
                     f"Viewer worksheet HTTP {worksheet_response.status_code}"
                 )
+                compiled = client.post(
+                    f"{stack.proxy_url}/api/v1/plsql/compile",
+                    headers=vh,
+                    json={
+                        "profileId": d2,
+                        "source": "CREATE OR REPLACE PROCEDURE B1_VIEWER_DENIED AS BEGIN NULL; END;",
+                    },
+                )
+                assert compiled.status_code == 403, f"Viewer compile HTTP {compiled.status_code}"
                 response = client.post(
                     f"{stack.proxy_url}/api/v1/copilot/requests",
                     headers=vh,
@@ -381,18 +438,73 @@ def run_oracle_integration(dataforge_dir: Path, targets: Path, workdir: Path) ->
                     },
                 )
                 events = parse_sse_events(response.text)
-                assert response.status_code == 403 or (
-                    events
-                    and all(name != "delta" for name, _ in events)
-                    and any(
-                        name == "error"
-                        and data.get("code") in ("policy_denied", "policy_error", "forbidden")
-                        for name, data in events
-                    )
-                ), (
-                    "Viewer worksheet refused (403), but viewer assist was accepted and returned model text"
+                assert response.status_code == 200, f"Viewer assist HTTP {response.status_code}"
+                assert any(name == "delta" for name, _ in events)
+                assert events[-1][0] == "done" and events[-1][1].get("outcome") == "succeeded"
+                metadata["viewerPolicy"] = (
+                    "Worksheet and compile 403; supplied-text assist allowed, intended PERMISSION_READ behavior"
                 )
-                return "Viewer assist and worksheet refused"
+
+                # Copy source so temporary named users cannot alter the real checkout's store.
+                analyst_dir = workdir / "analyst-dataforge"
+                analyst_dir.mkdir()
+                for folder in ("server", "src"):
+                    shutil.copytree(dataforge_dir / folder, analyst_dir / folder)
+                for name in ("node_modules", "package.json", "dist"):
+                    (analyst_dir / name).symlink_to(dataforge_dir / name)
+                analyst_df = DataForgeProcess(analyst_dir, _free_port(), stack.proxy_url, token)
+                try:
+                    analyst_df.start()
+                    password = secrets.token_urlsafe(24)
+                    admin_auth = httpx.BasicAuth("b1-admin@example.invalid", password)
+                    analyst_auth = httpx.BasicAuth("b1-analyst@example.invalid", password)
+                    for role, email, auth in (
+                        ("Administrator", "b1-admin@example.invalid", None),
+                        ("Analyst", "b1-analyst@example.invalid", admin_auth),
+                    ):
+                        created_user = client.post(
+                            f"{analyst_df.base_url}/api/users",
+                            auth=auth,
+                            json={
+                                "name": f"B1 {role}",
+                                "email": email,
+                                "role": role,
+                                "password": password,
+                            },
+                        )
+                        created_user.raise_for_status()
+                    with httpx.Client(auth=analyst_auth, timeout=240) as analyst_client:
+                        caps = analyst_client.get(f"{analyst_df.base_url}/api/ai/capabilities")
+                        caps.raise_for_status()
+                        assert caps.json()["actions"] == ["explain"], (
+                            "Analyst actions not restricted"
+                        )
+                        allowed, _ = stream_assist(
+                            analyst_client, analyst_df.base_url, assist_body()
+                        )
+                        preview = next(
+                            data["contextPreview"] for name, data in allowed if name == "start"
+                        )
+                        categories = [a["category"] for a in preview["attachments"]]
+                        assert categories == ["selected_source"], "Analyst received schema context"
+                        assert (
+                            allowed[-1][0] == "done"
+                            and allowed[-1][1].get("outcome") == "succeeded"
+                        )
+                        denied, _ = stream_assist(
+                            analyst_client,
+                            analyst_df.base_url,
+                            assist_body(action="diagnose", question="Explain SELECT 1 briefly"),
+                        )
+                        assert any(name == "error" for name, _ in denied) and not any(
+                            name in ("start", "delta") for name, _ in denied
+                        ), (
+                            "Viewer worksheet/compile 403 and assist allowed; Analyst capabilities explain-only and no schema context, but non-allowed diagnose was accepted"
+                        )
+                    return "Viewer worksheet and compile refused (403), supplied-text assist allowed as intended; authenticated DataForge Analyst offered explain only, no schema context, non-allowed action refused"
+                finally:
+                    analyst_df.stop()
+                    shutil.rmtree(analyst_dir)
 
             check("viewer_role_restrictions", role_restrictions)
 
