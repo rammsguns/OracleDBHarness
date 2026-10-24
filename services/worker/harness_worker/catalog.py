@@ -187,7 +187,7 @@ class QueryCatalog:
         return needed
 
 
-_SCRIPT_DIRECTORIES = frozenset({"capacity", "grants", "qualification"})
+_SCRIPT_DIRECTORIES = frozenset({"capacity", "discovery", "grants", "qualification"})
 
 
 def load_catalog(root: Path) -> QueryCatalog:
