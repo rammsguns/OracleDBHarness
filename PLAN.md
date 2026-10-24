@@ -2425,9 +2425,14 @@ Tasks, one at a time:
     typecheck and build still pass. All 7 checks through the real DataForge routes passed
     via the shipped nginx config. The editor/UI work, the upstream DataForge change,
     Oracle through DataForge and a real provider remain, so NP-05 stays open.
-- [ ] **A7 G2 security review.** An independent AI security review (two models) of the
+- [x] **A7 G2 security review.** An independent AI security review (two models) of the
   production boundary, authentication, secrets and audit. Change approval: acting DBA
   (AI) for test targets only.
+  - Done 2026-10-24. agy (Gemini) and Claude reviewed independently, and both found no
+    blocking findings for a test-stand-in pilot. Claude's two High findings (C-1, the
+    environment label; C-2, unaudited admin changes) were confirmed and fixed. The rest
+    are tracked in docs/security-review-2026-10-24.md. **G2 stays open**: it needs a
+    human security review and DBA approval with names.
 - [x] **A8 P5 preparation.** An observation-only fleet-discovery script and runbook
   (RAC, Data Guard, CDB/PDB, TCPS, RU level, character set) for a DBA to run on
   production. P5 itself stays open until real output is recorded.

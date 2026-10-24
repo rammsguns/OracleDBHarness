@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import wraps
+from typing import Any
 
 from harness_api.models import AppRole, ConnectionProfile, TargetCapability, UserTargetGrant
 from harness_api.security import Principal
@@ -34,6 +35,23 @@ PERMISSION_WORKSHEET = "worksheet"
 PERMISSION_COMPILE = "compile"
 PERMISSION_RUNBOOK = "runbook"
 ALL_PERMISSIONS = (PERMISSION_READ, PERMISSION_WORKSHEET, PERMISSION_COMPILE, PERMISSION_RUNBOOK)
+
+NON_PRODUCTION_ENVIRONMENTS: frozenset[str] = frozenset({"development", "test"})
+
+
+def is_production(profile: Any) -> bool:
+    """Return True if the profile or environment string must be treated as production.
+
+    Stage 1 production protection fails closed: only the explicit, known
+    non-production labels ('development' and 'test') are treated as non-production.
+    Any other value -- including 'production', unknown labels ('staging', 'custom'),
+    or casing mistakes ('Production', 'prod') -- is treated as production.
+    """
+    env = getattr(profile, "environment", profile)
+    if hasattr(env, "value"):
+        env = env.value
+    return env not in NON_PRODUCTION_ENVIRONMENTS
+
 
 _ROLE_FOR_PERMISSION: dict[str, tuple[AppRole, ...]] = {
     PERMISSION_READ: (AppRole.VIEWER, AppRole.DEVELOPER, AppRole.DBA, AppRole.ADMINISTRATOR),
@@ -80,8 +98,13 @@ def _refusal_context(authorize):
 
 
 class PolicyEngine:
-    def __init__(self, *, production_environments: tuple[str, ...] = ("production",)) -> None:
+    def __init__(self, *, production_environments: tuple[str, ...] | None = None) -> None:
         self._production = production_environments
+
+    def _is_production(self, profile: ConnectionProfile) -> bool:
+        if self._production is not None:
+            return profile.environment in self._production
+        return is_production(profile)
 
     # -- target access -------------------------------------------------------------
 
@@ -148,7 +171,7 @@ class PolicyEngine:
         self, profile: ConnectionProfile, major_version: int | None
     ) -> None:
         """Production reads require a successfully proved Oracle 19c identity."""
-        if profile.environment in self._production and major_version != 19:
+        if self._is_production(profile) and major_version != 19:
             error = PolicyError(
                 "Production targets require a successfully probed Oracle Database 19c identity."
             )
@@ -162,7 +185,7 @@ class PolicyEngine:
         risk: RiskClass,
         decision: PolicyDecision,
     ) -> None:
-        production = profile.environment in self._production
+        production = self._is_production(profile)
 
         if permission == PERMISSION_WORKSHEET and (production or not profile.worksheets_enabled):
             decision.allowed = False

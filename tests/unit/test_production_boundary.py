@@ -15,7 +15,7 @@ from harness_api.models import (
     Execution,
     UserTargetGrant,
 )
-from harness_api.policy import PolicyEngine
+from harness_api.policy import PolicyEngine, is_production
 from harness_worker.errors import PolicyError
 from harness_worker.types import RiskClass
 from tests.conftest import live_connection, open_worksheet
@@ -399,3 +399,83 @@ def test_disabled_copilot_refusal_is_audited(client, dba, monkeypatch, audit_fai
     if not audit_failure:
         assert_one_refusal(client, "/api/v1/copilot/requests")
     assert_no_execution(client)
+
+
+@pytest.mark.parametrize(
+    "bad_env", ["Production", "prod", "staging", "unknown", "development ", ""]
+)
+def test_target_create_rejects_unapproved_environment_labels(client, administrator, bad_env):
+    response = client.post(
+        "/api/v1/admin/targets",
+        headers=administrator,
+        json={
+            "name": f"target-{bad_env or 'empty'}",
+            "environment": bad_env,
+            "host": "localhost",
+            "serviceName": "STANDIN",
+            "username": "harness_app",
+            "secretReference": "harness-app",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_is_production_helper_fails_closed():
+    assert is_production("development") is False
+    assert is_production("test") is False
+    assert is_production("production") is True
+    assert is_production("Production") is True
+    assert is_production("prod") is True
+    assert is_production("staging") is True
+    assert is_production("unknown") is True
+    assert is_production("") is True
+
+
+@pytest.mark.parametrize("unknown_env", ["staging", "Production", "prod", "custom"])
+def test_unknown_stored_environment_treated_as_production_fail_closed(
+    client, dba, targets, unknown_env, monkeypatch
+):
+    profile_id = targets["development"]["id"]
+    with client.app.state.harness.session_factory() as db:
+        profile = db.get(ConnectionProfile, profile_id)
+        profile.environment = unknown_env
+        profile.worksheets_enabled = True
+        profile.mutating_runbooks_enabled = True
+        db.commit()
+
+    connect = Mock(side_effect=AssertionError("must not connect"))
+    monkeypatch.setattr(client.app.state.harness.execution._backend, "connect", connect)
+
+    # 1. Worksheet open is refused
+    resp = client.post("/api/v1/worksheets", headers=dba, json={"profileId": profile_id})
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "policy_refused"
+
+    # 2. PL/SQL compile is refused
+    resp = client.post(
+        "/api/v1/plsql/compile",
+        headers=dba,
+        json={"profileId": profile_id, "source": "CREATE PROCEDURE p AS BEGIN NULL; END;"},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "policy_refused"
+
+    # 3. Mutating runbook is refused
+    resp = client.post(
+        "/api/v1/runbooks/runbook.gather_table_stats/run",
+        headers=dba,
+        json={
+            "profileId": profile_id,
+            "confirm": True,
+            "parameters": {"owner": "HARNESS_APP", "table_name": "EMPLOYEES"},
+        },
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "policy_refused"
+
+    # 4. Copilot is refused
+    events = sse(client, dba, base_payload(profileId=profile_id))
+    assert [name for name, _ in events] == ["error"]
+    assert events[0][1]["code"] == "policy_refused"
+
+    connect.assert_not_called()

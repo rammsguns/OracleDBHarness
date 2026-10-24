@@ -39,6 +39,7 @@ from harness_api.policy import (
     PERMISSION_WORKSHEET,
     PolicyDecision,
     PolicyEngine,
+    is_production,
 )
 from harness_api.recovery import heartbeat, new_runtime_id, owns_store, record_clean_stop
 from harness_api.secrets import SecretResolver
@@ -344,7 +345,7 @@ class ExecutionService:
         service still get their own proof.
         """
 
-        if profile.environment == "production":
+        if is_production(profile):
             # Persist invalidation before connecting: a failed refresh must not leave
             # an earlier successful identity authorizing production reads.
             profile.identity_json = None
