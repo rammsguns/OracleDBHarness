@@ -1,8 +1,14 @@
 # B4: python-oracledb 26.0.1 offline rehearsal
 
-Date: 2026-10-24. Branch: `plan/B4-oracledb26`. This is G5 rehearsal evidence,
-not Oracle qualification. No Oracle connection, Docker run, or access to
-`databases/` was performed. Live qualification remains with the coordinator.
+Status: **qualified on test stand-ins (B4)**. Decision: Claude, acting DBA
+(AI agent, not a human), ADR-0015. Six live profiles and capacity main/soak
+passed on Python 3.11.16; see [the B4 run record](compatibility.md).
+The sections below retain the original offline rehearsal and B4b history.
+
+Date: 2026-10-24. Branch: `plan/B4-oracledb26`. The original offline run was
+G5 rehearsal evidence, not Oracle qualification. That run made no Oracle
+connection, Docker run, or access to `databases/`. Claude subsequently supplied
+the live B4 qualification recorded in compatibility.md and ADR-0015.
 
 ## Release-note review
 
@@ -118,3 +124,17 @@ B4b offline verification used the existing Python 3.11.16 venv and
   removed and `HARNESS_ORACLE_BACKEND=fake`: `14 passed in 10.02s`.
 - `uv run ruff check .`: `All checks passed!`.
 - `uv run ruff format --check .`: `392 files already formatted`.
+
+## B4c record verification
+
+After merging current `origin/main`, offline checks used Python 3.11.16 and
+`UV_CACHE_DIR=/home/kiwi/.cache/harness-uv`. Unit pytest ran with inherited
+`HARNESS_QUAL_*` and PostgreSQL-test variables removed and
+`HARNESS_ORACLE_BACKEND=fake`; no database or Docker commands were run.
+
+- `uv run pytest -q tests/unit`: 782 passed, 7 skipped in 103.52 s.
+- `uv run ruff check .`: all checks passed.
+- `uv run ruff format --check .`: 396 files already formatted.
+- The CI mypy command from `.github/workflows/ci.yml`, covering API, worker,
+  copilot eval, process death, Oracle configuration, browser, capacity,
+  DataForge live and DataForge real: success, 93 source files.

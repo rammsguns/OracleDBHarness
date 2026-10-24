@@ -27,7 +27,7 @@ Nothing is pilot- or production-qualified. Section 6 production writes remain de
 | G2 | open (human-owned) | A7 independent AI reviews and C-1/C-2 fixes do not replace named human security review and DBA approval. |
 | G3 | blocked (no production access) | No production canary. |
 | G4 | blocked (no production access) | No production expansion. |
-| G5 | blocked (no production access) | No production promotion or fleet upgrade qualification. |
+| G5 / P4 | agent-qualified on test stand-ins (AI agent, not a human) | B4: 26.0.1 six-profile rerun and capacity main/soak passed; ADR-0015 moves the pin. Production promotion and fleet qualification remain blocked (no production access). |
 | P5 | blocked (no production access) | A8 discovery tool/runbook tried only on D1/D2/D4; no production fleet facts. |
 
 ## What has been tested
@@ -50,7 +50,8 @@ Nothing is pilot- or production-qualified. Section 6 production writes remain de
 
 **Pinned version.** python-oracledb is pinned to `26.0.1` in
 `services/worker/pyproject.toml` (the `oracle` extra) and resolved as such in
-`uv.lock`. This move is under PLAN.md G5 rehearsal (B4), **not yet qualified**.
+`uv.lock`. This move is **qualified on test stand-ins (B4)** by Claude (AI agent, acting DBA),
+under [ADR-0015](decisions.md#adr-0015-move-the-p4-python-oracledb-pin-to-2601).
 Requalify each affected staging shape (old/new versions, thin/thick modes where deployed,
 regression results and DBA approval) before production promotion. A historical
 D1–D4 pass does not qualify an upgraded environment. See the
@@ -67,7 +68,7 @@ Thick mode on 26.x requires the standard `libclntsh.so` (Linux) or
 | **Kiwi's K-4 lookups on Oracle** | Run on 2026-10-14 against 19.9 and 23.26: every entry returned rows of the shape the stand-in returns, and PL/Scope absence was reported for the unit compiled without it. Needs the extra grants in `oracle/qualification/README.md` (`CREATE TRIGGER`, `CREATE JOB` and the rules-engine privileges for chains). No database link exists in either fixture, so `db_links_referenced` was checked for shape with no rows. |
 | Oracle 23ai/26ai beyond two databases | One Free 23.26.3.0.0 PDB and one Autonomous Database 23.26.4.1.0, each in thin mode and in thick mode with Instant Client 21.4. On both, `BOOLEAN` and `VECTOR` were checked as selected values, a `BOOLEAN` bind, `FLOAT32` and `INT8` vector binds into `VECTOR` columns, `VECTOR_DISTANCE` with a bound vector and an IVF vector index with an approximate search. An HNSW index was created on Autonomous Database only: the Free PDB has no vector memory pool (`ORA-51962`). Not checked: `BINARY` and `SPARSE` binds, hybrid and partitioned vector indexes, and `VECTOR` in PL/SQL. See "BOOLEAN and VECTOR, 2026-10-14" and "Thick mode over TCPS, and VECTOR binds, 2026-10-14" |
 | python-oracledb thick mode beyond one client | Instant Client 21.4 on Linux against 19.9 (D1 and D4) and 23.26 (the Free PDB, and Autonomous Database over TCPS). Other client versions (23.4 or later in particular, which knows `BOOLEAN` and `VECTOR`) and Windows are not run. |
-| python-oracledb 26.0.0 | Tried on 2026-09-11 against the qualified 19c instance, for the `call_timeout` crash below only. **It does not fix it:** assigning `call_timeout` on a session dropped with `DPY-4011` still ends the process with `0xC0000005`, in every attempt that dropped the session (13 of 13 in one batch, and every later attempt). On the dropped session it otherwise behaves like 4.0.2: reading `call_timeout`, `close()`, `cursor.close()` and `is_healthy()` are safe; `ping()` and `rollback()` raise `DPY-1001`. Repeated on 2026-10-14 on Linux (Python 3.11) against 19.9, with SYSTEM killing the session either idle or during a call: the setter ends the process with `SIGSEGV` in 13 of 13 attempts per case on **both 26.0.0 and 4.0.2**, so the crash is in the thin driver, not specific to Windows. Controls stayed clean (0 of 13): the setter on a live session, and every other call on the dropped session. A session killed server-side but not yet noticed by the driver reports `is_healthy()` true and takes the setter safely; `is_healthy()` turns false on the first call that hits `DPY-4011`, which is exactly when the setter becomes fatal, so the adapter's guard holds. The suites have not been run on 26.0.0, and it fixes nothing here, so 4.0.2 stays pinned. Reported upstream as [oracle/python-oracledb#619](https://github.com/oracle/python-oracledb/issues/619) on 2026-10-14. |
+| python-oracledb 26.0.0 | Tried on 2026-09-11 against the qualified 19c instance, for the `call_timeout` crash below only. **It does not fix it:** assigning `call_timeout` on a session dropped with `DPY-4011` still ends the process with `0xC0000005`, in every attempt that dropped the session (13 of 13 in one batch, and every later attempt). On the dropped session it otherwise behaves like 4.0.2: reading `call_timeout`, `close()`, `cursor.close()` and `is_healthy()` are safe; `ping()` and `rollback()` raise `DPY-1001`. Repeated on 2026-10-14 on Linux (Python 3.11) against 19.9, with SYSTEM killing the session either idle or during a call: the setter ends the process with `SIGSEGV` in 13 of 13 attempts per case on **both 26.0.0 and 4.0.2**, so the crash is in the thin driver, not specific to Windows. Controls stayed clean (0 of 13): the setter on a live session, and every other call on the dropped session. A session killed server-side but not yet noticed by the driver reports `is_healthy()` true and takes the setter safely; `is_healthy()` turns false on the first call that hits `DPY-4011`, which is exactly when the setter becomes fatal, so the adapter's guard holds. The suites have not been run on 26.0.0, and it fixes nothing here, so 4.0.2 stayed pinned at that time (superseded by B4 / ADR-0015). Reported upstream as [oracle/python-oracledb#619](https://github.com/oracle/python-oracledb/issues/619) on 2026-10-14. |
 | TCPS and wallets beyond one | One TCPS path, to Autonomous Database with its downloaded wallet. Thin mode opens its `ewallet.pem` with the wallet password; thick mode opens its auto-login `cwallet.sso` and cannot take a password per connection, so in thick mode a wallet must have one. Not run: a self-signed or private CA wallet, mutual TLS to an on-premises listener, and a wallet that holds only `cwallet.sso` in thin mode. |
 | PostgreSQL as the metadata store | A4 install/restore and retained-data upgrade drills passed on PostgreSQL 16 on 2026-10-24: agent-qualified on test stand-ins (AI agent, not a human). The full default suite still uses SQLite; see "Install, restore and upgrade drills". |
 | OIDC providers other than Keycloak | Entra ID, Okta and Auth0 are documented in docs/setup.md but have not been signed in against. Nor has the pilot's own provider registration. |
@@ -819,6 +820,80 @@ still needs the pilot's own database shapes and a human application owner and DB
 
 Saturation, at three streams per user, drew no errors. Its client p95 was 1.7 s for bounded
 reads and 1.9 s for transactions.
+
+### Driver upgrade qualification, 2026-10-24 (B4, G5 / P4)
+
+Claude (AI agent, acting DBA, not a human) ran python-oracledb 26.0.1 on
+Python 3.11.16, matching A3, against the D1/D2/D4 test databases. The venv
+was rebuilt from Python 3.12; `py312-attempt/` is retained but is not evidence.
+Each profile ran `scripts/qual_run.sh <profile> tests/qualification tests/integration tests/e2e`.
+This is **agent-qualified on test stand-ins**, not pilot or production acceptance;
+D3 and production fleet shapes have not been requalified on 26.0.1.
+
+| Profile | Target | Mode | Passed | Skipped | Difference from A3 (passed / skipped) |
+| --- | --- | --- | --- | --- | --- |
+| r1 | D1 19c | thin | 162 | 38 | +4 / +11 (A3 had 4 errors, subsequently passed) |
+| r3 | D1 19c | thick | 161 | 39 | +4 / +11 (A3 had 4 errors, subsequently passed) |
+| r2 | D2 23ai | thin | 171 | 29 | 0 / +11 |
+| r3-d2 | D2 23ai | thick | 171 | 29 | +1 / +10 |
+| r4-d4 | D4 19c remote | thin | 161 | 39 | 0 / +11 |
+| r3-d4 | D4 19c remote | thick | 161 | 39 | +1 / +10 |
+
+All profiles collect 200 tests versus A3's 189. The 11 new tests are
+`tests/integration/test_schema_panel_cache.py`, marked `stand_in_only` and
+therefore skipped against Oracle. D1's four recovered connection-loss tests
+explain its pass increase. For r3-d2 and r3-d4, one additional pass replaces
+an A3 skip beyond the 11 new skips. B4 logs show all four connection-loss
+tests passing; a timing-dependent kill/COMMIT skip is a possible explanation,
+but the retained A3 summary does not identify that skipped test, so the exact
+one-test difference is unexplained. No driver improvement is inferred from it.
+The r4-d4 profile is thin, as both A3 and the live profile log record.
+
+Incidents and reruns:
+
+- The first D1 r1/r3 attempt errored in four connection-loss tests with
+  ORA-01017. SYSTEM's password had drifted from `databases/secrets/d1_system.pw`
+  (password change date 2026-10-22 23:58), and failed logins timed-locked the
+  account. Claude, acting DBA, reset it to the file value and unlocked it;
+  r1/r3 then passed. This was an environment incident, not a driver failure.
+- The first two r2 runs, on Python 3.12 and 3.11, segfaulted (exit 139)
+  in `admin_connection` teardown during `test_connection_loss`. An unjoined
+  kill thread still used the admin connection when teardown closed it.
+  `dcb0679` fixed the test lifecycle; the recorded r2 result is its successful
+  rerun. The thin driver's concurrent-use robustness regression remains
+  documented in [the B4 audit](b4-oracledb26-rehearsal.md); retain
+  `tests/qualification/threads.py` and its teardown guard.
+
+Capacity used `scripts/capacity_run.sh` with `databases/capacity/a2-run.json`,
+at `dcb0679`, the same ADR-0013 thresholds, 60 s schema panel cache and
+1-minute keepalive. Main `cap-c08b08882cd8` (1800/300/600 s) and soak
+`cap-b8444ab9841d` (3600 s steady) **passed every applicable criterion**.
+The comparison baseline is the A2 run7 / A11 keepalive result recorded above:
+4.0.2 main `cap-b549c907ac5b`, soak `cap-ba14f5588e2d`.
+
+| Measure | 4.0.2 main / soak | 26.0.1 main / soak |
+| --- | --- | --- |
+| Steady metadata p50 / p95, ms | 29 / 1502; 29 / 1531 | 30 / 1554; 30 / 1563 |
+| Steady bounded read p50 / p95, ms | 190 / 290; 190 / 289 | 193 / 289; 192 / 291 |
+| Steady transaction p50 / p95, ms | 91 / 393; 90 / 396 | 93 / 393; 94 / 404 |
+| Steady cancellation p50 / p95, ms | 1482 / 1830; 1488 / 1877 | 1528 / 1884; 1522 / 1876 |
+| Steady overhead p95, ms | 240 / 239 | 243 / 244 |
+| Steady error rate | 0.00% / 0.04% | 0.00% / 0.00% |
+| Main saturation error rate / recovery | 0.00% / 0 s | 0.00% / 0 s |
+| Contamination / lost / unknown / leaked | all zero, both runs | all zero, both runs |
+| Commits / rollbacks verified | 2424 / 650; 1377 / 326 | 2403 / 641; 1376 / 325 |
+| Failed cross-user probes / total | 0 / 768; 0 / 425 | 0 / 761; 0 / 425 |
+| Observed API CPU peak / p95; RSS peak | 136% / 114%; 168 MiB; soak 51% / 9%; 168 MiB | 130% / 115%; 171 MiB; soak 52% / 9%; 171 MiB |
+
+Latency differences remain within the unchanged thresholds; these sequential
+runs do not isolate driver overhead. B4 main saturation bounded-read / transaction
+client p95 were 1652 / 1989 ms (baseline approximately 1.7 / 1.9 s).
+Soak has no saturation or recovery phase. Verification completed in both runs.
+Capacity JSON and Markdown were both reviewed; raw reports remain git-ignored
+under `databases/reports/2026-10-24-b4/`, including `capacity/{pilot,soak}.{md,json}`.
+Separate `capacity/{pilot,soak}-host-metrics.json` samples supply the API CPU/RSS
+comparison above. The runner itself does not measure host CPU/RSS or verify the declared API worker count;
+metadata overhead is not separated, and copilot load is excluded.
 
 ## Recording a run
 
