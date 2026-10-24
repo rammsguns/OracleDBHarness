@@ -194,6 +194,7 @@ test("a revoked credential is reported, not retried", async () => {
 test("DataForge roles are not a privilege ladder", () => {
   const actions = ["explain", "diagnose", "propose"];
   assert.deepEqual(filterActionsForRole(actions, "Analyst"), ["explain"]);
+  assert.deepEqual(filterActionsForRole(actions, " analyst "), ["explain"]);
   assert.deepEqual(filterActionsForRole(actions, "Viewer"), actions);
   assert.deepEqual(filterActionsForRole(actions, "Developer"), actions);
 });

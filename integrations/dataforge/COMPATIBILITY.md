@@ -29,14 +29,14 @@ NP-05 completion is open (human-owned). A6 is agent-qualified on test stand-ins
 (AI agent, not a human), with no pilot or production qualification. From
 `ORACLEDATAFORGE_INTEGRATION.md`, these remain:
 
-- Human pilot setup; B1b measured the already-configured, running-stack scripted path in 10.938 seconds.
+- Human pilot setup; B1c measured the already-configured, running-stack scripted path in 10.938 seconds.
 - Human/editor demonstration of explaining a selected statement without a second
-  Oracle connection; B1b passes the real backend/route check with unchanged registries
+  Oracle connection; B1c passes the real backend/route check with unchanged registries
   and D1 DataForge/node sessions. Live EXPLAIN PLAN has no integration bridge, by design.
 - Editor/UI and upstream integration beyond the local adapter patch; DataForge's own
   279 tests, typecheck and build passed at the pinned commit in A6.
-- DataForge editor/UI regression for worksheet, compilation and confirmation dialogs; B1b passed harness HTTP worksheet/compile and backend confirmation refusal. Harness viewers intentionally receive supplied-text assistance and are refused worksheet/compile; DataForge Analyst non-allowed action refusal now passes after the B1c patch fix.
-- Editor/UI end-to-end coverage; B1b passed typed partial-provider failure and client
+- DataForge editor/UI regression for worksheet, compilation and confirmation dialogs; B1c passed harness HTTP worksheet/compile and backend confirmation refusal. Harness viewers intentionally receive supplied-text assistance and are refused worksheet/compile; DataForge Analyst non-allowed action refusal now passes after the B1c patch fix.
+- Editor/UI end-to-end coverage; B1c passed typed partial-provider failure and client
   cancellation through real routes after fixing DataForge response-close handling.
 
 ## Recording a run
@@ -124,7 +124,7 @@ apply-checks are also refused locally under the current role. NP-05 remains open
 | Item | Value |
 | --- | --- |
 | Harness baseline build | `dcc1d012315434acc36eee5a938b4e6012fdc765`, package 0.1.0, with the B1c typed-refusal assertion in this branch |
-| DataForge | Package 1.2.0, local commit `51767c8785b8370765af4c184519e45eaa2cb453` on cancellation fix `81301377e061cb3d47d3d06df66133983f33333b` on adapter-patch `2883f605bc5e0b7632583b62a00a094d957df6a0` and upstream `3404f1905da183e1903a35193a7d5b0df18d0870`; not pushed to DataForge |
+| DataForge | Package 1.2.0, local commit `51767c8785b8370765af4c184519e45eaa2cb453` on cancellation fix `81301377e061cb3d47d3d06df66133983f33333b` on adapter-patch `2883f605bc5e0b7632583b62a00a094d957df6a0` and upstream `3404f1905da183e1903a35193a7d5b0df18d0870`; not pushed to DataForge. A later review fix, `627825e` (trim the role before action filtering, from the agy review), passed DataForge's 284 tests offline and was not re-run live. |
 | Adapter / protocols | Adapter 0.1.0; adapter request protocol 1.1, harness capability protocol 1.5 (major-compatible) |
 | Runtime / metadata / proxy | Node v24.18.1; python-oracledb 4.0.2 thin; disposable `postgres:16-alpine`; `nginx:1.27-alpine` with shipped `deploy/nginx.conf` (only listen/upstream rewritten) |
 | Oracle test targets | `load-db-1` D1 19c reports 19.9.1.0.0; `load-db-2` D2 23ai PDB reports 23.26.3.0.0; both `harness_app`, provisioned with `scripts/bootstrap_targets.py` |
