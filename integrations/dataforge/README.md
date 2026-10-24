@@ -9,10 +9,9 @@ the existing app without changing DataForge's stack.
 
 ## Upstream status
 
-**upstream PR open, pending review**: [OracleDataForge PR #77](https://github.com/rammsguns/OracleDataForge/pull/77),
-branch `feat/harness-assist`, head `a40cf9c8a91046371e10598100f55021067624d6`,
-based on upstream main `3404f1905da183e1903a35193a7d5b0df18d0870`.
-B3 remains in progress until Claude merges after CI and independent agent review.
+**merged upstream**: [OracleDataForge PR #77](https://github.com/rammsguns/OracleDataForge/pull/77),
+head `a40cf9c8a91046371e10598100f55021067624d6`, merged into DataForge main as
+`431147a5ff69a3aecbb9ee2d3906b62af428994c` on 2026-10-24 after green CI and an independent agent review.
 The vendored `src/*.ts` matches this PR. The refreshed
 `spike/dataforge-3404f19.patch` is the exact binary-capable diff from upstream main
 to that head; retaining it preserves the existing pinned-checkout reproduction path.

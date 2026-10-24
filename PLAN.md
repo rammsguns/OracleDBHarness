@@ -2512,12 +2512,13 @@ section 6 stays deferred.
 - [ ] **B2 NP-05 editor/UI.** Drive DataForge's own UI with the adapter in a browser
   (Playwright): the assist panel, a streamed answer, a diff review, cancellation and an
   outage message.
-- [ ] **B3 NP-05 upstream.** Open a pull request on rammsguns/OracleDataForge with the
+- [x] **B3 NP-05 upstream.** Open a pull request on rammsguns/OracleDataForge with the
   adapter patch, rebased on its current HEAD, with its own tests passing. Merge only
   after its CI is green and an independent agent review passes.
-  In progress 2026-10-24: [upstream PR #77](https://github.com/rammsguns/OracleDataForge/pull/77) open, pending review;
-  `feat/harness-assist` head `a2c280430e95e8b357aeb8e22051067209165c00`. Local checks pass;
-  B3 remains unchecked until Claude merges. Agent-run preparation, no human sign-off.
+  Done 2026-10-24: [upstream PR #77](https://github.com/rammsguns/OracleDataForge/pull/77)
+  merged as `431147a` after green CI and an independent agy review (changes requested,
+  fixed, approved). Merged by Claude (AI agent, acting release owner, not a human). The
+  last fixes (disabled guards, SSE parsing, Assist hidden when disabled) are unit-tested only.
 - [ ] **B5 G3 canary rehearsal.** Register a test target (D4) under the production
   boundary (observation only, copilot and Kiwi off). Then:
   - run a compressed canary with DBA-style observation workflows on a schedule;

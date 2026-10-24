@@ -4,10 +4,11 @@ Nothing in this table is a certification. It records what has actually been run.
 
 ## Current upstream status
 
-**upstream PR open, pending review**: [PR #77](https://github.com/rammsguns/OracleDataForge/pull/77), branch
+**merged upstream**: [PR #77](https://github.com/rammsguns/OracleDataForge/pull/77), branch
 `feat/harness-assist`, head `a40cf9c8a91046371e10598100f55021067624d6` on main
-`3404f1905da183e1903a35193a7d5b0df18d0870`. B3 is in progress; Claude owns
-completion after green CI, independent agent review and merge. Earlier entries
+`3404f1905da183e1903a35193a7d5b0df18d0870`, merged 2026-10-24 as `431147a5ff69a3aecbb9ee2d3906b62af428994c`
+by Claude (AI agent, acting release owner, not a human) after green CI and an
+independent agy review (CHANGES REQUESTED, fixed, then APPROVE). Earlier entries
 below preserve the exact commits and qualification boundaries of historical runs.
 
 ## Tested
