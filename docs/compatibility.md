@@ -708,6 +708,42 @@ the ignored report directory (`databases/reports/2026-10-24-a2-capacity/run1`–
 The marker table was dropped from `HARNESS_APP` on all three targets after each run. No
 lab schema was modified.
 
+### Capacity re-run with the schema panel cache, 2026-10-24 (A10, NP-07 stand-in)
+
+Run by Claude (AI agent, acting DBA and application owner, not a human). Same host,
+targets, command and ADR-0013 thresholds as A2. The API ran commit `9162b50`, which adds
+ADR-0014's 60 s console schema panel cache. The soak report names `dd13944` because the
+branch moved during the run. Its review fixes (cache key and connection-test
+invalidation) do not touch the measured path, and the API process was not restarted.
+There were two runs: the main run `cap-f309cda8887d` and the steady-only soak
+`cap-5b2f8352b551`.
+
+Verdict: **every latency, saturation, recovery and correctness criterion met (AI agent,
+not a human; not a pilot qualification). One criterion is not met: "verification
+complete".** In each run, 4–5 of roughly 420–760 cross-user probes on the remote D4 ended
+in a 30 s `execution_timeout` or a client read timeout, so those probes prove nothing.
+All the others found no contamination.
+
+| Measure (main / soak) | Threshold | Main | Soak |
+| --- | --- | --- | --- |
+| Steady metadata p50 / p95 | 800 / 2500 ms | 29 / 1567 ms | 29 / 1468 ms |
+| Steady bounded read p50 / p95 | 500 / 2000 ms | 189 / 288 ms | 191 / 287 ms |
+| Steady transaction p50 / p95 | 800 / 3000 ms | 90 / 392 ms | 90 / 394 ms |
+| Steady cancellation p50 / p95 | 3000 / 8000 ms | 1521 / 1852 ms | 1496 / 1857 ms |
+| Steady overhead p95 | 400 ms | 239 ms | 239 ms |
+| Steady / saturation error rate | 1% / 10% | 0.00% / 0.00% | 0.00% / N/A |
+| Recovery after saturation | 120 s | 0 s | N/A |
+| Contamination / lost / unknown / leaked | 0 | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 |
+| Commits / rollbacks verified | - | 2415 / 648 | 1362 / 326 |
+| Probes that failed | 0 | 5 of 760 (all D4) | 4 of 418 (all D4) |
+| Observed API CPU peak / p95, RSS peak | 2 CPUs, 2048 MiB declared | 131% / 103%, 168 MiB | 46% / 9%, 168 MiB |
+
+The metadata kind now measures the panel as the console gets it, cache hits included,
+and the report states the TTL. The p95 is a cache miss: a fresh `ALL_OBJECTS` count,
+2.4 s on D4. The copilot's `schema.list_schemas` evidence is not cached. The D4 probe
+timeouts appeared in every A2 and A10 run, and only on the remote link. A10 does not
+explain them; A11 investigates.
+
 ## Recording a run
 
 ### Live non-copilot API workflows, 2026-10-19 (Wave 1C)
