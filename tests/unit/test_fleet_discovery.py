@@ -475,6 +475,6 @@ def test_redaction_leaves_version_numbers_alone() -> None:
     redactor = Redactor()
     banner = "Oracle Database 19c Enterprise Edition Release 19.0.0.0.0 - Version 19.9.1.0.0"
     assert redactor.redact_text(banner) == banner
-    redacted = redactor.redact_text("listener at 10.1.2.3:1521, RU 19.9.1.0.210119")
-    assert "10.1.2.3" not in redacted
+    redacted = redactor.redact_text("listener at 192.0.2.10:1521, RU 19.9.1.0.210119")
+    assert "192.0.2.10" not in redacted
     assert "19.9.1.0.210119" in redacted
