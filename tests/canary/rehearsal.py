@@ -657,7 +657,11 @@ def run(args: argparse.Namespace) -> int:
                                 raise RehearsalFailure("All unlock attempts failed")
                             event("HARNESS_APP unlocked in finally")
                         set_read_access(True)
-                        event("read grants re-enabled in finally")
+                        event(
+                            "read grants re-enabled in finally"
+                            if args.disable_via_read_grants
+                            else "target re-enabled in finally"
+                        )
                         with db.cursor() as cursor:
                             cursor.execute(
                                 "SELECT account_status FROM dba_users WHERE username = 'HARNESS_APP'"

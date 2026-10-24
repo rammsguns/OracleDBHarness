@@ -2540,5 +2540,9 @@ section 6 stays deferred.
   D4 within the pre-set budget (peak 1 session, 1.3 s SQL, 105k buffer gets, 16 executions);
   every request audited, writes refused; drill revoke -> lock (ORA-28000) -> restore verified.
   Found: no target-disable endpoint, and the connection test ignores grant permissions (B7).
+- [x] **B7 Target disable and connection-test authorization.** From the B5 review: the
+  connection test now requires read permission (not just a grant), and administrators can
+  disable/enable a target (audited, with a reason; a disabled target refuses everything but
+  listing and enable). Done 2026-10-24: agy review APPROVE; live drill on D4 used the endpoint.
 - [ ] **B6 Documentation.** Reconcile the README, the gate status table and the
   compatibility docs with B1–B5.
