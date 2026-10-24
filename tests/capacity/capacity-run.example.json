@@ -1,0 +1,26 @@
+{
+  "apiPort": 8000,
+  "postgres": {
+    "url": null
+  },
+  "targets": [
+    {
+      "name": "load-db-1",
+      "dsn": "dbhost1.example.internal:1521/LOADPDB1",
+      "user": "harness_app",
+      "passwordFile": "/run/secrets/load_db_1.password"
+    },
+    {
+      "name": "load-db-2",
+      "dsn": "dbhost2.example.internal:1521/LOADPDB2",
+      "user": "harness_app",
+      "passwordFile": "/run/secrets/load_db_2.password"
+    },
+    {
+      "name": "load-db-3",
+      "dsn": "dbhost3.example.internal:1521/LOADPDB3",
+      "user": "harness_app",
+      "passwordFile": "/run/secrets/load_db_3.password"
+    }
+  ]
+}
