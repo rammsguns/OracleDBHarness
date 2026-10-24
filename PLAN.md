@@ -2356,3 +2356,64 @@ phrase for account_with_access and dba steps is now rendered as "(the model's
 description, not checked: …)" inside the harness-written Next steps. The harness no
 longer appears to assert coverage facts such as "the searches here did not cover"
 ORDER_FEED. Commit `b12e9c3`; 4480 tests passed; protocol description updated.
+
+## A. Agent stand-ins for human-owned work — 2026-10-24
+
+On 2026-10-24 the user asked that agents take over the human-owned work ("Use agents
+instead a person to continue").
+
+**Role assignment** (G1, agent form):
+
+| Role | Agent | Notes |
+| --- | --- | --- |
+| Coordinator, acting DBA, acting application owner | Claude | AI agent, not a human |
+| Implementers | Codex and agy (antigravity) | through Orca |
+| Second reviewer | the agent on the other model | |
+
+**Rules:**
+- Every artifact these tasks produce is labelled "AI agent (role), not a human".
+- Work runs only on the test databases and local stand-ins: D1 19c, D2 23ai Free PDB
+  and D4 remote 19c are test-only; there is no production access.
+- Agents never:
+  - invent production fleet facts (P5);
+  - claim a named human sign-off;
+  - access production;
+  - start section 6 (writes).
+- An agent pass of a section 5 gate is recorded as "agent-qualified on test stand-ins".
+  It is not a production or pilot qualification. G3–G5 stay blocked, because no
+  production target is available to agents.
+
+Tasks, one at a time:
+
+- [ ] **A1 Decisions (acting owner).**
+  - K1 retry default. Decide from the K-7 evidence and record the decision.
+  - K5 grade vs the `absence_inference` check. Record which stands.
+  - NP-07 capacity thresholds. Agree them before A2 runs; take them from
+    `docs/capacity.md` and the 2026-10-19 proposed thresholds.
+- [ ] **A2 NP-07 capacity.** Run the three-database (D1, D2, D4), ten-user run against
+  the thresholds agreed in A1, with observed API CPU and memory. Record the result in
+  `docs/compatibility.md` and a report.
+- [ ] **A3 NP-01/03 Oracle re-qualification at current main.** Re-run the
+  qualification, process-death and isolation suites on D1 and D4 (thin and thick) and
+  on D2, against current main (the last run was 2026-10-14). Append the commands,
+  versions and outcomes.
+- [ ] **A4 NP-02 install, restore and upgrade.** Run the compose install and restore
+  drill on PostgreSQL. Exercise an upgrade from the oldest released or tagged version
+  (or the earliest schema-version commit if there are no tags) to main with retained
+  data. Record the evidence.
+- [ ] **A5 NP-06 identity.** Deploy the compose stack behind nginx with Keycloak as a
+  stand-in pilot IdP registration (two accounts, an ungranted target). Run
+  `tests/browser` against the deployed origin through the proxy: callback, expiry,
+  logout and authorization.
+- [ ] **A6 NP-05 DataForge.** Pin a real OracleDataForge checkout (a public repo commit)
+  and run it with the adapter through a deployed proxy: context, streaming,
+  stale/reviewed diffs and outages, in both projects. Update
+  `integrations/dataforge/COMPATIBILITY.md`.
+- [ ] **A7 G2 security review.** An independent AI security review (two models) of the
+  production boundary, authentication, secrets and audit. Change approval: acting DBA
+  (AI) for test targets only.
+- [ ] **A8 P5 preparation.** An observation-only fleet-discovery script and runbook
+  (RAC, Data Guard, CDB/PDB, TCPS, RU level, character set) for a DBA to run on
+  production. P5 itself stays open until real output is recorded.
+- [ ] **A9 NP-08 documentation.** Reconcile setup, caveats, compatibility and release
+  status with A1–A8. Make no unsupported qualification claim.
