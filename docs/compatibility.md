@@ -3,6 +3,33 @@
 This file records what has been run. It is not a support matrix and it is not a
 claim. Where something has not been tested, it says so.
 
+## Gate status, 2026-10-24
+
+Recorded against [PLAN.md section A](../PLAN.md#a-agent-stand-ins-for-human-owned-work--2026-10-24).
+Agent roles are AI agent (acting DBA/application owner/reviewer), not a human.
+Nothing is pilot- or production-qualified. Section 6 production writes remain deferred.
+
+| Gate / scope | Status | Evidence / remaining work |
+| --- | --- | --- |
+| NP-01/03 test rerun | agent-qualified on test stand-ins (AI agent, not a human) | A3: six D1/D2/D4 profiles passed; D3 retains 2026-10-14 evidence. |
+| NP-01/03 pilot | open (human-owned) | Production-shaped staging and named DBA approval remain. |
+| NP-02 test drills | agent-qualified on test stand-ins (AI agent, not a human) | A4: PostgreSQL install/restore and earliest schema commit upgrade passed; no released baseline exists. |
+| NP-02 pilot | open (human-owned) | Operations acceptance remains. |
+| NP-04 / K-7 | not met | K-7 closure: NOT QUALIFIED, 2026-10-23; Kiwi stays off by default. |
+| NP-05 first slice | agent-qualified on test stand-ins (AI agent, not a human) | A6: pinned DataForge plus local patch, real routes through nginx. |
+| NP-05 completion | open (human-owned) | Editor/UI, upstream change, Oracle, real provider and setup measurement remain. |
+| NP-06 stand-in | agent-qualified on test stand-ins (AI agent, not a human) | A5: deployed nginx/Keycloak browser drill, 23 passed, 2 observed. |
+| NP-06 pilot | open (human-owned) | Pilot IdP registration and deployed origin still required. |
+| NP-07 test capacity | agent-qualified on test stand-ins (AI agent, not a human) | A2 failed; A10 cache fixed latency; A11 keepalive main run and soak met every agreed criterion. |
+| NP-07 pilot | open (human-owned) | Pilot acceptance remains. |
+| NP-08 reconciliation | agent-qualified on test stand-ins (AI agent, not a human) | A9: documentation reconciled with section A; no human acceptance implied. |
+| G1 | open (human-owned) | Agent role assignment does not supply named human owners and dates. |
+| G2 | open (human-owned) | A7 independent AI reviews and C-1/C-2 fixes do not replace named human security review and DBA approval. |
+| G3 | blocked (no production access) | No production canary. |
+| G4 | blocked (no production access) | No production expansion. |
+| G5 | blocked (no production access) | No production promotion or fleet upgrade qualification. |
+| P5 | blocked (no production access) | A8 discovery tool/runbook tried only on D1/D2/D4; no production fleet facts. |
+
 ## What has been tested
 
 | Component | Version | Evidence |
@@ -28,7 +55,7 @@ affected staging shape (old/new versions, thin/thick modes where deployed,
 regression results and DBA approval) before production promotion. A historical
 D1–D4 pass does not qualify an upgraded environment.
 
-## What has not been tested
+## Remaining coverage gaps
 
 | Component | Status |
 | --- | --- |
@@ -39,12 +66,12 @@ D1–D4 pass does not qualify an upgraded environment.
 | python-oracledb thick mode beyond one client | Instant Client 21.4 on Linux against 19.9 (D1 and D4) and 23.26 (the Free PDB, and Autonomous Database over TCPS). Other client versions (23.4 or later in particular, which knows `BOOLEAN` and `VECTOR`) and Windows are not run. |
 | python-oracledb 26.0.0 | Tried on 2026-09-11 against the qualified 19c instance, for the `call_timeout` crash below only. **It does not fix it:** assigning `call_timeout` on a session dropped with `DPY-4011` still ends the process with `0xC0000005`, in every attempt that dropped the session (13 of 13 in one batch, and every later attempt). On the dropped session it otherwise behaves like 4.0.2: reading `call_timeout`, `close()`, `cursor.close()` and `is_healthy()` are safe; `ping()` and `rollback()` raise `DPY-1001`. Repeated on 2026-10-14 on Linux (Python 3.11) against 19.9, with SYSTEM killing the session either idle or during a call: the setter ends the process with `SIGSEGV` in 13 of 13 attempts per case on **both 26.0.0 and 4.0.2**, so the crash is in the thin driver, not specific to Windows. Controls stayed clean (0 of 13): the setter on a live session, and every other call on the dropped session. A session killed server-side but not yet noticed by the driver reports `is_healthy()` true and takes the setter safely; `is_healthy()` turns false on the first call that hits `DPY-4011`, which is exactly when the setter becomes fatal, so the adapter's guard holds. The suites have not been run on 26.0.0, and it fixes nothing here, so 4.0.2 stays pinned. Reported upstream as [oracle/python-oracledb#619](https://github.com/oracle/python-oracledb/issues/619) on 2026-10-14. |
 | TCPS and wallets beyond one | One TCPS path, to Autonomous Database with its downloaded wallet. Thin mode opens its `ewallet.pem` with the wallet password; thick mode opens its auto-login `cwallet.sso` and cannot take a password per connection, so in thick mode a wallet must have one. Not run: a self-signed or private CA wallet, mutual TLS to an on-premises listener, and a wallet that holds only `cwallet.sso` in thin mode. |
-| PostgreSQL as the metadata store | The schema is portable SQLAlchemy and the container is configured, but the suite runs on SQLite. |
+| PostgreSQL as the metadata store | A4 install/restore and retained-data upgrade drills passed on PostgreSQL 16 on 2026-10-24: agent-qualified on test stand-ins (AI agent, not a human). The full default suite still uses SQLite; see "Install, restore and upgrade drills". |
 | OIDC providers other than Keycloak | Entra ID, Okta and Auth0 are documented in docs/setup.md but have not been signed in against. Nor has the pilot's own provider registration. |
-| Sign-in in a real browser | The console's sign-in code has run against Keycloak under Node, and the token endpoint's CORS answer has been checked. `tests/browser` now drives Chromium through the console's sign-in, callback, API access, sign-out and expiry: its fixture mode runs in the CI `identity` job against the Keycloak realm (first passed on pull request #16, CI run 34788083498: 24 checks passed, 2 observed), and a rehearsal against a local stand-in provider has passed. **No browser run against the pilot's registration, deployed origin or proxy has happened**, and a fixture run cannot stand in for one. See tests/identity/README.md, "Browser qualification". |
-| A real model provider | The default is now a model on the harness's own host (`local`, OpenAI-style Chat Completions over loopback, ADR-0012). Its adapter has been run over real sockets against a stand-in server on 127.0.0.1, including a tool turn, and refuses non-loopback endpoints, redirects and environment proxies; **no prompt has been sent to a real local model yet**. The Anthropic adapter is kept but refused while `HARNESS_COPILOT_LOCAL_ONLY` is on; no call has been made with it. |
-| OracleDataForge | Not integrated. See `integrations/dataforge/COMPATIBILITY.md`. |
-| Load | **Three-database run completed, not yet a pilot qualification.** On 2026-10-19 ten users exercised D1 19c, D2 26ai Free PDB, and D4 remote 19c with the real Oracle backend. All correctness and proposed performance criteria passed; the thresholds have not been agreed. Marker tables were dropped on all three afterward. See "Three-database capacity run, 2026-10-19" below. |
+| Sign-in in a real browser | Fixture browser checks ran in CI. A5 additionally passed 23 checks (2 observed) through deployed compose nginx with Keycloak on 2026-10-24: agent-qualified on test stand-ins (AI agent, not a human). The pilot registration remains open (human-owned); see "Identity through the deployed proxy". |
+| A real model provider | The local model was exercised in K-7; the 2026-10-23 closure is NOT QUALIFIED (NP-04 not met), and Kiwi stays off by default. The Anthropic adapter has no recorded provider call and is refused while `HARNESS_COPILOT_LOCAL_ONLY` is on. See [K-7 result](k7-qualification-result.md). |
+| OracleDataForge | A6 first slice passed against pinned `3404f19` plus a local adapter patch through nginx on 2026-10-24: agent-qualified on test stand-ins (AI agent, not a human). Full NP-05 remains open (human-owned); see [integration evidence](../integrations/dataforge/COMPATIBILITY.md). |
+| Load | A11 main run and soak met every ADR-0013 agreed criterion on D1/D2/D4, 2026-10-24: agent-qualified on test stand-ins (AI agent, not a human). A2 failed and A10 still had remote probe timeouts before the keepalive fix. Pilot NP-07 remains open (human-owned); see "Capacity re-run with Oracle keepalive". |
 
 ## Why the stand-in is not evidence
 
@@ -65,7 +92,8 @@ passing test never quietly stands in for Oracle behaviour.
 
 ## Identity providers
 
-Console sign-in is qualified against Keycloak 26.3, running locally with the realm in
+Console sign-in is agent-qualified on test stand-ins (AI agent, not a human)
+against Keycloak 26.3, running locally with the realm in
 `tests/identity/keycloak/realm.json`. That realm registers the console the way
 docs/setup.md tells an operator to. Nothing in the run is stubbed:
 
@@ -85,9 +113,10 @@ minutes, and a token signed with a key from after the cache was filled was refus
 After a rotation, every sign-in would have failed until the cache expired. A token
 naming a key the cache does not list now causes one fetch, at most once a minute.
 
-It did not cover a real browser completing the redirect, providers other than
-Keycloak, or a pilot's own registration. The suite drives Keycloak's login form and
-admin API, so it does not carry over to another provider as it stands. Check a
+That original run did not cover a real browser completing the redirect. A5 later
+covered it through deployed nginx with Keycloak (2026-10-24); providers other than
+Keycloak and the pilot's own registration remain untested. The suite drives
+Keycloak's login form and admin API, so it does not carry over to another provider as it stands. Check a
 pilot's registration by signing in through the console; tests/identity/README.md
 has the checklist.
 

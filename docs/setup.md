@@ -31,6 +31,10 @@ The seed creates three targets on the **local stand-in backend**, not a real dat
 | test | test | yes | yes |
 | production | production | no | no |
 
+Target environments are a closed set: `development`, `test`, `production`. Other
+labels are refused (A7 C-1). Production targets are observation only; section 6
+production writes remain deferred.
+
 The console shows a standing warning while the stand-in is configured. Nothing you see
 in this mode is evidence about Oracle.
 
@@ -141,8 +145,9 @@ What to expect:
   screen and says so.
 - Signing out ends the console session, not the provider's.
 
-Sign-in is qualified against Keycloak (docs/compatibility.md, "Identity providers"),
-not against other providers or your registration. Before the pilot, sign in through
+Sign-in against Keycloak is agent-qualified on test stand-ins (AI agent, not a human),
+including the 2026-10-24 deployed nginx browser drill (A5): 23 checks passed, 2 observed.
+Other providers and your pilot registration remain open (human-owned). Before the pilot, sign in through
 the console with your provider, using the checklist in tests/identity/README.md.
 For autonomous agent qualification of the compose stack behind nginx using the Keycloak
 fixture as an IdP stand-in, see `deploy/identity-standin-drill.sh` and `tests/identity/README.md`
@@ -300,6 +305,10 @@ OIDC issuer and no Oracle target, because what it is testing is the metadata sto
 continuity. Identity belongs to the sign-in setup above, and the dump deliberately
 contains no password — only the secret *references*, which the drill asserts.
 
+A4 ran the install/restore drill and the upgrade below on 2026-10-24: both passed,
+agent-qualified on test stand-ins (AI agent, not a human). See
+[the recorded results](compatibility.md#install-restore-and-upgrade-drills-2026-10-24-a4-np-02).
+
 ### Upgrade drill
 
 To qualify that metadata store upgrades retain existing history, profiles, grants and
@@ -307,7 +316,7 @@ executions without data loss, `deploy/upgrade-drill.sh` exercises an end-to-end 
 against a disposable PostgreSQL instance:
 
 1. Starts a throwaway `postgres:16-alpine` container on a free loopback port.
-2. Checks out the release baseline (defaulting to the initial commit `c31c97e` at schema version 3,
+2. Checks out the upgrade baseline (defaulting to the initial commit `c31c97e` at schema version 3,
    falling back to `530e9c2` at schema version 4 if the oldest commit cannot run against Postgres)
    into a detached temporary worktree.
 3. Initializes the store and seeds representative data (targets, users, grants, executions,

@@ -17,24 +17,27 @@ Nothing in this table is a certification. It records what has actually been run.
 
 | Component | Status |
 | --- | --- |
-| OracleDataForge | **Not integrated.** No DataForge commit has been run against this adapter. The inspected commit in `ORACLEDATAFORGE_INTEGRATION.md` is the first test candidate, not a baseline. |
-| Oracle 19c | Not exercised through a real DataForge integration. The harness itself has passing evidence on one 19.9 non-CDB/thin instance; see `docs/compatibility.md`. |
+| OracleDataForge completion | Pinned `3404f19` with a local adapter patch passed 7 real-route checks through deployed nginx on 2026-10-24 (A6): agent-qualified on test stand-ins (AI agent, not a human). Editor/UI, upstream integration, Oracle and a real provider remain open (human-owned). |
+| Oracle 19c | Not exercised through a real DataForge integration. The harness itself has D1–D4 evidence and a 2026-10-24 D1/D2/D4 thin/thick rerun; see [harness evidence](../../docs/compatibility.md). |
 | A real model provider | The harness ships an Anthropic adapter. The live-harness run above and the tests use the fixture provider only; no provider call has been made. |
-| A real network/compression proxy | `test/proxy-streaming.test.ts` shows the buffering-vs-passthrough distinction is detectable in principle, with a synthetic origin and synthetic proxies. It says nothing about a specific real proxy (nginx, an ALB, a CDN) in front of a real deployment; the routes' `X-Accel-Buffering: no` header is not sufficient on its own against one that recompresses or buffers regardless. |
+| Proxy coverage beyond shipped nginx | A6 exercised real DataForge routes and chunk delivery through the shipped nginx config. Other deployment proxies, compression settings, ALBs and CDNs remain untested. |
 | Ten-minute setup target | Not measured. It is a target for the pilot, not a claim; nothing above involves DataForge's own setup. |
 
 ## Release gates still open
 
-From `ORACLEDATAFORGE_INTEGRATION.md`, these are unmet:
+NP-05 completion is open (human-owned). A6 is agent-qualified on test stand-ins
+(AI agent, not a human), with no pilot or production qualification. From
+`ORACLEDATAFORGE_INTEGRATION.md`, these remain:
 
 - Setup measured on an already-configured DataForge and a running harness.
 - Explaining a selected statement without registering a second Oracle connection,
   demonstrated on a real installation.
-- Verification that existing DataForge tests, typecheck and build still pass.
+- Editor/UI and upstream integration beyond the local adapter patch; DataForge's own
+  279 tests, typecheck and build passed at the pinned commit in A6.
 - Verification that worksheet commit/rollback, compilation, role restrictions and
   confirmation dialogs are unchanged by the integration.
-- End-to-end context, stream and diff tests inside DataForge, including outage,
-  cancellation and partial-response handling.
+- Editor/UI end-to-end coverage, cancellation and partial-response handling; A6
+  already passed real-route context, stream, stale/reviewed diff and outage checks.
 
 ## Recording a run
 

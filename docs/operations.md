@@ -79,6 +79,9 @@ Three other things retire a session before the user asks:
 - `GET /api/v1/audit` - Administrator only. Append-only: nothing in the application
   updates or deletes an audit event.
 
+Administrative changes to users, roles, targets, credential references, grants and
+integration credentials are audited (A7 C-2); credential values are excluded.
+
 Statements are recorded by SHA-256 fingerprint, with literals removed. Raw SQL is kept
 only for reviewed catalog operations, whose text is fixed and reviewed. Worksheet SQL
 is not retained, because it can contain data a user pasted in. Result rows and bind
@@ -143,8 +146,9 @@ closed with reason `process restart`.
    `OracleDBHarness`): until the database has cleaned it up, its transaction is still in
    progress and a read shows the state before it. Expect a session that was running or
    waiting on a lock when the process died to stay until that statement ends. (This
-   project has not yet observed that on Oracle; `tests/integration/test_process_death.py`
-   records it when run against a target.)
+   behaviour was observed on Oracle in the recorded process-death runs; the
+   D1/D2/D4 suites were rerun on 2026-10-24, A3, by AI agent (acting DBA), not a human.
+   See [compatibility evidence](compatibility.md#re-qualification-at-current-main-2026-10-24-a3-np-0103).)
 3. Record what you found:
    `POST /api/v1/admin/executions/{executionId}/verification` with
    `{"finding": "applied" | "not_applied" | "unresolved", "note": "..."}`.
@@ -373,3 +377,10 @@ then have the DBA revoke the harness grants or lock the account, and verify
 access is refused. Retain the incident and recovery evidence. This is the
 PLAN.md G3 rollback order: disable, revoke/lock, verify refusal, retain
 evidence.
+
+## Production fleet discovery
+
+A8 prepared the observation-only [fleet-discovery runbook](fleet-discovery.md) and
+tool, tried only on D1/D2/D4 by AI agent (acting DBA), not a human. P5 remains
+blocked (no production access): no production fleet facts have been recorded.
+A DBA must run and review the discovery on production before that gate can close.

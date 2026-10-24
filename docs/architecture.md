@@ -120,6 +120,13 @@ naming the view or privilege. A panel that could not be collected is returned wi
 `available: false` and the error. It is never rendered as an empty, healthy panel -
 that is the single most dangerous failure mode for a diagnostic tool.
 
+The console schema panel uses a bounded per-process cache, default 60 seconds
+(`HARNESS_SCHEMA_PANEL_CACHE_SECONDS`, 0 disables). Authorization runs on every
+request; cache hits retain the original collection time and producing execution.
+Copilot `schema.list_schemas` evidence remains uncached (ADR-0014). Oracle connections
+in both driver modes use `HARNESS_ORACLE_EXPIRE_TIME_MINUTES`, default 1 minute
+(0 disables), to keep idle connections alive (A11).
+
 ## Access
 
 Four application roles - Viewer, Developer, DBA, Administrator - and four grant
@@ -128,7 +135,9 @@ you may do; a grant says on which target. Neither bypasses Oracle privileges, an
 grant may name its own credential reference so one target can be reached with
 different Oracle accounts for different roles.
 
-Administrators manage access. They do not inherit it.
+Administrators manage access. They do not inherit it. Every administrative change
+is audited without secret values (A7 C-2). Target environments are the closed set
+`development`, `test`, `production`; unknown labels are refused (A7 C-1).
 
 Access is re-checked where it matters most, not only when a session opens. Committing a
 worksheet transaction re-runs target authorization, and revoking or narrowing a grant
