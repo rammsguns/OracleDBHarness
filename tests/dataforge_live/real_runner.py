@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.server
 import json
 import os
+import secrets
 import subprocess
 import threading
 import time
@@ -603,7 +604,7 @@ def check_auth_and_protocol(dataforge_dir: Path, harness_url: str) -> list[Check
         dataforge_dir=dataforge_dir,
         port=df_port,
         harness_url=harness_url,
-        harness_token="revoked_token_invalid_12345",
+        harness_token=secrets.token_urlsafe(24),  # never issued, so the harness refuses it
         harness_enabled=True,
     )
     try:
@@ -659,7 +660,7 @@ def check_auth_and_protocol(dataforge_dir: Path, harness_url: str) -> list[Check
         dataforge_dir=dataforge_dir,
         port=df_port_proto,
         harness_url=f"http://127.0.0.1:{mock_port}",
-        harness_token="any-token",
+        harness_token=secrets.token_urlsafe(24),
         harness_enabled=True,
     )
     try:

@@ -40,7 +40,8 @@ def run_dataforge_command(arguments: argparse.Namespace) -> int:
         print("`node` is not on PATH.", file=sys.stderr)
         return 2
 
-    token = arguments.token
+    # The credential comes from a file only, so it never appears on a command line.
+    token = None
     if arguments.token_file:
         token_file = Path(arguments.token_file)
         if not token_file.exists():
@@ -109,18 +110,13 @@ def main(argv: list[str] | None = None) -> int:
     df_runner.add_argument(
         "--dataforge-dir",
         type=Path,
-        default=Path("/home/kiwi/harness-drills/dataforge"),
-        help="path to DataForge clone directory (default: /home/kiwi/harness-drills/dataforge)",
+        required=True,
+        help="path to the OracleDataForge clone with the adapter patch applied",
     )
     df_runner.add_argument(
         "--harness-url",
         type=str,
         help="base URL of running harness API or proxy (e.g. http://127.0.0.1:18081). If omitted, starts disposable harness.",
-    )
-    df_runner.add_argument(
-        "--token",
-        type=str,
-        help="integration credential token (used with --harness-url)",
     )
     df_runner.add_argument(
         "--token-file",
