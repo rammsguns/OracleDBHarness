@@ -323,6 +323,10 @@ deploy/upgrade-drill.sh --keep           # leaves container running and preserve
 deploy/upgrade-drill.sh --from <commit>  # overrides the baseline commit
 ```
 
+Temporary files go under `$TMPDIR` (default `/tmp`). The container bind-mounts the password
+file from there, so on a host where the docker daemon does not see the caller's `/tmp` (a
+sandbox with a private `/tmp`, for example), point `TMPDIR` at a directory under your home.
+
 What it does not cover:
 * Identity: uses throwaway local developer/DBA accounts rather than an external OIDC provider.
 * Oracle: no live target is contacted; store continuity across schema migrations is what is under test.

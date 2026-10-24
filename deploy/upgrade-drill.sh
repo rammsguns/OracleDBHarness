@@ -74,7 +74,7 @@ export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/oracledbharness-uv-cache}"
 export UV_LINK_MODE="${UV_LINK_MODE:-copy}"
 mkdir -p "$UV_CACHE_DIR"
 
-WORK="$(mktemp -d /tmp/upgrade-drill-XXXXXX)"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/upgrade-drill-XXXXXX")"
 OLD_WORKTREE="$WORK/old"
 SNAPSHOT_PRE="$WORK/snapshot-pre-upgrade.json"
 SNAPSHOT_POST="$WORK/snapshot-post-upgrade.json"
@@ -119,7 +119,9 @@ trap cleanup EXIT
 
 say "generating database credentials"
 python3 -c 'import secrets; print(secrets.token_urlsafe(24), end="")' > "$PASS_FILE"
-chmod 600 "$PASS_FILE"
+# The postgres image reads this after dropping to its own uid; $WORK is 0700, so 0644
+# keeps it private on the host.
+chmod 644 "$PASS_FILE"
 PG_PASSWORD="$(cat "$PASS_FILE")"
 
 say "starting disposable postgres:16-alpine container ($CONTAINER_NAME on port $PG_PORT)"
@@ -183,7 +185,10 @@ if ! run_old_seed "$OLD_WORKTREE" "$PG_URL"; then
     git -C "$MAIN_REPO" worktree add --detach "$OLD_WORKTREE" 530e9c2
 
     # Wipe database to start clean with fallback baseline
-    docker exec "$CONTAINER_NAME" psql -U harness -d postgres -q -c "DROP DATABASE IF EXISTS harness; CREATE DATABASE harness;" >/dev/null
+    # Separate -c options: psql runs one -c string as a single transaction, and DROP
+    # DATABASE refuses to run inside one.
+    docker exec "$CONTAINER_NAME" psql -U harness -d postgres -q \
+      -c "DROP DATABASE IF EXISTS harness" -c "CREATE DATABASE harness" >/dev/null
 
     EXERCISED_BASELINE="530e9c2"
     EXPECTED_OLD_VERSION="4"

@@ -12,12 +12,13 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import Engine, create_engine, inspect, select, text
+from sqlalchemy import Engine, create_engine, event, inspect, select, text
 from sqlalchemy.orm import Session
 
 from harness_api.db import initialize_schema
@@ -40,6 +41,24 @@ def get_schema_version(engine: Engine) -> str | None:
         return None if row is None else row.version
 
 
+def _encode_json_params(
+    _conn: Any,
+    _cursor: Any,
+    statement: str,
+    parameters: Any,
+    _context: Any,
+    _executemany: bool,
+) -> tuple[str, Any]:
+    def enc(value: Any) -> Any:
+        return json.dumps(value) if isinstance(value, dict | list) else value
+
+    if isinstance(parameters, dict):
+        parameters = {key: enc(value) for key, value in parameters.items()}
+    elif isinstance(parameters, tuple):
+        parameters = tuple(enc(value) for value in parameters)
+    return statement, parameters
+
+
 def seed_representative_data(engine: Engine, run_demo_seed: bool = True) -> None:
     """Seed demo data and representative records into the metadata store.
 
@@ -47,13 +66,23 @@ def seed_representative_data(engine: Engine, run_demo_seed: bool = True) -> None
     worksheet session, saved script, and audit event records if not present.
     Uses parameterized SQL so it works across older schema versions.
     """
+    # On an empty store, create the schema. Run from the baseline checkout, this is the
+    # baseline's own schema creation; an existing store is left at its version.
+    if not inspect(engine).has_table("schema_version"):
+        initialize_schema(engine)
     if run_demo_seed:
-        try:
-            from harness_api.seed import seed
+        # The baseline seed reads the store from its settings, not from --db-url; point
+        # them at the drill's store, or it would seed some other database.
+        os.environ["HARNESS_METADATA_URL"] = engine.url.render_as_string(hide_password=False)
+        from harness_api.seed import seed
 
-            seed(probe=False)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("Demo seed did not run or was skipped: %s", exc)
+        seed(probe=False)
+
+    # The inserts below are raw SQL against whichever schema the baseline left, so the
+    # JSON columns get their values encoded here; psycopg sends a str untyped, and
+    # PostgreSQL casts it to json.
+    if not event.contains(engine, "before_cursor_execute", _encode_json_params):
+        event.listen(engine, "before_cursor_execute", _encode_json_params, retval=True)
 
     now = utcnow()
     with engine.begin() as conn:
