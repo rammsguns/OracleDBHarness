@@ -417,10 +417,14 @@ A DBA must run and review the discovery on production before that gate can close
 
 The persistent P1 runner is `uv run python -m tests.canary.production`. Its evidence
 label is **agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human)**.
-It uses only P1 (`localhost:1523/PRODPDB1`), HARNESS_RO reads of SHOPAPP, three rotating
+P1 is a non-CDB Oracle 19c instance (service PRODCDB, RU 19.9.1.0.210119).
+It uses only P1 (`localhost:1523/PRODCDB`), HARNESS_RO reads of SHOPAPP, three rotating
 AI-agent DBA principals, and an acting-DBA connection for cost sampling and the lock drill.
 Local dev authentication is a recorded deviation from deployed OIDC/TLS. Text explain
 is checked as an audited policy refusal because it writes PLAN_TABLE rows.
+The requested HARNESS_RO parsing-schema cost scope excludes SQL parsed under the
+SHOPAPP default schema; zero counters must not be read as zero harness SQL cost.
+This coverage limitation is recorded as a deviation for acting-DBA review.
 
 Run from the repository with `TMPDIR=$HOME/.cache/harness-capacity-tmp` and
 `UV_CACHE_DIR=$HOME/.cache/harness-uv`; create TMPDIR first. Docker bind mounts must

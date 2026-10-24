@@ -35,7 +35,7 @@ DEFAULT_REPORT = REPO / "databases/reports/2026-10-25-g3-canary"
 DEFAULT_STATE = REPO / "databases/canary/p1"
 PRINCIPALS = ["g3-dba-1", "g3-dba-2", "g3-dba-3"]
 ADMIN = "g3-admin"
-DSN = "localhost:1523/PRODPDB1"
+DSN = "localhost:1523/PRODCDB"
 CONTAINER = "harness-canary-pg"
 VOLUME = "harness-canary-pgdata"
 JUSTIFICATION = (
@@ -266,7 +266,7 @@ def deploy(args: argparse.Namespace) -> None:
                 "name": "p1-19c-prod",
                 "host": "localhost",
                 "port": 1523,
-                "serviceName": "PRODPDB1",
+                "serviceName": "PRODCDB",
                 "username": "HARNESS_RO",
                 "defaultSchema": "SHOPAPP",
                 "environment": "production",
@@ -484,6 +484,7 @@ def run_pass(
         principal=principal,
         deviations=[
             "Local dev auth, not deployed OIDC/TLS",
+            "HARNESS_RO parsing-schema counters exclude SQL parsed under defaultSchema SHOPAPP; zero deltas do not imply zero harness SQL cost",
             "Successful identity probe has no audit event in the existing API; all observation and refusal workflows require fresh audits",
         ],
         cost_scope=JUSTIFICATION,
