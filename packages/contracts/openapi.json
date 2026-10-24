@@ -565,6 +565,15 @@
         "title": "EditorPartIn",
         "type": "object"
       },
+      "Environment": {
+        "enum": [
+          "development",
+          "test",
+          "production"
+        ],
+        "title": "Environment",
+        "type": "string"
+      },
       "ExecuteRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1277,9 +1286,8 @@
             "type": "string"
           },
           "environment": {
-            "default": "development",
-            "title": "Environment",
-            "type": "string"
+            "$ref": "#/components/schemas/Environment",
+            "default": "development"
           },
           "host": {
             "title": "Host",

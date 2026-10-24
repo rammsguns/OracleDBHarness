@@ -22,7 +22,7 @@ from harness_api.models import (
     WorksheetSessionRecord,
     utcnow,
 )
-from harness_api.policy import ALL_PERMISSIONS
+from harness_api.policy import ALL_PERMISSIONS, is_production
 from harness_api.recovery import (
     COMMIT_IN_FLIGHT_REASON,
     VERIFIED_OPERATION_ID,
@@ -167,9 +167,7 @@ def create_target(payload: ProfileIn, _: Administrator, db: Db, state: State) ->
                 detail={"walletSecretReference": payload.wallet_secret_reference},
             )
         wallet_secret_id = wallet_secret.id
-    if payload.environment == "production" and (
-        payload.worksheets_enabled or payload.mutating_runbooks_enabled
-    ):
+    if is_production(payload) and (payload.worksheets_enabled or payload.mutating_runbooks_enabled):
         raise PolicyError(
             "Production targets are observation only in this release. Free-form "
             "worksheets and mutating runbooks cannot be enabled on them.",

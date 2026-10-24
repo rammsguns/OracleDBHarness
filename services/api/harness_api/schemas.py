@@ -11,6 +11,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from harness_worker.types import Environment
+
 
 class Schema(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
@@ -83,7 +85,7 @@ class UserIn(Schema):
 
 class ProfileIn(Schema):
     name: str
-    environment: str = "development"
+    environment: Environment = Environment.DEVELOPMENT
     host: str
     port: int = 1521
     service_name: str = Field(alias="serviceName")

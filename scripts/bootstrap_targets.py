@@ -15,6 +15,7 @@ from harness_api.config import Settings, get_settings
 from harness_api.db import build_engine, build_session_factory, initialize_schema
 from harness_api.execution import ExecutionService
 from harness_api.models import ConnectionProfile, SecretReference, User, UserTargetGrant
+from harness_api.policy import is_production
 from harness_worker.types import ExecutionLimits, StatementKind
 
 ROLES = {"viewer", "developer", "dba", "administrator"}
@@ -58,7 +59,7 @@ def validate_manifest(data: dict) -> dict:
         for flag in ("worksheetsEnabled", "mutatingRunbooksEnabled"):
             if type(target.get(flag)) is not bool:
                 raise ValueError(f"{name}: {flag} must be boolean")
-        if target["environment"] == "production" and (
+        if is_production(target["environment"]) and (
             target["worksheetsEnabled"] or target["mutatingRunbooksEnabled"]
         ):
             raise ValueError(f"{name}: production targets must be observation only")
@@ -216,7 +217,7 @@ def bootstrap(data: dict, settings: Settings, *, probe: bool = True) -> list[dic
                 for target_spec in data["targets"]:
                     target = profiles[target_spec["name"]]
                     permissions = ["read"]
-                    if target.environment != "production" and set(user.roles) & {
+                    if not is_production(target) and set(user.roles) & {
                         "developer",
                         "dba",
                     }:

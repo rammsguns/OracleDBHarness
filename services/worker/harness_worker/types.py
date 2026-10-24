@@ -27,7 +27,6 @@ class Model(BaseModel):
 class Environment(str, enum.Enum):
     DEVELOPMENT = "development"
     TEST = "test"
-    STAGING = "staging"
     PRODUCTION = "production"
 
 

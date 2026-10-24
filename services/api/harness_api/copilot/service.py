@@ -123,6 +123,7 @@ from harness_api.models import (
     ProposedEditPart,
     new_id,
 )
+from harness_api.policy import is_production
 from harness_api.secrets import SecretResolver
 from harness_api.security import Principal
 from harness_worker.errors import (
@@ -1019,10 +1020,10 @@ class CopilotService:
         if target_token.startswith("harness:"):
             target_token = target_token.split(":", 2)[1]
         with self._sessions() as db:
-            profiles = db.scalars(
-                select(ConnectionProfile).where(ConnectionProfile.environment == "production")
-            )
+            profiles = db.scalars(select(ConnectionProfile)).all()
             for profile in profiles:
+                if not is_production(profile):
+                    continue
                 if ask.profile_id != profile.id and target_token not in {profile.id, profile.name}:
                     continue
                 error = PolicyError(
