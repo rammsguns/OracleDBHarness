@@ -29,7 +29,8 @@ except ImportError:
     oracledb = None  # type: ignore[assignment]
 
 
-_IPV4_PATTERN = re.compile(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b")
+# Not inside a longer dotted number: "19.0.0.0.0" in a banner is a version, not an address.
+_IPV4_PATTERN = re.compile(r"(?<![0-9.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?![0-9]|\.[0-9])")
 
 
 class Redactor:
@@ -743,7 +744,8 @@ def render_markdown(data: dict[str, Any]) -> str:
     else:
         patch_str = str(patch)
     lines.append(f"| Latest Applied Patch | `{patch_str}` |")
-    lines.append(f"| Banner Full | `{v.get('bannerFull')}` |")
+    banner = " / ".join(str(v.get("bannerFull") or "").splitlines())
+    lines.append(f"| Banner Full | `{banner}` |")
     lines.append("")
 
     # 2. RAC

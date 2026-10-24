@@ -2419,8 +2419,12 @@ Tasks, one at a time:
 - [ ] **A7 G2 security review.** An independent AI security review (two models) of the
   production boundary, authentication, secrets and audit. Change approval: acting DBA
   (AI) for test targets only.
-- [ ] **A8 P5 preparation.** An observation-only fleet-discovery script and runbook
+- [x] **A8 P5 preparation.** An observation-only fleet-discovery script and runbook
   (RAC, Data Guard, CDB/PDB, TCPS, RU level, character set) for a DBA to run on
   production. P5 itself stays open until real output is recorded.
+  - Done 2026-10-24. The tool is `oracle/discovery/fleet_discovery.sql` and
+    `scripts/fleet_discovery.py`, and the runbook is docs/fleet-discovery.md. It was
+    tried only on the test databases D1, D2 and D4. **P5 stays open**: no production fact
+    has been recorded.
 - [ ] **A9 NP-08 documentation.** Reconcile setup, caveats, compatibility and release
   status with A1–A8. Make no unsupported qualification claim.

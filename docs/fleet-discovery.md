@@ -186,3 +186,19 @@ To enable engineering and planning alignment without leaking sensitive infrastru
    ```
 4. **Recording Findings**:
    Once vetted by the human DBA, fleet topology facts can be recorded in `docs/compatibility.md` and the corresponding P5 decisions in `PLAN.md` can be updated.
+
+> The labels are unsalted hashes, so they are pseudonyms, not anonymity. A guessable
+> short hostname can be confirmed by hashing candidates. Share reports only with people
+> who could be told the names anyway.
+
+## Tested on
+
+On 2026-10-24, Claude (AI agent, acting DBA, not a human) ran the tool, as `harness_app`
+in thin mode, against the three test databases only: D1, D2 and D4. It produced no
+production facts.
+- Redaction left no host, service or database name in the output.
+- Sections the account cannot see read "not visible to this account" rather than
+  failing. On D2, `harness_app` has no `V$` grants.
+- Running it found that the IP pattern rewrote version strings such as
+  `19.0.0.0.0`. That is fixed, and pinned by
+  `test_redaction_leaves_version_numbers_alone`.

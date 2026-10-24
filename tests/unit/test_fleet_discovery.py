@@ -469,3 +469,12 @@ def test_load_queries_from_sql() -> None:
     for eq in expected_queries:
         assert eq in queries, f"Query '{eq}' not parsed from {sql_file.name}"
         assert queries[eq].upper().startswith("SELECT"), f"Query '{eq}' does not start with SELECT"
+
+
+def test_redaction_leaves_version_numbers_alone() -> None:
+    redactor = Redactor()
+    banner = "Oracle Database 19c Enterprise Edition Release 19.0.0.0.0 - Version 19.9.1.0.0"
+    assert redactor.redact_text(banner) == banner
+    redacted = redactor.redact_text("listener at 10.1.2.3:1521, RU 19.9.1.0.210119")
+    assert "10.1.2.3" not in redacted
+    assert "19.9.1.0.210119" in redacted
