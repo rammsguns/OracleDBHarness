@@ -2397,10 +2397,13 @@ Tasks, one at a time:
   qualification, process-death and isolation suites on D1 and D4 (thin and thick) and
   on D2, against current main (the last run was 2026-10-14). Append the commands,
   versions and outcomes.
-- [ ] **A4 NP-02 install, restore and upgrade.** Run the compose install and restore
+- [x] **A4 NP-02 install, restore and upgrade.** Run the compose install and restore
   drill on PostgreSQL. Exercise an upgrade from the oldest released or tagged version
   (or the earliest schema-version commit if there are no tags) to main with retained
   data. Record the evidence.
+  - Done 2026-10-24, agent-qualified on test stand-ins. Both drills passed; the upgrade
+    ran from `c31c97e` (schema 3) to main (schema 5). Evidence is in
+    docs/compatibility.md, "Install, restore and upgrade drills".
 - [ ] **A5 NP-06 identity.** Deploy the compose stack behind nginx with Keycloak as a
   stand-in pilot IdP registration (two accounts, an ungranted target). Run
   `tests/browser` against the deployed origin through the proxy: callback, expiry,

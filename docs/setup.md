@@ -295,3 +295,39 @@ It is a drill, not a rehearsal of your pilot: it uses throwaway secrets, a place
 OIDC issuer and no Oracle target, because what it is testing is the metadata store's
 continuity. Identity belongs to the sign-in setup above, and the dump deliberately
 contains no password — only the secret *references*, which the drill asserts.
+
+### Upgrade drill
+
+To qualify that metadata store upgrades retain existing history, profiles, grants and
+executions without data loss, `deploy/upgrade-drill.sh` exercises an end-to-end upgrade drill
+against a disposable PostgreSQL instance:
+
+1. Starts a throwaway `postgres:16-alpine` container on a free loopback port.
+2. Checks out the release baseline (defaulting to the initial commit `c31c97e` at schema version 3,
+   falling back to `530e9c2` at schema version 4 if the oldest commit cannot run against Postgres)
+   into a detached temporary worktree.
+3. Initializes the store and seeds representative data (targets, users, grants, executions,
+   worksheet sessions, saved scripts, audit records) using the baseline code.
+4. Takes a snapshot of table row counts and identifying record values, and confirms the baseline
+   schema version.
+5. Runs `initialize_schema` using the current worktree's code to migrate the store to schema
+   version 5.
+6. Verifies that all pre-upgrade rows are retained with unchanged identifying values, new tables
+   (`store_owner`, `execution_runtimes`, `copilot_tool_calls`, `proposed_edit_parts`) exist with
+   valid defaults, and new columns carry expected default values.
+7. Re-runs `initialize_schema` to verify that upgrade execution is idempotent.
+
+```bash
+deploy/upgrade-drill.sh                  # tears down container and worktree afterwards
+deploy/upgrade-drill.sh --keep           # leaves container running and preserves snapshots
+deploy/upgrade-drill.sh --from <commit>  # overrides the baseline commit
+```
+
+Temporary files go under `$TMPDIR` (default `/tmp`). The container bind-mounts the password
+file from there, so on a host where the docker daemon does not see the caller's `/tmp` (a
+sandbox with a private `/tmp`, for example), point `TMPDIR` at a directory under your home.
+
+What it does not cover:
+* Identity: uses throwaway local developer/DBA accounts rather than an external OIDC provider.
+* Oracle: no live target is contacted; store continuity across schema migrations is what is under test.
+* Secret provisioning: uses throwaway passwords and secret references.
