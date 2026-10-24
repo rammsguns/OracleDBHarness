@@ -26,6 +26,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    true,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -106,6 +107,7 @@ class ConnectionProfile(Base):
     # 4 -> 5 migration cannot add one to an existing SQLite table, and a new store
     # should match an upgraded one. ExecutionService refuses a reference that is gone.
     wallet_secret_reference_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     # Free-form worksheets are opt-in per profile. Production profiles never get them.
     worksheets_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     mutating_runbooks_enabled: Mapped[bool] = mapped_column(Boolean, default=False)

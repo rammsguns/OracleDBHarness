@@ -9,6 +9,7 @@ branch on it; so should you.
 | --- | --- | --- | --- |
 | `authentication_required` | 401 | No token, a bad token, or an account that is authenticated but not registered in the harness | Register the account; check the issuer and audience |
 | `not_authorized` | 403 | No grant on this target, or someone else's worksheet session | Grant access; the message is deliberately identical for a missing and a foreign session so identifiers cannot be probed |
+| `target_disabled` | 403 | An administrator disabled this target | Resolve the incident, then enable it with an audited reason |
 | `policy_refused` | 403 | A layer refused: grant permission, role, environment, or worksheets disabled | The message names the layer |
 | `capability_unavailable` | 409 | A required Oracle view or privilege is missing on this target | Grant it, or accept that the feature stays off; it will not degrade quietly |
 | `session_expired` | 409 | Idle expiry, or the session was closed | Open a new one; uncommitted work was rolled back |
@@ -372,16 +373,31 @@ refusal and execution records described under History and audit; the cost check
 is against the database-cost budget agreed before the canary started (PLAN.md
 G3). Retain incident reports for any finding.
 
-**Disable and revoke (rollback).** On a failed gate, disable the target first,
-then have the DBA revoke the harness grants or lock the account, and verify
+**Disable and revoke (rollback).** On a failed gate, an administrator first calls
+`POST /api/v1/admin/targets/{profile_id}/disable` with
+`{"reason":"failed gate: incident reference"}`. Then have the DBA revoke the
+Oracle grants or lock the account, and verify
 access is refused. Retain the incident and recovery evidence. This is the
 PLAN.md G3 rollback order: disable, revoke/lock, verify refusal, retain
 evidence.
 
+A disabled target returns `target_disabled` (403), including for administrators.
+Target listing remains available and includes `enabled`; re-enable with
+`POST /api/v1/admin/targets/{profile_id}/enable` and a required reason. Both
+transitions record actor and reason in the audit trail and invalidate the schema
+panel cache. Existing worksheet sessions refuse their next request, including
+commit; their connections remain until idle expiry (which rolls back) or shutdown.
+Already dispatched statements may finish; disable does not cancel them. Enabling
+before expiry permits the existing session to resume. Profile manifests may set
+`"enabled": false`; omission defaults to true. Metadata schema 6 upgrades schema 5
+in place on SQLite and PostgreSQL, defaulting existing profiles to enabled.
+The connection test requires read permission before opening a connection; it can
+establish the first production identity, which subsequent production reads require.
+
 The B5 test-stand-in rehearsal tool is `uv run python -m tests.canary.rehearsal`
 (default six passes, five minutes apart; `--passes` and `--interval` configure it).
-The current app has no target-disable endpoint; running the tool requires explicit
-acceptance of its grant-based disable deviation with `--disable-via-read-grants`.
+The drill uses the target disable endpoint first; `--disable-via-read-grants`
+selects the legacy grant-based drill instead.
 `--observe-only` runs the scheduled reads without DCL; `--drill-only` retains
 those pass results and runs the rollback drill. See the dated B5 section in
 [compatibility.md](compatibility.md) for the budget, measurements and deviations.

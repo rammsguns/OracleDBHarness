@@ -1022,9 +1022,11 @@ class CopilotService:
         with self._sessions() as db:
             profiles = db.scalars(select(ConnectionProfile)).all()
             for profile in profiles:
-                if not is_production(profile):
-                    continue
                 if ask.profile_id != profile.id and target_token not in {profile.id, profile.name}:
+                    continue
+                if self._execution is not None:
+                    self._execution.policy.require_enabled(profile)
+                if not is_production(profile):
                     continue
                 error = PolicyError(
                     "Copilot and Kiwi are disabled on production targets.",
@@ -1039,9 +1041,10 @@ class CopilotService:
         with self._sessions() as db:
             try:
                 profile = load_profile(db, profile_id)
-                self._execution.policy.require_grant(
+                grant = self._execution.policy.require_grant(
                     principal, profile, load_grant(db, principal, profile_id)
                 )
+                self._execution.authorize_read(principal, profile, grant, "copilot.kiwi")
             except HarnessError as exc:
                 self._execution.audit_refusal(
                     db,

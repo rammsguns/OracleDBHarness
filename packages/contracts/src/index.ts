@@ -133,6 +133,7 @@ export interface Capability {
 }
 
 export interface Target {
+  enabled?: boolean;
   id: string;
   name: string;
   environment: "development" | "test" | "staging" | "production";

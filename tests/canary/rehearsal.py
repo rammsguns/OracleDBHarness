@@ -135,7 +135,11 @@ def run(args: argparse.Namespace) -> int:
         "deviations": [
             "Local dev authentication instead of deployed OIDC/TLS",
             "Compressed passes instead of two weeks; no human DBA sign-off",
-            "Target disable revokes all four application target grants through the admin API; no target-disable endpoint exists",
+            *(
+                ["Legacy grant-based target disable requested"]
+                if args.disable_via_read_grants
+                else []
+            ),
         ],
         "budget": BUDGET,
         "budget_justification": JUSTIFICATION,
@@ -561,6 +565,18 @@ def run(args: argparse.Namespace) -> int:
                 lock_attempted = False
 
                 def set_read_access(enabled: bool) -> None:
+                    if not args.disable_via_read_grants:
+                        response = request(
+                            "POST",
+                            f"/admin/targets/{pid}/{'enable' if enabled else 'disable'}",
+                            payload={
+                                "reason": "B7 canary rollback drill restoration"
+                                if enabled
+                                else "B7 canary failed-gate rollback drill"
+                            },
+                        )
+                        response.raise_for_status()
+                        return
                     for principal in [*PRINCIPALS, "b5-admin"]:
                         response = request(
                             "POST",
@@ -587,9 +603,12 @@ def run(args: argparse.Namespace) -> int:
                         old = {r["id"] for r in request("GET", "/audit?limit=1000").json()}
                         response = request(method, path, PRINCIPALS[0])
                         code = response.json().get("error", {}).get("code")
-                        if code != "not_authorized" or response.status_code != 403:
+                        expected = (
+                            "not_authorized" if args.disable_via_read_grants else "target_disabled"
+                        )
+                        if code != expected or response.status_code != 403:
                             raise RehearsalFailure(
-                                "Revoked target did not refuse access with not_authorized"
+                                f"Disabled target did not refuse access with {expected}"
                             )
                         check_audit(
                             request("GET", "/audit?limit=1000").json(),
@@ -603,7 +622,7 @@ def run(args: argparse.Namespace) -> int:
 
                 try:
                     set_read_access(False)
-                    event("disabled all harness read grants", error_code=refused_read())
+                    event("disabled harness target", error_code=refused_read())
                     event("locking HARNESS_APP; restoration armed")
                     lock_attempted = True
                     with db.cursor() as cursor:
@@ -732,7 +751,7 @@ def main() -> int:
     parser.add_argument(
         "--disable-via-read-grants",
         action="store_true",
-        help="Explicitly accept the grant-based target-disable deviation",
+        help="Use the legacy grant-revocation drill instead of the target disable endpoint",
     )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
@@ -751,10 +770,6 @@ def main() -> int:
         "--report-dir", type=Path, default=Path("databases/reports/2026-10-24-b5-canary")
     )
     args = parser.parse_args()
-    if not args.disable_via_read_grants and not args.observe_only:
-        parser.error(
-            "The app has no target-disable API; grant-based disable requires --disable-via-read-grants"
-        )
     if args.passes < 1 or args.interval < 0:
         parser.error("passes must be positive and interval nonnegative")
 

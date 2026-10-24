@@ -69,6 +69,7 @@ export function TargetsView({
           </p>
 
           <div className="row" style={{ marginBottom: 8 }}>
+            {target.enabled === false && <span className="badge danger">disabled</span>}
             {target.permissions.map((permission) => (
               <span className="badge" key={permission}>
                 {permission}

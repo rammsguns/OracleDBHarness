@@ -52,6 +52,7 @@ def _version(engine: Engine) -> str:
 # rather than hand-written per test, is what stops these fixtures quietly becoming
 # current-schema stores with an old number stamped on them -- which would test nothing.
 _ADDED_BY_VERSION: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "6": (("connection_profiles.enabled",), ()),
     "5": (("connection_profiles.wallet_secret_reference_id",), ()),
     "4": (
         (
@@ -591,7 +592,7 @@ def test_frozen_schema_v5_store_snapshot_survives_startup(tmp_path: Path) -> Non
     restored = create_engine(f"sqlite+pysqlite:///{path}")
     assert _version(restored) == "5"
     assert "wallet_secret_reference_id" in _columns(restored, "connection_profiles")
-    assert initialize_schema(restored) == "5"
+    assert initialize_schema(restored) == SCHEMA_VERSION
     with Session(restored) as db:
         target = db.scalars(
             select(ConnectionProfile).where(ConnectionProfile.name == "snapshot-target")
@@ -604,4 +605,43 @@ def test_frozen_schema_v5_store_snapshot_survives_startup(tmp_path: Path) -> Non
         ).one()
         assert grant.permissions == ["read"]
         assert db.get(User, grant.user_id).subject == "snapshot-developer"
-    assert initialize_schema(restored) == "5"
+    assert initialize_schema(restored) == SCHEMA_VERSION
+
+
+def _assert_v5_target_enable_migration(engine):
+    _store_as_of(engine, "5")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO secret_references (id, name, provider, locator, description, created_at) "
+                "VALUES ('sec_previous', 'previous', 'file', 'app.pw', '', CURRENT_TIMESTAMP)"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO connection_profiles (id, name, environment, host, port, service_name, "
+                "username, default_schema, protocol, wallet_dir, secret_reference_id, "
+                "worksheets_enabled, mutating_runbooks_enabled, notes, created_at) "
+                "VALUES ('tgt_disabled_migration', 'previous', 'development', 'localhost', 1521, "
+                "'ORCL', 'app', 'APP', 'tcp', '', 'sec_previous', false, false, '', CURRENT_TIMESTAMP)"
+            )
+        )
+    assert initialize_schema(engine) == SCHEMA_VERSION
+    with Session(engine) as db:
+        profile = db.get(ConnectionProfile, "tgt_disabled_migration")
+        assert profile.enabled is True
+        profile.enabled = False
+        db.commit()
+    assert initialize_schema(engine) == SCHEMA_VERSION
+    with Session(engine) as db:
+        assert db.get(ConnectionProfile, "tgt_disabled_migration").enabled is False
+
+
+def test_v5_target_enable_migration(engine):
+    _assert_v5_target_enable_migration(engine)
+
+
+@requires_postgres
+def test_v5_target_enable_migration_postgres():
+    with postgres.empty_store() as engine:
+        _assert_v5_target_enable_migration(engine)

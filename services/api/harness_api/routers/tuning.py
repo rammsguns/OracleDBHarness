@@ -225,6 +225,7 @@ def save_observation(
     profile = load_profile(db, payload.profile_id)
     grant = load_grant(db, principal, payload.profile_id)
     grant = state.execution.policy.require_grant(principal, profile, grant)
+    state.execution.authorize_read(principal, profile, grant, "tuning.observation.save")
     row = DiagnosticObservation(
         user_id=principal.user_id or "",
         profile_id=payload.profile_id,

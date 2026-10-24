@@ -38,7 +38,8 @@ log = logging.getLogger("harness.db")
 #    which work was dispatched, so interrupted work can be reconciled after a restart.
 # 5: connection_profiles.wallet_secret_reference_id, the password for a wallet whose key
 #    is encrypted.
-SCHEMA_VERSION = "5"
+# 6: connection_profiles.enabled, the administrative target kill switch.
+SCHEMA_VERSION = "6"
 
 
 def resolve_metadata_url(settings: Settings) -> URL:
@@ -172,9 +173,16 @@ def _add_wallet_secret(connection: Connection) -> None:
     )
 
 
+def _add_target_enabled(connection: Connection) -> None:
+    connection.exec_driver_sql(
+        "ALTER TABLE connection_profiles ADD COLUMN enabled BOOLEAN DEFAULT TRUE NOT NULL"
+    )
+
+
 # Keyed by the version a step upgrades *from*. Add a step here in the same change that
 # bumps SCHEMA_VERSION, and test it from a store the previous release would leave.
 MIGRATIONS: dict[str, Migration] = {
+    "5": Migration("6", "connection_profiles.enabled target kill switch", _add_target_enabled),
     "1": Migration(
         "2",
         "executions.dedup_key is unique per actor, not globally",

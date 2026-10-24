@@ -1296,6 +1296,11 @@
             "title": "Defaultschema",
             "type": "string"
           },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
           "environment": {
             "$ref": "#/components/schemas/Environment",
             "default": "development"
@@ -1624,6 +1629,21 @@
         "title": "SystemInfo",
         "type": "object"
       },
+      "TargetStateIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "TargetStateIn",
+        "type": "object"
+      },
       "TargetView": {
         "additionalProperties": false,
         "properties": {
@@ -1638,6 +1658,11 @@
             "default": "",
             "title": "Defaultschema",
             "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
           },
           "environment": {
             "title": "Environment",
@@ -2399,6 +2424,146 @@
           }
         },
         "summary": "Create Target",
+        "tags": [
+          "administration"
+        ]
+      }
+    },
+    "/api/v1/admin/targets/{profile_id}/disable": {
+      "post": {
+        "operationId": "disable_target_api_v1_admin_targets__profile_id__disable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "title": "Profile Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TargetStateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Disable Target Api V1 Admin Targets  Profile Id  Disable Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Disable Target",
+        "tags": [
+          "administration"
+        ]
+      }
+    },
+    "/api/v1/admin/targets/{profile_id}/enable": {
+      "post": {
+        "operationId": "enable_target_api_v1_admin_targets__profile_id__enable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "title": "Profile Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TargetStateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Enable Target Api V1 Admin Targets  Profile Id  Enable Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Enable Target",
         "tags": [
           "administration"
         ]

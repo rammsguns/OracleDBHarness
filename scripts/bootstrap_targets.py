@@ -59,6 +59,8 @@ def validate_manifest(data: dict) -> dict:
         for flag in ("worksheetsEnabled", "mutatingRunbooksEnabled"):
             if type(target.get(flag)) is not bool:
                 raise ValueError(f"{name}: {flag} must be boolean")
+        if type(target.get("enabled", True)) is not bool:
+            raise ValueError(f"{name}: enabled must be boolean")
         if is_production(target["environment"]) and (
             target["worksheetsEnabled"] or target["mutatingRunbooksEnabled"]
         ):
@@ -138,6 +140,7 @@ def bootstrap(data: dict, settings: Settings, *, probe: bool = True) -> list[dic
                 if old is None:
                     continue
                 expected = (
+                    spec.get("enabled", True),
                     spec["environment"],
                     spec["host"],
                     spec["port"],
@@ -157,6 +160,7 @@ def bootstrap(data: dict, settings: Settings, *, probe: bool = True) -> list[dic
                     else None
                 )
                 stored = (
+                    old.enabled,
                     old.environment,
                     old.host,
                     old.port,
@@ -206,6 +210,7 @@ def bootstrap(data: dict, settings: Settings, *, probe: bool = True) -> list[dic
                         wallet_secret_reference_id=secrets[spec["walletSecretReference"]].id
                         if spec.get("walletSecretReference")
                         else None,
+                        enabled=spec.get("enabled", True),
                         worksheets_enabled=spec["worksheetsEnabled"],
                         mutating_runbooks_enabled=spec["mutatingRunbooksEnabled"],
                         notes=spec.get("notes", ""),
@@ -244,6 +249,16 @@ def bootstrap(data: dict, settings: Settings, *, probe: bool = True) -> list[dic
                         profile = db.scalars(
                             select(ConnectionProfile).where(ConnectionProfile.name == spec["name"])
                         ).one()
+                        if not profile.enabled:
+                            results.append(
+                                {
+                                    "name": profile.name,
+                                    "connected": False,
+                                    "error": "target_disabled",
+                                    "skipped": True,
+                                }
+                            )
+                            continue
                         try:
                             identity, caps = execution.probe_target(db, profile, None)
                             connection = execution._backend.connect(
@@ -314,7 +329,7 @@ def main() -> int:
             )
         else:
             print(f"{row['name']}: {row['error']}")
-    return 1 if any(not row["connected"] for row in results) else 0
+    return 1 if any(not row["connected"] and not row.get("skipped") for row in results) else 0
 
 
 if __name__ == "__main__":
