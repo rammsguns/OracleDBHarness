@@ -2448,9 +2448,19 @@ Tasks, one at a time:
     `scripts/fleet_discovery.py`, and the runbook is docs/fleet-discovery.md. It was
     tried only on the test databases D1, D2 and D4. **P5 stays open**: no production fact
     has been recorded.
-- [ ] **A10 Metadata panel latency (from A2).** Make the console's schema panel meet the
+- [x] **A10 Metadata panel latency (from A2).** Make the console's schema panel meet the
   agreed metadata thresholds without changing them. Keep the copilot's
   `schema.list_schemas` evidence path uncached, because its absence claims rely on a
   complete, current list. Then re-run A2's main run and soak.
+  - Done 2026-10-24 (ADR-0014: a 60 s console-only cache, agent-run on test stand-ins).
+    In the re-run, steady metadata p50 / p95 was 29 / 1567 ms, recovery took 0 s, and
+    there were no contamination, lost, unknown or leaked results. Every threshold was met
+    except "verification complete": 4–5 probes per run timed out on the remote D4. Evidence
+    is in docs/compatibility.md, "Capacity re-run with the schema panel cache".
+- [ ] **A11 Remote D4 statement stalls (from A2/A10).** Find why a few primary-key
+  probe counts on the remote D4 reach the 30 s deadline. The hypothesis is that the
+  network drops idle connections, because the harness sets no `expire_time` keepalive.
+  Fix it inside the product, or record it as a stand-in network limit with evidence.
+  Then re-run until "verification complete" is met, or record why it cannot be.
 - [ ] **A9 NP-08 documentation.** Reconcile setup, caveats, compatibility and release
   status with A1–A8. Make no unsupported qualification claim.

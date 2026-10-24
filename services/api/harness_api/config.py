@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from harness_worker.types import ExecutionLimits
@@ -55,6 +55,8 @@ class Settings(BaseSettings):
 
     # A directory to read secrets from, not a secret.
     secret_dir: str = "./deploy/secrets"  # noqa: S105
+
+    schema_panel_cache_seconds: float = Field(default=60, ge=0)
 
     max_rows: int = 1000
     max_response_bytes: int = 10 * 1024 * 1024

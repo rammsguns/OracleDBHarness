@@ -1223,6 +1223,17 @@
             "title": "Available",
             "type": "boolean"
           },
+          "cached": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cached"
+          },
           "collectedAt": {
             "title": "Collectedat",
             "type": "string"
@@ -1577,6 +1588,11 @@
           "oracleDriverMode": {
             "title": "Oracledrivermode",
             "type": "string"
+          },
+          "schemaPanelCacheSeconds": {
+            "default": 60,
+            "title": "Schemapanelcacheseconds",
+            "type": "number"
           },
           "version": {
             "title": "Version",

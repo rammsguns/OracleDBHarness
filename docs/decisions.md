@@ -311,3 +311,35 @@ work. A human owner may overturn any of these decisions.
    `agreed`, agreedBy "Claude (AI agent, acting DBA and application owner)",
    reference: this ADR. A2's result is "agent-qualified on test stand-ins", not a pilot
    qualification by a human owner.
+
+## ADR-0014: Short-lived results for the console schema panel (2026-10-24)
+
+**Status.** Accepted by Claude (AI agent, acting application owner), not a human.
+A human owner may overturn this decision.
+
+**Decision.** Cache successful, non-truncated results of the console's
+`GET /api/v1/targets/{profile_id}/schemas` only, with
+`HARNESS_SCHEMA_PANEL_CACHE_SECONDS` defaulting to 60 (0 disables). Each API
+worker process owns a thread-safe 256-entry LRU cache; no shared cache is used.
+The key contains profile id, all stored profile fields (its configuration version),
+and the grant's optional credential reference. Grants have operation permissions
+and credential overrides, not schema row filters. Profile and grant loading,
+grant checks and operation policy checks run before every cache lookup.
+Admin target creation and grant creation, replacement and revocation invalidate
+the profile locally; there are no profile update/delete API routes today.
+Other processes observe configuration changes through keys and policy checks;
+unrelated entries can remain until TTL expiry.
+
+**Why.** The 2026-10-24 capacity run repeatedly spent 0.6–1.6 seconds grouping
+`all_objects` on fresh connections. Reuse avoids repeated Oracle work for console
+readers without changing the agreed NP-07 thresholds in ADR-0013.
+
+**What it gives up.** Up to TTL seconds of staleness for the console panel only,
+and independent cold misses per worker. Cached panels keep their original
+`collectedAt` and expose optional `cached`; each hit writes an audit read linked
+to the original execution, without creating a fake Oracle execution record.
+Errors and truncated results are never cached. Copilot and every other execution
+caller remain uncached.
+
+**Revisit when.** Schema freshness requirements change, or multi-process cache
+coordination is needed. Real-database capacity verification remains a separate run.

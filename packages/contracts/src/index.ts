@@ -154,6 +154,7 @@ export interface Target {
  * `error` says why. An unavailable panel is never rendered as healthy.
  */
 export interface PanelResult {
+  cached?: boolean | null;
   operationId: string;
   title: string;
   available: boolean;
@@ -165,6 +166,7 @@ export interface PanelResult {
 }
 
 export interface SystemInfo {
+  schemaPanelCacheSeconds?: number;
   version: string;
   environment: string;
   authMode: string;

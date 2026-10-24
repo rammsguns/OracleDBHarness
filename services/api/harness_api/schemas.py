@@ -28,6 +28,7 @@ class SystemInfo(Schema):
     oracle_backend: str = Field(alias="oracleBackend")
     oracle_driver_mode: str = Field(alias="oracleDriverMode")
     metadata_schema_version: str = Field(alias="metadataSchemaVersion")
+    schema_panel_cache_seconds: float = Field(default=60, alias="schemaPanelCacheSeconds")
     catalog_operations: int = Field(alias="catalogOperations")
     copilot_enabled: bool = Field(alias="copilotEnabled")
     warnings: list[str] = Field(default_factory=list)
@@ -183,6 +184,7 @@ class PanelResult(Schema):
     title: str
     available: bool
     collected_at: str = Field(alias="collectedAt")
+    cached: bool | None = None
     columns: list[str] = Field(default_factory=list)
     rows: list[list[Any]] = Field(default_factory=list)
     truncated: bool = False

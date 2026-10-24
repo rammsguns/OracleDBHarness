@@ -37,6 +37,7 @@ def system_info(state: State) -> SystemInfo:
         oracleBackend=settings.oracle_backend,
         oracleDriverMode=settings.oracle_driver_mode,
         metadataSchemaVersion=state.metadata_schema_version,
+        schemaPanelCacheSeconds=settings.schema_panel_cache_seconds,
         catalogOperations=len(state.execution.catalog),
         copilotEnabled=settings.copilot_enabled,
         warnings=settings.startup_warnings(),

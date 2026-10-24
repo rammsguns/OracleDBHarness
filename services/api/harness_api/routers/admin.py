@@ -269,6 +269,7 @@ def create_target(payload: ProfileIn, admin: Administrator, db: Db, state: State
         )
     )
     db.commit()
+    state.schema_panel_cache.invalidate(profile.id)
     return {"id": profile.id, "name": profile.name, "environment": profile.environment}
 
 
@@ -276,7 +277,7 @@ def create_target(payload: ProfileIn, admin: Administrator, db: Db, state: State
 
 
 @router.post("/grants", status_code=201)
-def create_grant(payload: GrantIn, admin: Administrator, db: Db) -> dict:
+def create_grant(payload: GrantIn, admin: Administrator, db: Db, state: State) -> dict:
     unknown = set(payload.permissions) - set(ALL_PERMISSIONS)
     if unknown:
         raise ValidationError(
@@ -345,6 +346,7 @@ def create_grant(payload: GrantIn, admin: Administrator, db: Db) -> dict:
         )
     )
     db.commit()
+    state.schema_panel_cache.invalidate(profile.id)
     return {
         "id": grant.id,
         "subject": user.subject,
@@ -383,6 +385,7 @@ def revoke_grant(grant_id: str, admin: Administrator, db: Db, state: State) -> d
         )
     )
     db.commit()
+    state.schema_panel_cache.invalidate(profile_id)
     return {
         "revoked": True,
         "grantId": grant_id,

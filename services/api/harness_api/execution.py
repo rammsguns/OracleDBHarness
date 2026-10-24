@@ -1378,6 +1378,31 @@ class ExecutionService:
             )
         )
 
+    def audit_cached_read(
+        self,
+        db: Session,
+        principal: Principal,
+        profile_id: str,
+        operation_id: str,
+        execution_id: str,
+    ) -> None:
+        """Record a console read without claiming another Oracle execution."""
+        self._audit(
+            db,
+            principal=principal,
+            profile_id=profile_id,
+            operation_id=operation_id,
+            execution_id=execution_id,
+            outcome="succeeded",
+            risk=RiskClass.READ,
+            detail={
+                "cached": True,
+                "message": "served from cache",
+                "sourceExecutionId": execution_id,
+            },
+        )
+        db.commit()
+
     def audit_refusal(
         self,
         db: Session,
