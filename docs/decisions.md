@@ -286,3 +286,28 @@ answers are evaluated the same way, by the K-7 runner and a DBA review.
 
 **Revisit when.** A model the harness needs cannot run on its host, or the harness
 moves to a host that cannot run a model.
+
+## ADR-0013: Agent-made decisions for open plan items (2026-10-24)
+
+**Status.** Accepted by an AI agent (Claude, acting DBA and application owner), not a
+human, under the user's 2026-10-24 instruction that agents take over human-owned plan
+work. A human owner may overturn any of these decisions.
+
+1. **K1 answer retry default: off.** `HARNESS_KIWI_ANSWER_RETRY` stays `false`. No
+   provider run has exercised it (every Q5 trial ran with it off), so there is no
+   evidence that it helps. Kiwi is not qualified (docs/k7-qualification-result.md) and
+   stays off by default, so enabling an unmeasured path has no benefit. Revisit when a
+   Kiwi qualification attempt measures it.
+2. **K5 grade vs `absence_inference`: the rubric grade stands.** The grounding rubric
+   and its reviewed calibration define truth, and the detector is an aid that triggers
+   revisions. The recorded under-coverage conflict (named code exempt in Wave 2X) was
+   closed by K6 and K11, whose replay flagged 12/12 graded D-ABS S2s.
+3. **NP-07 capacity thresholds: agreed as proposed, unchanged.** These are the latency,
+   overhead, error, recovery and verification thresholds in
+   `tests/capacity/workload.example.json`, which were written before any run. They are
+   adopted without adjustment, so they are not fitted to the 2026-10-19 results. The
+   phases are the example's full durations (steady 1800 s, saturation 300 s, recovery
+   600 s). A separate soak runs one hour of steady load. Status in the A2 workload:
+   `agreed`, agreedBy "Claude (AI agent, acting DBA and application owner)",
+   reference: this ADR. A2's result is "agent-qualified on test stand-ins", not a pilot
+   qualification by a human owner.
