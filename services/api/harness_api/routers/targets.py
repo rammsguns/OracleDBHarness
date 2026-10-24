@@ -93,6 +93,8 @@ def test_connection(
     profile = load_profile(db, profile_id)
     grant = load_grant(db, principal, profile_id)
     grant = state.execution.policy.require_grant(principal, profile, grant)
+    # A fresh probe is a request for current facts; drop any cached schema panel.
+    state.schema_panel_cache.invalidate(profile_id)
     try:
         identity, _ = state.execution.probe_target(db, profile, grant)
     except HarnessError as exc:
@@ -161,8 +163,10 @@ def _panel(
             # All persisted profile fields form its version (there is no updated_at).
             key = (
                 profile.id,
+                operation_id,
                 tuple(repr(getattr(profile, c.name)) for c in ConnectionProfile.__table__.columns),
-                grant.secret_reference_id,
+                # The credential the panel connects with: the grant's override, else the profile's.
+                grant.secret_reference_id or profile.secret_reference_id,
             )
             hit, generation = state.schema_panel_cache.get(key)
             if hit is not None:

@@ -206,3 +206,11 @@ def test_failed_outcome_not_cached(client, developer, targets):
         assert not panel(client, developer, targets).json()["available"]
         assert not panel(client, developer, targets).json()["available"]
         assert run.call_count == 2
+
+
+def test_connection_test_invalidates(client, developer, targets):
+    target = targets["development"]["id"]
+    assert panel(client, developer, targets).json()["cached"] is False
+    assert panel(client, developer, targets).json()["cached"] is True
+    client.post(f"/api/v1/targets/{target}/test", headers=developer)
+    assert panel(client, developer, targets).json()["cached"] is False
