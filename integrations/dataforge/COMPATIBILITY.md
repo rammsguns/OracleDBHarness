@@ -26,7 +26,7 @@ below preserve the exact commits and qualification boundaries of historical runs
 
 | Component | Status |
 | --- | --- |
-| OracleDataForge completion | Pinned `3404f19` plus local patch commits through `51767c8`: B1c passed 16/16 real-route/backend checks with Oracle and the local model through shipped nginx on 2026-10-24, agent-qualified on test stand-ins (AI agent, not a human). Selected-text explain, cancellation and Analyst non-allowed action refusal pass; B1 found the action-enforcement security bug, fixed in the patch. Editor/UI, upstream and human qualification remain open. |
+| OracleDataForge completion | Pinned `3404f19` plus local patch commits through `51767c8`: B1c passed 16/16 real-route/backend checks with Oracle and the local model through shipped nginx on 2026-10-24, agent-qualified on test stand-ins (AI agent, not a human). Selected-text explain, cancellation and Analyst non-allowed action refusal pass; B1 found the action-enforcement security bug, fixed in the patch. B2 now passes 6/6 browser scenarios at local DataForge `6f3439a`. Upstream: merged into DataForge main as `431147a` (PR #77, B3); its last review fixes are unit-tested only. Human qualification remains open. |
 | Oracle 19c | D1 19.9.1.0.0 bootstrapped/probed in B1c: selected-text explain succeeds with unchanged DataForge connections, harness target/profile registry and D1 DataForge/node sessions. Live EXPLAIN PLAN through this integration is not a feature: no bridge exists, by design. D2 23.26.3.0.0 worksheet/compile regression passed through harness HTTP; see B1 below and [harness evidence](../../docs/compatibility.md). |
 | A real model provider | B1 exercised the real local `qwen3.8-flash-next-iq3_s` provider through DataForge and nginx. Anthropic and other hosted providers remain untested through this integration. |
 | Proxy coverage beyond shipped nginx | A6 exercised real DataForge routes and chunk delivery through the shipped nginx config. Other deployment proxies, compression settings, ALBs and CDNs remain untested. |
@@ -42,11 +42,9 @@ NP-05 completion is open (human-owned). A6 is agent-qualified on test stand-ins
 - Human/editor demonstration of explaining a selected statement without a second
   Oracle connection; B1c passes the real backend/route check with unchanged registries
   and D1 DataForge/node sessions. Live EXPLAIN PLAN has no integration bridge, by design.
-- Editor/UI and upstream integration beyond the local adapter patch; DataForge's own
-  279 tests, typecheck and build passed at the pinned commit in A6.
+- Live re-run of the final upstream head: PR #77 merged as `431147a` (B3), but its post-B2 fixes (disabled guards, SSE parsing, Assist hidden when disabled, resolver version) are unit-tested only; B2 passed six browser scenarios at `6f3439a`.
 - DataForge editor/UI regression for worksheet, compilation and confirmation dialogs; B1c passed harness HTTP worksheet/compile and backend confirmation refusal. Harness viewers intentionally receive supplied-text assistance and are refused worksheet/compile; DataForge Analyst non-allowed action refusal now passes after the B1c patch fix.
-- Editor/UI end-to-end coverage; B1c passed typed partial-provider failure and client
-  cancellation through real routes after fixing DataForge response-close handling.
+- Broader editor/UI coverage beyond the six B2 scenarios; B1c passed typed partial-provider failure through real routes, and B2 verifies visible cancellation plus its harness record.
 
 ## Recording a run
 
@@ -210,22 +208,67 @@ qualification. The Analyst action-enforcement bug found by B1 is fixed in the lo
 Disposable API/DataForge processes, PostgreSQL and nginx are removed after each run;
 the pre-existing Oracle stand-ins and unrelated API process are retained.
 
-### 2026-10-24, editor/UI (B2, agent stand-ins)
+### 2026-10-24, B2 — DataForge assist panel and Playwright UI
 
-Agent-qualified on test stand-ins (AI agent, not a human), using Playwright 1.62.0
-and Chromium 151.0.7922.34. Harness `a26f21ec02235ce4ef3f59a06f9d25213cd23bc6`,
-DataForge `6f3439a2d8f0fbaa3c418fe5fb04c40a8e85b926`, adapter 0.1.0,
-protocol 1.1 (harness 1.5), Oracle D1 19.9.1.0.0 and D2 23.26.3.0.0 test
-stand-ins, local provider and shipped nginx. **6/6 browser scenarios passed**:
-sign-in/context preview, streamed answer, reviewed proposal apply plus stale refusal,
-cancellation, actual harness outage with DataForge worksheet still usable, and
-Analyst explain-only UI. Streaming produced 159 DOM renders and 281 delta events.
-Local ignored evidence: `databases/reports/2026-10-24-b2-dataforge-ui.md`/`.json`
-and screenshots under `databases/reports/2026-10-24-b2-ui/`.
-Compile/confirmation UI, upstream integration, human pilot and production were not
-exercised. This records the prior B2 run, not a B3 live rerun.
+**agent-qualified on test stand-ins (AI agent, not a human)**. Codex built the
+worksheet Assist panel in DataForge and drove its built frontend in Chromium
+against the B1 disposable Oracle/model stack. Final result: **6/6 passed**.
+NP-05 human qualification remains open; B3 owns upstreaming the local commits.
 
-### 2026-10-24, upstream PR preparation (B3, in progress)
+| Item | Evidence |
+| --- | --- |
+| DataForge | Package 1.2.0, local commit `6f3439a2d8f0fbaa3c418fe5fb04c40a8e85b926`, on `cbc9c1a` and `dc3a00e`, based on `627825e`; not pushed |
+| Harness baseline during run | `a26f21ec02235ce4ef3f59a06f9d25213cd23bc6`, package 0.1.0 |
+| Adapter / protocols | Adapter 0.1.0; request protocol 1.1; harness capability protocol 1.5 |
+| Runtime | Node v24.18.1; Python 3.11.16; Playwright 1.62.0; Chromium 151.0.7922.34; python-oracledb 4.0.2 thin |
+| Stand-ins | D1 19.9.1.0.0; D2 23.26.3.0.0; harness_app only; UI query on D1; no test DDL |
+| Provider / proxy | Real local `qwen3.8-flash-next-iq3_s`, serialized calls; shipped nginx config in nginx:1.27-alpine; disposable postgres:16-alpine |
+| Verification | Harness pytest: 787 passed, 7 skipped; ruff check/format clean; CI mypy: 93 files clean; Node adapter tests: 27 passed, 4 live-launcher-only skips; DataForge: 289 tests passed, typecheck/build passed (existing bundle-size warning) |
+| Reports, local git-ignored | `databases/reports/2026-10-24-b2-dataforge-ui.md` and `.json` |
+
+| Browser scenario | Result |
+| --- | --- |
+| Sign-in and outgoing context | PASS: named Administrator signs in with DataForge Basic auth, selects a D1 worksheet statement, opens Assist and reviews server-resolved selection, target, schema and complete editor buffer before sending explain. Browser sends no role or actor assertions. |
+| Streamed answer | PASS: **159 distinct DOM answer renders / 281 delta events** before successful completion; provider/model shown. |
+| Proposal/diff/apply/stale | PASS: broken column repaired in a real proposal; DiffView reviewed; apply-check accepted and buffer replaced without execution. Editing the buffer then applying the old proposal was refused with already-applied and document-changed reasons shown. |
+| Cancellation | PASS: AbortController cancels after real deltas; UI says cancelled and the harness CopilotRequest independently reaches cancelled. No automatic replay. |
+| Outage and worksheet | PASS: stopped the harness API; Assist shows unavailable (502); DataForge's own D1 connection runs SELECT 1 FROM dual and displays one row. |
+| Analyst | PASS: separate named Analyst sees exactly explain in the documentation Assist panel; existing worksheet restriction retained. |
+
+The UI reuses SqlEditor selection callbacks and DiffView. A new same-origin
+`/api/ai/context-preview` route uses the existing permission resolver without a
+provider call. fetch/ReadableStream decodes SSE incrementally; typed errors remain
+readable, cancellation never retries, and apply checks the current editor id,
+target, revision and full buffer. Target/account/editor changes unmount the panel,
+abort its stream and prevent late apply responses from changing another editor.
+DataForge unit tests cover frame splits, cancellation, typed errors, preview
+authorization and outage classification. The runner imports optional drivers lazily.
+
+Screenshots under `databases/reports/2026-10-24-b2-ui/`:
+
+- `01-sign_in_context.png`
+- `02-streamed_answer.png`
+- `03-proposal-review.png`
+- `03-proposal_stale_refusal.png`
+- `04-cancelled.png`
+- `05-outage_worksheet.png`
+- `06-analyst_explain_only.png`
+
+Earlier attempts exposed runner issues: authenticated health polling needed Basic
+auth; a native option visibility wait timed out despite the correct Analyst UI;
+an optional pre-assist reconnect experiment timed out and was interrupted and
+cleaned up. The final full run uses the ordinary lazy connection path and passes
+all six scenarios in 77.0 seconds. These are scripted scenario timings, not a human
+setup measurement. All screenshots were visually inspected for secrets; none
+showed tokens or credentials. Owned API/DataForge/browser processes,
+PostgreSQL/nginx containers, secret files and transient logs were cleaned up.
+The pre-existing Oracle stand-ins and shared model were retained.
+
+Not exercised here: human or production qualification, upstream integration,
+compile/confirmation UI, hosted providers, or other proxies. B1's backend
+worksheet/compile/confirmation evidence remains separate.
+
+### 2026-10-24, upstream PR preparation (B3)
 
 PR #77 and its head are recorded above. All eight original feature/fix commits were
 preserved as a reviewable series and missing co-author trailers normalized; two
@@ -243,8 +286,7 @@ adapter TypeScript check, `ruff check` and `ruff format --check` passed.
 The spike patch is refreshed to the exact diff against upstream main, preserving
 the existing pinned-checkout reproduction workflow rather than replacing it with
 an online-only pointer. It includes no machine paths, credentials or live bench
-configuration. Upstream CI passed (build job, run `40121765646`); independent review and merge
-remain pending. No human sign-off is claimed.
+configuration. Upstream CI passed (build job, run `40121765646`); the independent review and merge followed (below). No human sign-off is claimed.
 
 ### 2026-10-24, B3b independent review fixes
 
@@ -261,4 +303,5 @@ against the Oracle stand-ins; they are covered by unit tests only. DataForge:
 Harness Node suite: 47 passed and 4 live-launcher-only skips.
 Harness `ruff check` and `ruff format --check` passed (394 files);
 `pytest -q tests/test_dataforge_real.py` passed all 7 tests. Upstream CI
-build passed in run `40122712957`; PR #77 remains open and unmerged.
+build passed in run `40122712957`. The agy re-review approved, and PR #77 was merged
+as `431147a5ff69a3aecbb9ee2d3906b62af428994c` by Claude (AI agent, acting release owner, not a human).
