@@ -2390,9 +2390,17 @@ Tasks, one at a time:
   - K5 grade vs the `absence_inference` check. Record which stands.
   - NP-07 capacity thresholds. Agree them before A2 runs; take them from
     `docs/capacity.md` and the 2026-10-19 proposed thresholds.
-- [ ] **A2 NP-07 capacity.** Run the three-database (D1, D2, D4), ten-user run against
+- [x] **A2 NP-07 capacity.** Run the three-database (D1, D2, D4), ten-user run against
   the thresholds agreed in A1, with observed API CPU and memory. Record the result in
   `docs/compatibility.md` and a report.
+  - Done 2026-10-24: ran, **NOT MET** against the agreed thresholds (agent-run on test
+    stand-ins). Correctness is clean (0 contamination, lost commits, unknown outcomes or
+    leaked sessions), and the API peaked at 66% CPU and 172 MiB. Two things failed:
+    - steady metadata p50 was 1354 ms against 800 ms, because `schema.list_schemas`
+      counts `ALL_OBJECTS` on a fresh connection; recovery failed through the same p95;
+    - a few probes timed out on the remote D4.
+    Five driver and measurement defects found by the live runs were fixed first. Evidence is in
+    docs/compatibility.md, "Three-database, ten-user capacity run". Follow-up: A10.
 - [x] **A3 NP-01/03 Oracle re-qualification at current main.** Re-run the
   qualification, process-death and isolation suites on D1 and D4 (thin and thick) and
   on D2, against current main (the last run was 2026-10-14). Append the commands,
@@ -2440,5 +2448,9 @@ Tasks, one at a time:
     `scripts/fleet_discovery.py`, and the runbook is docs/fleet-discovery.md. It was
     tried only on the test databases D1, D2 and D4. **P5 stays open**: no production fact
     has been recorded.
+- [ ] **A10 Metadata panel latency (from A2).** Make the console's schema panel meet the
+  agreed metadata thresholds without changing them. Keep the copilot's
+  `schema.list_schemas` evidence path uncached, because its absence claims rely on a
+  complete, current list. Then re-run A2's main run and soak.
 - [ ] **A9 NP-08 documentation.** Reconcile setup, caveats, compatibility and release
   status with A1–A8. Make no unsupported qualification claim.

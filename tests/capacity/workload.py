@@ -1,6 +1,7 @@
 """The capacity run's configuration: what to run, for how long, within what, judged how.
 
-Every section is required and every number is explicit. There are no defaults for a
+Every section is required and every number is explicit. Saturation and recovery may
+be omitted together for a steady-only soak. There are no defaults for a
 duration, a limit or a threshold, because a default is a decision nobody made: a load run
 judged against a number that was never agreed tells nobody anything.
 """
@@ -265,7 +266,10 @@ def parse(document: dict[str, Any], source: Path | None = None) -> Workload:  # 
 
     phases_raw = _section(document, "phases", problems)
     phases: list[PhaseSpec] = []
+    steady_only = not any(name in phases_raw for name in ("saturation", "recovery"))
     for name in PHASES:
+        if steady_only and name != "steady":
+            continue
         where = f"phases.{name}"
         spec = phases_raw.get(name)
         if not isinstance(spec, dict):

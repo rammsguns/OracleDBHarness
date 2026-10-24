@@ -644,6 +644,70 @@ Two anomalies, both environmental, neither a harness defect:
 Reports are in the ignored report directory (`databases/reports/2026-10-24-<profile>*.md`).
 This is agent-qualified on test stand-ins, not a production or pilot qualification.
 
+### Three-database, ten-user capacity run, 2026-10-24 (A2, NP-07 stand-in)
+
+Run by Claude (AI agent, acting DBA and application owner, not a human) on the z4g5 test
+host against D1 (19.9.1 non-CDB), D2 (23.26.3 Free PDB) and D4 (remote 19.9.1,
+`WE8MSWIN1252`, about 150 ms TCP connect from this host). The command was
+`scripts/capacity_run.sh databases/capacity/a2-run.json <report dir>`, at harness commit
+`14c33d1`, with `TMPDIR` under the operator's home. It used a disposable
+`postgres:16-alpine` metadata store, the thin backend, 4 API worker processes, a 30 s
+statement deadline and 50 rows per read. The thresholds are the ones agreed in ADR-0013,
+unchanged. There were two runs:
+- the main run (`cap-97adf13d1601`): steady 1800 s, saturation 300 s at three streams
+  per user, recovery 600 s;
+- a steady-only soak (`cap-b242124ea9be`) of 3600 s.
+
+Verdict: **NOT MET against the agreed thresholds (AI agent, not a human; not a pilot
+qualification)**. Correctness is clean in both runs:
+- no contamination;
+- no lost commits;
+- no `outcome_unknown` results;
+- no leaked worksheet sessions.
+
+The main run had no saturation errors. The failures are metadata latency and, through it,
+recovery. Verification is incomplete because a few probes timed out on the remote D4.
+
+| Measure (main / soak) | Threshold | Main | Soak |
+| --- | --- | --- | --- |
+| Steady metadata p50 / p95 | 800 / 2500 ms | **1354** / **2628** ms | **1356** / 2451 ms |
+| Steady bounded read p50 / p95 | 500 / 2000 ms | 190 / 296 ms | 189 / 287 ms |
+| Steady transaction p50 / p95 | 800 / 3000 ms | 91 / 406 ms | 91 / 393 ms |
+| Steady cancellation p50 / p95 | 3000 / 8000 ms | 1524 / 1882 ms | 1480 / 1828 ms |
+| Steady overhead p95 | 400 ms | 244 ms | 240 ms |
+| Steady / saturation error rate | 1% / 10% | 0.00% / 0.00% | 0.00% / N/A |
+| Recovery after saturation | 120 s | **did not recover** (metadata p95) | N/A (steady-only) |
+| Verification | complete | **8 of 437 probes failed** (7 on D4) | **5 of 396 probes failed** (all D4) |
+| Commits / rollbacks verified | - | 1406 / 377 | 1296 / 310 |
+| Observed API CPU peak / p95, RSS peak | 2 CPUs, 2048 MiB declared | 66% / 37%, 172 MiB | 50% / 9%, 173 MiB |
+
+Steady metadata p50 / p95 per target in the main run:
+- D1: 1149 / 1322 ms;
+- D2: 1389 / 1642 ms;
+- D4: 2361 / 2517 ms.
+
+The panel (`schema.list_schemas`) is `SELECT owner, COUNT(*) FROM all_objects GROUP BY
+owner` on a fresh connection. Timed directly from this host, that query alone took
+0.6–1.1 s on D1, 0.7–1.6 s on D2 and 1.1–1.3 s on D4. The D4 connect added about 1.1 s
+more. The cost is the query and the remote round trips, not the API, whose overhead p95
+was 244 ms. Recovery uses the steady p95 thresholds, so it cannot pass while steady
+metadata p95 is at its limit. The failed D4 probes were 30 s `execution_timeout` or
+client read timeouts on a primary-key count, on the remote link only.
+
+Getting a meaningful run took five driver and measurement fixes. A read-only agy review of PR #77 then tightened the ledger (abandoned transactions must be absent, ledger-only ambiguous commits count as unknown outcomes), lost-commit paging and recovery borrowing (`9c84a7d`); none of these changes the run5 verdict, which had no unknown markers, no paging failures and no recovery. The earlier runs' reports are kept in
+the ignored report directory (`databases/reports/2026-10-24-a2-capacity/run1`–`run5`):
+
+| Finding | Kind | Fix |
+| --- | --- | --- |
+| 1081 "lost commits": verification asked for pages of 200 rows, which the API caps at 50, so every page was truncated | Driver defect | Pages stay under `max_rows_per_read` (`986f635`) |
+| Probes and setup worksheets idled past the API's 300 s timeout and failed `session_expired` | Driver defect | Stale probes reopen and retry once; worksheets known to be idle are replaced before use (`986f635`) |
+| Recovery read 590 s on healthy traffic: 10 s windows often held no cancellation sample | Measurement defect | 60 s windows every 10 s, with the absent-kind rule in `docs/capacity.md` (`986f635`) |
+| The soak's 1 s saturation and recovery phases failed by construction | Driver defect | The soak is steady-only, as ADR-0013 says; its saturation and recovery criteria are N/A (`b9a7943`) |
+| 2 "contaminations" and 1 leaked session: a commit that hit a client read timeout was booked as rolled back, and an `outcome_unknown` session was forgotten without being closed | Driver defect | Ambiguous outcomes are booked unknown; sessions are closed before they are forgotten (`14c33d1`) |
+
+The marker table was dropped from `HARNESS_APP` on all three targets after each run. No
+lab schema was modified.
+
 ## Recording a run
 
 ### Live non-copilot API workflows, 2026-10-19 (Wave 1C)

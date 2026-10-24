@@ -22,13 +22,13 @@ session per target it works on, and repeats a mix of four kinds of step:
 | `transaction` | Insert a marker row, then commit (80%) or roll back (20%) | Client time for the whole transaction; database time of the insert |
 | `cancellation` | Start the target's `slowRead`, cancel it after `cancelAfterMs` | Client, execution and database time. Cancelled, or finished first, both count as success |
 
-Three phases run back to back:
+The main workload requires three phases, run back to back:
 
 | Phase | Purpose |
 | --- | --- |
 | `steady` | The expected pilot load. Latency, overhead and error thresholds are judged here. A bounded soak is a long steady phase - run it as its own workload with the agreed soak duration, so idle expiry, connection lifetime and slow leaks have time to show |
 | `saturation` | More streams than execution slots, no think time. Queueing is the point; only the listed error codes may appear |
-| `recovery` | Steady load again. The report says how many seconds it took until every 10-second window met the steady thresholds |
+| `recovery` | Steady load again. The report says how many seconds it took until every 60-second window, evaluated every 10 seconds, met the steady thresholds |
 
 Every kind, weight, duration, limit and threshold comes from the workload file. There are no
 defaults: `tests/capacity/workload.example.json` is a template and
@@ -100,6 +100,38 @@ leaked. Every one of these is a failure at any count; `maxContaminations` must b
 
 ## Running it
 
+### Automated driver (`scripts/capacity_run.sh`)
+
+For the NP-07 three-database, ten-user capacity run against test databases, the credential-free driver script `scripts/capacity_run.sh` automates the entire sequence:
+
+```bash
+./scripts/capacity_run.sh <config.json> <report_dir>
+# or
+./scripts/capacity_run.sh --config <config.json> --report-dir <report_dir>
+```
+
+#### What the driver does
+
+1. **Validates configuration.** Accepts a credential-free JSON configuration (template in `tests/capacity/capacity-run.example.json`) declaring:
+   - Three targets (`name`, `dsn` in `host:port/service` format, `user`, and `passwordFile`);
+   - `apiPort`;
+   - `postgres` (null for disposable container or `{ "url": "..." }` to reuse an existing database).
+   Passwords are read strictly from files and never printed, logged, or placed in argv.
+2. **Metadata store.** Launches a disposable `postgres:16-alpine` docker container named `harness-capacity-pg` on a free local port with a generated random password in a temporary file (or connects to the specified `postgres.url`).
+3. **Provisioning.** Generates a manifest and provisions 10 developer accounts (`load-user-01`..`10`) with `read` and `worksheet` grants on all three targets via `scripts/bootstrap_targets.py`.
+4. **API.** Starts the API with the `oracledb` thin backend, `HARNESS_AUTH_MODE=dev` (`HARNESS_ALLOW_DEV_AUTH_OUTSIDE_DEVELOPMENT=true`), and the declared resource limits from `workload.example.json` (`HARNESS_WORKER_PROCESSES=4`, `HARNESS_STATEMENT_TIMEOUT_SECONDS=30`, `HARNESS_MAX_ROWS=50`).
+   *Limitation:* `devToken` authentication issues local tokens and does not exercise OIDC token verification.
+5. **Workload files.** Queries registered target profile IDs and generates:
+   - The main workload JSON with baseUrl `http://127.0.0.1:<port>`, `devToken` auth, and ADR-0013 agreed thresholds (`status: agreed`, agreed by Claude on 2026-10-24, reference `docs/decisions.md ADR-0013`), leaving all threshold values and phase durations unchanged from `tests/capacity/workload.example.json`.
+   - A separate soak workload JSON with a 3600 s steady phase. Saturation and recovery are both omitted; declaring either requires both. Only declared phases run. The saturation error-rate, allowed-code and recovery criteria remain in the criteria table as `not applicable (steady-only soak)` (`N/A`, JSON `passed: null`), counted as neither met nor failed. All steady latency, overhead and error-rate criteria, verification completeness, contamination, lost-commit, unknown-outcome and session-leak checks still apply. A declared saturation phase never receives this exemption.
+6. **Marker schema.** Connects to each target as the `harness_app` account and applies `oracle/capacity/load_schema.sql` idempotently.
+7. **Runs.** Sequentially executes `validate`, `baseline`, and `run` for the main workload (`pilot.md`), followed by the soak workload (`soak.md`), writing markdown reports and JSON sidecars to `<report_dir>`.
+8. **Host metrics.** Continuously samples process-tree CPU% and RSS for both the API process tree and the load client process tree every 5 s via `/proc`, writing a time-series CSV and a summary JSON (peak, mean, p95) beside each report (`pilot-host-metrics.csv`/`.json` and `soak-host-metrics.csv`/`.json`).
+9. **Teardown.** Uses a trap to guarantee teardown on completion, interrupt, or error: drops `harness_load_markers` on each target using `oracle/capacity/load_teardown.sql`, terminates the API process, stops and removes the `harness-capacity-pg` docker container, and cleans up temporary files.
+10. **Exit status.** Prints the verdict of both runs, exiting non-zero if either run failed.
+
+### Manual execution
+
 ```bash
 uv run python -m tests.capacity validate workload.json     # plan and phase timeline
 uv run python -m tests.capacity baseline workload.json
@@ -143,3 +175,17 @@ docs/compatibility.md with its report.
 - Database time is the driver call as the API measures it, which includes the API-to-database
   network round trip.
 - `devToken` runs do not exercise OIDC token verification.
+
+Recovery windows must contain traffic and meet the steady error-rate limit. Each thresholded
+kind must have a passing p95. Only a kind with zero samples (successful or failed) may borrow
+successful samples from the immediately following non-overlapping 60-second window, bounded
+by the end of recovery. A kind with samples but no successes fails the window. A kind absent
+from both windows fails. Empty windows and error-rate breaches always fail. All windows from
+the reported recovery point onward must pass.
+
+The report includes client p50/p95 per kind and target in each phase, plus
+`sessions_replaced`. The driver replaces worksheets it knows have had no worksheet
+execution for the API's default 300-second idle lifetime before starting new work.
+This covers setup sessions unused during steady load; active-session expiry remains
+a measured failure. Read-only cross-user probes separately retry once with a fresh
+session after an expired, unauthorized, quarantined, or missing session response.

@@ -73,6 +73,7 @@ class CapacityReport:
     samples: list[Sample] = field(default_factory=list)
     completed_phases: list[str] = field(default_factory=list)
     peak_in_flight: int = 0
+    sessions_replaced: int = 0
     recovery_s: float | None = None
     verification: Verification = field(default_factory=Verification)
     criteria: list[Criterion] = field(default_factory=list)
@@ -106,7 +107,7 @@ class CapacityReport:
 
     @property
     def failed(self) -> bool:
-        return bool(self.prerequisite_failures) or any(not c.passed for c in self.criteria)
+        return bool(self.prerequisite_failures) or any(c.passed is False for c in self.criteria)
 
     @property
     def qualified(self) -> bool:
@@ -118,7 +119,7 @@ class CapacityReport:
             return "FAILED - prerequisites missing before measurement: " + "; ".join(
                 self.prerequisite_failures
             )
-        failed = [c.name for c in self.criteria if not c.passed]
+        failed = [c.name for c in self.criteria if c.passed is False]
         if self.rehearsal:
             findings = [name for name in failed if name not in self.CORRECTNESS]
             if not self.rehearsal_sound:
@@ -179,16 +180,31 @@ class CapacityReport:
             "networkBaseline": self.network,
             "completedPhases": self.completed_phases,
             "peakInFlight": self.peak_in_flight,
+            "sessions_replaced": self.sessions_replaced,
             "phases": {
                 phase.name: {
                     "kinds": {
                         kind: asdict(summary)
                         for kind, summary in summarize(self.samples, phase.name).items()
                     },
+                    "targets": {
+                        target.name: {
+                            kind: asdict(summary)
+                            for kind, summary in summarize(
+                                [s for s in self.samples if s.target == target.name], phase.name
+                            ).items()
+                        }
+                        for target in workload.targets
+                    },
                     "errorExamples": self.error_examples(phase.name),
                 }
                 for phase in workload.phases
             },
+            "outcomeUnknownResults": [
+                {"target": s.target, "phase": s.phase, "kind": s.kind, "message": s.note}
+                for s in self.samples
+                if s.code == "outcome_unknown"
+            ],
             "recoverySeconds": self.recovery_s,
             "verification": asdict(self.verification),
             "criteria": [asdict(c) for c in self.criteria],
@@ -247,17 +263,46 @@ class CapacityReport:
                     f"{_ms(s.client_p95)} / {_ms(s.client_p99)} | {_ms(s.server_p95)} | {_ms(s.db_p50)} / "
                     f"{_ms(s.db_p95)} | {_ms(s.overhead_p95)} | {s.error_codes or ''} |"
                 )
+            lines += ["", "| Target | Kind | Client p50 / p95 ms |", "| --- | --- | --- |"]
+            for target in workload.targets:
+                for kind, summary in summarize(
+                    [s for s in self.samples if s.target == target.name], phase.name
+                ).items():
+                    lines.append(
+                        f"| {target.name} | {kind} | {_ms(summary.client_p50)} / {_ms(summary.client_p95)} |"
+                    )
             examples = self.error_examples(phase.name)
             if examples:
                 lines += ["", "Example error per code:", ""]
                 lines += [f"- `{code}`: {message}" for code, message in examples.items()]
+        unknown_results = [s for s in self.samples if s.code == "outcome_unknown"]
+        if unknown_results:
+            lines += ["", "Outcome unknown results:", ""]
+            lines += [
+                f"- Target `{s.target}`, phase `{s.phase}`, kind `{s.kind}`: "
+                f"{s.note or '(no message)'}"
+                for s in unknown_results
+            ]
+        recovery = next((c for c in self.criteria if c.name == "recovery after saturation"), None)
+        recovery_text = (
+            "not applicable (steady-only soak)"
+            if recovery is not None and recovery.passed is None
+            else (
+                "did not recover within the phase"
+                if self.recovery_s is None
+                else f"{self.recovery_s:.0f}s after load dropped"
+            )
+        )
         v = self.verification
         lines += [
             "",
-            f"Recovery: {'did not recover within the phase' if self.recovery_s is None else f'{self.recovery_s:.0f}s after load dropped'}",
+            f"Recovery: {recovery_text}",
+            "",
+            f"Sessions replaced: {self.sessions_replaced}",
             "",
             f"Verification: {v.committed} committed, {v.rolled_back} rolled back, {v.unknown} unknown "
-            f"markers; {v.probes} cross-user probes; {len(v.contaminations)} contamination(s), "
+            f"markers, {v.abandoned} abandoned; {v.probes} cross-user probes; "
+            f"{len(v.contaminations)} contamination(s), "
             f"{len(v.lost_commits)} lost commit(s), {len(v.leaked_sessions)} leaked session(s).",
         ]
         for heading, items in (
@@ -274,9 +319,8 @@ class CapacityReport:
             "| --- | --- | --- | --- |",
         ]
         for c in self.criteria:
-            lines.append(
-                f"| {c.name} | {c.threshold} | {c.measured} | {'yes' if c.passed else '**no**'} |"
-            )
+            met = "N/A" if c.passed is None else ("yes" if c.passed else "**no**")
+            lines.append(f"| {c.name} | {c.threshold} | {c.measured} | {met} |")
         if self.eligibility.reasons:
             lines += ["", "Why this is not a pilot qualification:", ""]
             lines += [f"- {reason}" for reason in self.eligibility.reasons]

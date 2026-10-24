@@ -38,6 +38,26 @@ from tests.capacity.workload import PhaseSpec, Target, Workload
 PROBE_EVERY = 4
 #: Sequence numbers per verification page, kept well under any row limit.
 PAGE = 200
+#: Default worksheet idle lifetime in the API. Only known client inactivity is replaced.
+WORKSHEET_IDLE_SECONDS = 300.0
+# These API codes refuse dispatch before Oracle can apply the requested operation.
+DEFINITE_REFUSALS = frozenset(
+    {
+        "authentication_required",
+        "not_authorized",
+        "not_found",
+        "invalid_request",
+        "policy_refused",
+        "session_expired",
+        "session_busy",
+        "session_quarantined",
+        "limit_exceeded",
+    }
+)
+
+
+def _definite_refusal(response: Response) -> bool:
+    return 400 <= response.status < 500 and response.code in DEFINITE_REFUSALS
 
 
 class Prerequisite(Exception):
@@ -97,6 +117,8 @@ class UserClient:
         self.probe_lock = threading.Lock()
         self.execution_ids: list[str] = []
         self.sessions_replaced = 0
+        self.session_used: dict[str, float] = {}
+        self.retired_sessions: set[str] = set()
 
     # -- credentials -------------------------------------------------------------------
 
@@ -153,8 +175,22 @@ class UserClient:
         return str(opened.body["session"]["sessionId"])
 
     def session(self, target: Target) -> str:
+        """Replace a worksheet left idle by a phase before sending fresh work.
+
+        Setup opens all targets for the first user, while steady uses only one.
+        Expiration of an active session remains a measured API error.
+        """
+
+        session = self.sessions.get(target.name)
+        if (
+            session
+            and time.monotonic() - self.session_used.get(session, time.monotonic())
+            >= WORKSHEET_IDLE_SECONDS
+        ):
+            self.drop_session(target)
         if target.name not in self.sessions:
             self.sessions[target.name] = self._open(target)
+            self.session_used[self.sessions[target.name]] = time.monotonic()
         return self.sessions[target.name]
 
     def probe_session(self, target: Target) -> str:
@@ -162,15 +198,31 @@ class UserClient:
             self.probe_sessions[target.name] = self._open(target)
         return self.probe_sessions[target.name]
 
+    def drop_session(self, target: Target, *, probe: bool = False) -> None:
+        """Close before forgetting; retain failed closes for the final cleanup retry."""
+
+        sessions = self.probe_sessions if probe else self.sessions
+        session = sessions.get(target.name)
+        if session is None:
+            return
+        self.retired_sessions.add(session)
+        closed = self.request("DELETE", f"/api/v1/worksheets/{session}")
+        if closed.status in (200, 204, 404) or (
+            closed.status == 409 and closed.code in ("session_expired", "session_quarantined")
+        ):
+            self.retired_sessions.discard(session)
+        sessions.pop(target.name, None)
+        self.session_used.pop(session, None)
+        self.sessions_replaced += 1
+
     def forget(self, target: Target, response: Response) -> None:
-        """Drop a session the API no longer serves, so the next step opens a new one."""
+        """Close a stale or quarantined session before replacing it."""
 
         if (
             response.code in ("session_expired", "not_authorized", "session_quarantined")
             or response.status == 404
         ):
-            if self.sessions.pop(target.name, None) is not None:
-                self.sessions_replaced += 1
+            self.drop_session(target)
 
     def execute(
         self, session_id: str, statement: str, binds: dict[str, Any] | None = None, **limits: Any
@@ -182,16 +234,22 @@ class UserClient:
             "deadlineSeconds": self.workload.limits.statement_deadline_seconds,
         }
         response = self.request("POST", f"/api/v1/worksheets/{session_id}/execute", body)
+        self.session_used[session_id] = time.monotonic()
         execution_id = response.outcome.get("executionId")
         if execution_id:
             self.execution_ids.append(str(execution_id))
         return response
 
     def close(self) -> None:
-        for session_id in [*self.sessions.values(), *self.probe_sessions.values()]:
+        for session_id in {
+            *self.sessions.values(),
+            *self.probe_sessions.values(),
+            *self.retired_sessions,
+        }:
             self.request("DELETE", f"/api/v1/worksheets/{session_id}")
         self.sessions.clear()
         self.probe_sessions.clear()
+        self.retired_sessions.clear()
         self.http.close()
 
 
@@ -210,11 +268,12 @@ def _ms(started: float) -> float:
 
 @dataclass
 class Ledger:
-    """What each user committed, rolled back or could not vouch for, per target."""
+    """Per-target transactions: committed, rolled back, abandoned, or ambiguous commit."""
 
     committed: dict[tuple[str, str], set[int]] = field(default_factory=dict)
     rolled_back: dict[tuple[str, str], set[int]] = field(default_factory=dict)
-    unknown: dict[tuple[str, str], set[int]] = field(default_factory=dict)
+    abandoned: dict[tuple[str, str], set[int]] = field(default_factory=dict)
+    unknown_commit: dict[tuple[str, str], set[int]] = field(default_factory=dict)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def add(self, book: dict[tuple[str, str], set[int]], target: str, user: str, seq: int) -> None:
@@ -420,12 +479,14 @@ class CapacityRun:
         session = user.session(target)
         inserted = user.execute(session, target.sql["insertMarker"], binds)
         total = inserted.client_ms
-        if inserted.code == "outcome_unknown":
-            self.ledger.add(self.ledger.unknown, target.name, user.subject, seq)
         if inserted.status != 200 or inserted.code:
-            if inserted.status == 200:
-                user.request("POST", f"/api/v1/worksheets/{session}/rollback")
-            return self._sample(phase, "transaction", user, target, started, inserted, total)
+            # An uncertain insert can still be in flight. Never reuse its connection.
+            book = self.ledger.rolled_back if _definite_refusal(inserted) else self.ledger.abandoned
+            self.ledger.add(book, target.name, user.subject, seq)
+            user.drop_session(target)
+            sample = self._sample(phase, "transaction", user, target, started, inserted, total)
+            sample.seq = seq
+            return sample
 
         with self.transactions_lock:
             self.transactions += 1
@@ -437,19 +498,29 @@ class CapacityRun:
             "POST", f"/api/v1/worksheets/{session}/{'commit' if commit else 'rollback'}"
         )
         total += end.client_ms
-        if end.status == 200:
+        if end.status == 200 and not end.code:
             book = self.ledger.committed if commit else self.ledger.rolled_back
             self.ledger.add(book, target.name, user.subject, seq)
-        elif end.code == "outcome_unknown":
-            self.ledger.add(self.ledger.unknown, target.name, user.subject, seq)
-            user.sessions.pop(target.name, None)
         else:
-            # A definite refusal leaves the insert pending; discard it.
-            user.request("POST", f"/api/v1/worksheets/{session}/rollback")
-            self.ledger.add(self.ledger.rolled_back, target.name, user.subject, seq)
-        sample = self._sample(phase, "transaction", user, target, started, inserted, total)
-        if end.status != 200:
-            sample.ok, sample.code = False, end.code or f"http_{end.status}"
+            # A refusal says the commit did not run, but the insert is still pending.
+            # Without a commit, dropping the session must leave the marker absent.
+            book = (
+                self.ledger.unknown_commit
+                if commit and not _definite_refusal(end)
+                else self.ledger.abandoned
+            )
+            if _definite_refusal(end):
+                discarded = user.request("POST", f"/api/v1/worksheets/{session}/rollback")
+                total += discarded.client_ms
+                if discarded.status == 200 and not discarded.code:
+                    book = self.ledger.rolled_back
+            self.ledger.add(book, target.name, user.subject, seq)
+            user.drop_session(target)
+        sample = self._sample(phase, "transaction", user, target, started, end, total)
+        # Statement timings belong to the insert; commit responses carry no outcome.
+        sample.seq = seq
+        sample.server_ms = inserted.outcome.get("elapsedMs")
+        sample.db_ms = inserted.outcome.get("databaseElapsedMs")
         return sample
 
     def _probe(self, owner: UserClient, target: Target, seq: int) -> None:
@@ -459,19 +530,26 @@ class CapacityRun:
         if peer is owner:
             return
         with peer.probe_lock:
-            try:
-                session = peer.probe_session(target)
-            except SessionUnavailable as unavailable:
-                self.verification.incomplete.append(
-                    f"{peer.subject} could not open a probe session on {target.name} "
-                    f"({unavailable}), so probe {seq} for {owner.subject} did not run"
+            for _attempt in range(2):
+                try:
+                    session = peer.probe_session(target)
+                except SessionUnavailable as unavailable:
+                    self.verification.incomplete.append(
+                        f"{peer.subject} could not open a probe session on {target.name} "
+                        f"({unavailable}), so probe {seq} for {owner.subject} did not run"
+                    )
+                    return
+                seen = peer.execute(
+                    session,
+                    target.sql["countMarker"],
+                    {"run_id": self.run_id, "user_name": owner.subject, "seq": seq},
                 )
-                return
-            seen = peer.execute(
-                session,
-                target.sql["countMarker"],
-                {"run_id": self.run_id, "user_name": owner.subject, "seq": seq},
-            )
+                if not (
+                    seen.code in ("session_expired", "not_authorized", "session_quarantined")
+                    or seen.status == 404
+                ):
+                    break
+                peer.drop_session(target, probe=True)
         if seen.status != 200 or seen.code:
             self.verification.incomplete.append(
                 f"probe for {owner.subject}'s marker {seq} on {target.name} failed "
@@ -587,9 +665,16 @@ class CapacityRun:
         with self.ledger.lock:
             committed = {key: set(value) for key, value in self.ledger.committed.items()}
             rolled_back = {key: set(value) for key, value in self.ledger.rolled_back.items()}
-            unknown = {key: set(value) for key, value in self.ledger.unknown.items()}
+            abandoned = {key: set(value) for key, value in self.ledger.abandoned.items()}
+            unknown = {key: set(value) for key, value in self.ledger.unknown_commit.items()}
         v.committed = sum(len(s) for s in committed.values())
         v.rolled_back = sum(len(s) for s in rolled_back.values())
+        v.abandoned = sum(len(s) for s in abandoned.values())
+        v.unknown_commit_markers = [
+            (target, subject, seq)
+            for (target, subject), seqs in unknown.items()
+            for seq in sorted(seqs)
+        ]
         v.unknown = sum(len(s) for s in unknown.values())
 
         for target in self.workload.targets:
@@ -617,12 +702,17 @@ class CapacityRun:
                     )
                 for subject in self.order:
                     key = (target.name, subject)
-                    expected = committed.get(key, set())
+                    expected = committed.get(key, set()) - unknown.get(key, set())
                     # Every number this user was ever given, on any target: a marker the
                     # client has no record of is found only by looking where it should not be.
                     high = self.sequence.highest(subject)
                     found: set[int] = set()
-                    for low in range(1, high + 1, PAGE):
+                    read_high = 0
+                    page_size = min(PAGE, self.workload.limits.max_rows_per_read - 1)
+                    if page_size < 1:
+                        v.incomplete.append("verification requires max_rows_per_read >= 2")
+                        continue
+                    for low in range(1, high + 1, page_size):
                         page = first.execute(
                             session,
                             target.sql["listMarkers"],
@@ -631,27 +721,42 @@ class CapacityRun:
                                 "target_name": target.name,
                                 "user_name": subject,
                                 "lo": low,
-                                "hi": low + PAGE - 1,
+                                "hi": low + page_size - 1,
                             },
-                            max_rows=PAGE + 1,
+                            max_rows=page_size + 1,
                         )
                         result_set = page.outcome.get("resultSet") or {}
-                        if page.code or result_set.get("truncated"):
+                        if page.status != 200 or page.code or result_set.get("truncated"):
                             v.incomplete.append(
-                                f"marker page {low} for {subject} on {target.name} ({page.code or 'truncated'})"
+                                f"marker page {low} for {subject} on {target.name} ({page.code or ('truncated' if result_set.get('truncated') else page.status)})"
                             )
                             break
                         found.update(int(row[0]) for row in result_set.get("rows", []))
-                    for seq in sorted(found & rolled_back.get(key, set())):
+                        read_high = low + page_size - 1
+                    for seq in sorted(
+                        (found & rolled_back.get(key, set())) - unknown.get(key, set())
+                    ):
                         v.contaminations.append(
                             f"rolled-back marker {seq} of {subject} is present on {target.name}"
                         )
-                    stray = found - expected - unknown.get(key, set()) - rolled_back.get(key, set())
+                    for seq in sorted(
+                        (found & abandoned.get(key, set())) - unknown.get(key, set())
+                    ):
+                        v.contaminations.append(
+                            f"abandoned marker {seq} of {subject} is present on {target.name}"
+                        )
+                    stray = (
+                        found
+                        - expected
+                        - unknown.get(key, set())
+                        - rolled_back.get(key, set())
+                        - abandoned.get(key, set())
+                    )
                     for seq in sorted(stray):
                         v.contaminations.append(
                             f"marker {seq} of {subject} is on {target.name}, which never committed it"
                         )
-                    for seq in sorted(expected - found):
+                    for seq in sorted(seq for seq in expected - found if seq <= read_high):
                         v.lost_commits.append(
                             f"committed marker {seq} of {subject} is missing from {target.name}"
                         )
@@ -691,9 +796,18 @@ class CapacityRun:
                 )
             else:
                 for session in listed.body.get("sessions", []):
-                    self.verification.leaked_sessions.append(
-                        f"{user.subject}: {session.get('sessionId')}"
-                    )
+                    session_id = session.get("sessionId")
+                    served = probe.request("GET", f"/api/v1/worksheets/{session_id}")
+                    if served.status == 200:
+                        self.verification.leaked_sessions.append(f"{user.subject}: {session_id}")
+                    elif served.status != 404 and served.code not in (
+                        "session_expired",
+                        "session_quarantined",
+                    ):
+                        self.verification.incomplete.append(
+                            f"could not check {user.subject}'s listed worksheet {session_id} "
+                            f"({served.code or served.status})"
+                        )
             probe.http.close()
 
 
@@ -759,6 +873,7 @@ def execute(
     finally:
         report.samples = list(run.samples)
         report.peak_in_flight = run.gate.peak
+        report.sessions_replaced = sum(user.sessions_replaced for user in run.users.values())
         try:
             run.verify()
         finally:
