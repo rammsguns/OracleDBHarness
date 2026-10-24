@@ -48,12 +48,15 @@ Nothing is pilot- or production-qualified. Section 6 production writes remain de
 | Protocol | 1.0 | Contract tests, adapter tests |
 | Identity provider | Keycloak 26.3, local container | `tests/identity` and `apps/web/src/oidc.keycloak.test.ts`, in CI. See [Identity providers](#identity-providers) |
 
-**Pinned version.** python-oracledb is pinned to `4.0.2` in
+**Pinned version.** python-oracledb is pinned to `26.0.1` in
 `services/worker/pyproject.toml` (the `oracle` extra) and resolved as such in
-`uv.lock`. Changing this pin is a version change under PLAN.md G5: requalify each
-affected staging shape (old/new versions, thin/thick modes where deployed,
+`uv.lock`. This move is under PLAN.md G5 rehearsal (B4), **not yet qualified**.
+Requalify each affected staging shape (old/new versions, thin/thick modes where deployed,
 regression results and DBA approval) before production promotion. A historical
-D1–D4 pass does not qualify an upgraded environment.
+D1–D4 pass does not qualify an upgraded environment. See the
+[B4 offline release-note audit](b4-oracledb26-rehearsal.md) for the upgrade review.
+Thick mode on 26.x requires the standard `libclntsh.so` (Linux) or
+`libclntsh.dylib` (macOS) filename; a version-specific library alone is insufficient.
 
 ## Remaining coverage gaps
 
