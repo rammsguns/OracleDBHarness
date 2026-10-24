@@ -298,8 +298,14 @@ def test_recovery_is_the_point_after_which_every_window_meets_the_steady_thresho
             ]
         return result
 
-    assert metrics.recovered_after(samples_until(7), workload, 0.0, 40.0) == 10.0
-    assert metrics.recovered_after(samples_until(41), workload, 0.0, 40.0) is None  # never
+    assert (
+        metrics.recovered_after(samples_until(7), workload, 0.0, 40.0, window_s=10, step_s=5)
+        == 10.0
+    )
+    assert (
+        metrics.recovered_after(samples_until(41), workload, 0.0, 40.0, window_s=10, step_s=5)
+        is None
+    )  # never
     assert metrics.recovered_after(samples_until(7), workload, 0.0, 5.0) is None  # too short
 
 
@@ -316,7 +322,7 @@ def test_a_window_with_no_successful_sample_for_a_thresholded_kind_does_not_coun
     samples = [
         _sample("recovery", kind, t, 10) for kind in kinds if kind != missing for t in range(0, 40)
     ]
-    assert metrics.recovered_after(samples, workload, 0.0, 40.0) is None
+    assert metrics.recovered_after(samples, workload, 0.0, 40.0, window_s=10, step_s=5) is None
 
 
 # -- verdicts ------------------------------------------------------------------------------

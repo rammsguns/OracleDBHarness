@@ -73,6 +73,7 @@ class CapacityReport:
     samples: list[Sample] = field(default_factory=list)
     completed_phases: list[str] = field(default_factory=list)
     peak_in_flight: int = 0
+    sessions_replaced: int = 0
     recovery_s: float | None = None
     verification: Verification = field(default_factory=Verification)
     criteria: list[Criterion] = field(default_factory=list)
@@ -179,11 +180,21 @@ class CapacityReport:
             "networkBaseline": self.network,
             "completedPhases": self.completed_phases,
             "peakInFlight": self.peak_in_flight,
+            "sessions_replaced": self.sessions_replaced,
             "phases": {
                 phase.name: {
                     "kinds": {
                         kind: asdict(summary)
                         for kind, summary in summarize(self.samples, phase.name).items()
+                    },
+                    "targets": {
+                        target.name: {
+                            kind: asdict(summary)
+                            for kind, summary in summarize(
+                                [s for s in self.samples if s.target == target.name], phase.name
+                            ).items()
+                        }
+                        for target in workload.targets
                     },
                     "errorExamples": self.error_examples(phase.name),
                 }
@@ -247,6 +258,14 @@ class CapacityReport:
                     f"{_ms(s.client_p95)} / {_ms(s.client_p99)} | {_ms(s.server_p95)} | {_ms(s.db_p50)} / "
                     f"{_ms(s.db_p95)} | {_ms(s.overhead_p95)} | {s.error_codes or ''} |"
                 )
+            lines += ["", "| Target | Kind | Client p50 / p95 ms |", "| --- | --- | --- |"]
+            for target in workload.targets:
+                for kind, summary in summarize(
+                    [s for s in self.samples if s.target == target.name], phase.name
+                ).items():
+                    lines.append(
+                        f"| {target.name} | {kind} | {_ms(summary.client_p50)} / {_ms(summary.client_p95)} |"
+                    )
             examples = self.error_examples(phase.name)
             if examples:
                 lines += ["", "Example error per code:", ""]
@@ -255,6 +274,8 @@ class CapacityReport:
         lines += [
             "",
             f"Recovery: {'did not recover within the phase' if self.recovery_s is None else f'{self.recovery_s:.0f}s after load dropped'}",
+            "",
+            f"Sessions replaced: {self.sessions_replaced}",
             "",
             f"Verification: {v.committed} committed, {v.rolled_back} rolled back, {v.unknown} unknown "
             f"markers; {v.probes} cross-user probes; {len(v.contaminations)} contamination(s), "

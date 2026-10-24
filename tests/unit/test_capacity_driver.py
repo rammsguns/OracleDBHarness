@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from scripts.bootstrap_targets import validate_manifest
+from tests.capacity import metrics
 from tests.capacity.driver import (
     DriverConfigError,
     compute_stats,
@@ -20,7 +21,9 @@ from tests.capacity.driver import (
     split_dsn,
     validate_driver_config,
 )
-from tests.capacity.workload import parse
+from tests.capacity.report import CapacityReport
+from tests.capacity.runner import CapacityRun, Response
+from tests.capacity.workload import load, parse
 
 EXAMPLE_CONFIG = Path(__file__).resolve().parents[1] / "capacity" / "capacity-run.example.json"
 EXAMPLE_WORKLOAD = Path(__file__).resolve().parents[1] / "capacity" / "workload.example.json"
@@ -324,3 +327,160 @@ def test_extract_report_verdict(tmp_path: Path) -> None:
     assert extract_report_verdict(rep).startswith("NOT A PILOT QUALIFICATION")
 
     assert extract_report_verdict(tmp_path / "nonexistent.md").startswith("UNKNOWN")
+
+
+# Measurement regressions use only fake HTTP responses, never a database.
+
+
+def _measurement_run():
+    workload = load(EXAMPLE_WORKLOAD)
+    return CapacityRun(workload, CapacityReport(workload, rehearsal=True))
+
+
+def test_capacity_verification_pages_under_api_cap(monkeypatch):
+    run = _measurement_run()
+    user = run.users[run.order[0]]
+    target = run.workload.targets[0]
+    for _ in range(150):
+        seq = run.sequence.take(user.subject)
+        run.ledger.add(run.ledger.committed, target.name, user.subject, seq)
+    monkeypatch.setattr(user, "_open", lambda target: target.name)
+    monkeypatch.setattr(user, "request", lambda *args: Response(200, {}, 0))
+    pages = []
+
+    def execute(session, statement, binds=None, **limits):
+        rows = [[0]]
+        truncated = False
+        if statement == target.sql["listMarkers"]:
+            assert limits["max_rows"] <= 50
+            pages.append((binds["lo"], binds["hi"]))
+            rows = (
+                [[n] for n in range(binds["lo"], min(binds["hi"], 150) + 1)]
+                if session == target.name and binds["user_name"] == user.subject
+                else []
+            )
+            truncated = len(rows) > min(50, limits["max_rows"])
+            rows = rows[: min(50, limits["max_rows"])]
+        return Response(200, {"outcome": {"resultSet": {"rows": rows, "truncated": truncated}}}, 0)
+
+    monkeypatch.setattr(user, "execute", execute)
+    run.verify()
+    assert pages
+    assert not run.verification.lost_commits
+    assert not run.verification.incomplete
+    for client in run.users.values():
+        client.http.close()
+
+
+@pytest.mark.parametrize(
+    "status,code",
+    [(404, ""), (403, "not_authorized"), (410, "session_expired"), (409, "session_quarantined")],
+)
+@pytest.mark.parametrize("retry_ok", [True, False])
+def test_capacity_probe_replaces_stale_session_once(monkeypatch, status, code, retry_ok):
+    run = _measurement_run()
+    owner, peer = (run.users[name] for name in run.order[:2])
+    target = run.workload.targets[0]
+    peer.probe_sessions[target.name] = "stale"
+    monkeypatch.setattr(peer, "_open", lambda target: "fresh")
+    calls = []
+
+    def execute(session, *args):
+        calls.append(session)
+        if session == "stale" or not retry_ok:
+            return Response(status, {"error": {"code": code}}, 0)
+        return Response(200, {"outcome": {"resultSet": {"rows": [[0]]}}}, 0)
+
+    monkeypatch.setattr(peer, "execute", execute)
+    run._probe(owner, target, 1)
+    assert calls == ["stale", "fresh"]
+    assert bool(run.verification.incomplete) is not retry_ok
+    assert run.verification.probes == int(retry_ok)
+    for client in run.users.values():
+        client.http.close()
+
+
+def test_capacity_known_idle_session_replaced_before_use(monkeypatch):
+    run = _measurement_run()
+    user = run.users[run.order[0]]
+    target = run.workload.targets[0]
+    monkeypatch.setattr("tests.capacity.runner.time.monotonic", lambda: 1000)
+    user.sessions[target.name] = "idle"
+    user.session_used["idle"] = 0
+    monkeypatch.setattr(user, "request", lambda *args: Response(200, {}, 0))
+    monkeypatch.setattr(user, "_open", lambda target: "fresh")
+    assert user.session(target) == "fresh"
+    assert user.sessions_replaced == 1
+    assert user.session(target) == "fresh"
+    assert user.sessions_replaced == 1
+    for client in run.users.values():
+        client.http.close()
+
+
+def test_capacity_sparse_recovery_and_slow_tail():
+    workload = load(EXAMPLE_WORKLOAD)
+    kinds = list(workload.thresholds.latency_ms)
+    samples = [
+        metrics.Sample("recovery", kind, "u", "t", second, 10, True)
+        for kind in kinds
+        for second in range(0, 180, 5 if kind != "cancellation" else 70)
+    ]
+    assert metrics.recovered_after(samples, workload, 0, 180) == 0
+    samples += [
+        metrics.Sample("recovery", kinds[0], "u", "t", second, 999999, True)
+        for second in range(150, 180)
+    ]
+    assert metrics.recovered_after(samples, workload, 0, 180) is None
+    assert metrics.recovered_after([], workload, 0, 180) is None
+
+
+def test_capacity_report_breaks_down_targets():
+    workload = load(EXAMPLE_WORKLOAD)
+    report = CapacityReport(workload, rehearsal=True)
+    report.samples = [
+        metrics.Sample("steady", "metadata", "u", target.name, 0, value, True)
+        for target, value in zip(workload.targets, [100, 200, 1500], strict=True)
+    ]
+    for target, value in zip(workload.targets, [100, 200, 1500], strict=True):
+        summary = report.as_dict()["phases"]["steady"]["targets"][target.name]["metadata"]
+        assert summary["client_p50"] == summary["client_p95"] == value
+        assert f"| {target.name} | metadata | {value} / {value} |" in report.as_markdown()
+
+
+def test_capacity_recovery_error_breach_and_missing_kind_fail():
+    workload = load(EXAMPLE_WORKLOAD)
+    kinds = list(workload.thresholds.latency_ms)
+    samples = [
+        metrics.Sample("recovery", kind, "u", "t", second, 10, True)
+        for kind in kinds
+        for second in range(180)
+    ]
+    samples += [
+        metrics.Sample("recovery", kinds[0], "u", "t", second, 10, False, "execution_timeout")
+        for second in range(180)
+    ]
+    assert metrics.recovered_after(samples, workload, 0, 180) is None
+    missing = [sample for sample in samples if sample.ok and sample.kind != kinds[0]]
+    assert metrics.recovered_after(missing, workload, 0, 180) is None
+
+
+def test_capacity_active_session_expiration_is_not_retried(monkeypatch):
+    run = _measurement_run()
+    user = run.users[run.order[0]]
+    target = run.workload.targets[0]
+    user.sessions[target.name] = "active"
+    monkeypatch.setattr("tests.capacity.runner.time.monotonic", lambda: 1000)
+    user.session_used["active"] = 999
+    calls = []
+
+    def execute(session, *args):
+        calls.append(session)
+        return Response(404, {"error": {"code": "session_expired"}}, 1)
+
+    monkeypatch.setattr(user, "execute", execute)
+    sample = run._read("saturation", user, target, 0)
+    assert not sample.ok
+    assert sample.code == "session_expired"
+    assert calls == ["active"]
+    for client in run.users.values():
+        client.http.close()

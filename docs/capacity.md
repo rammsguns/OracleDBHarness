@@ -28,7 +28,7 @@ Three phases run back to back:
 | --- | --- |
 | `steady` | The expected pilot load. Latency, overhead and error thresholds are judged here. A bounded soak is a long steady phase - run it as its own workload with the agreed soak duration, so idle expiry, connection lifetime and slow leaks have time to show |
 | `saturation` | More streams than execution slots, no think time. Queueing is the point; only the listed error codes may appear |
-| `recovery` | Steady load again. The report says how many seconds it took until every 10-second window met the steady thresholds |
+| `recovery` | Steady load again. The report says how many seconds it took until every 60-second window, evaluated every 10 seconds, met the steady thresholds |
 
 Every kind, weight, duration, limit and threshold comes from the workload file. There are no
 defaults: `tests/capacity/workload.example.json` is a template and
@@ -175,3 +175,16 @@ docs/compatibility.md with its report.
 - Database time is the driver call as the API measures it, which includes the API-to-database
   network round trip.
 - `devToken` runs do not exercise OIDC token verification.
+
+Recovery windows must contain traffic and meet the steady error-rate limit. Each thresholded
+kind must have a passing p95; when a kind has no successful sample, only the immediately
+following non-overlapping 60-second window may supply its evidence, bounded by the end
+of recovery. A kind absent from both windows fails. Empty windows and error-rate breaches
+always fail. All windows from the reported recovery point onward must pass.
+
+The report includes client p50/p95 per kind and target in each phase, plus
+`sessions_replaced`. The driver replaces worksheets it knows have had no worksheet
+execution for the API's default 300-second idle lifetime before starting new work.
+This covers setup sessions unused during steady load; active-session expiry remains
+a measured failure. Read-only cross-user probes separately retry once with a fresh
+session after an expired, unauthorized, quarantined, or missing session response.

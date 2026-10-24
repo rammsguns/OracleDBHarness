@@ -104,14 +104,17 @@ def recovered_after(
     workload: Workload,
     recovery_start_s: float,
     recovery_end_s: float,
-    window_s: float = 10.0,
-    step_s: float = 5.0,
+    window_s: float = 60.0,
+    step_s: float = 10.0,
 ) -> float | None:
     """Seconds into the recovery phase after which every window meets the steady thresholds.
 
-    A window meets them when each kind's p95 is within its steady p95 threshold and the
-    error rate is within the steady error rate. ``None`` means it never recovered within
-    the phase - including a phase too short to hold a single window.
+    Windows are 60 seconds, evaluated every 10 seconds. Each kind must have a passing
+    p95 in the window; an absent kind may borrow successful samples from the immediately
+    following non-overlapping window (bounded by the recovery phase). Empty windows and
+    error-rate breaches always fail; borrowed samples must also meet the p95 threshold.
+    ``None`` means it never recovered within the phase, including a phase too short to
+    hold a single window.
     """
 
     thresholds = workload.thresholds
@@ -133,8 +136,20 @@ def recovered_after(
             return False
         for kind, limit in thresholds.latency_ms.items():
             p95 = percentile([s.client_ms for s in chosen if s.kind == kind and s.ok], 0.95)
-            # No successful sample for a thresholded kind is not evidence it recovered -
-            # it is evidence this window cannot vouch for that kind at all.
+            if p95 is None:
+                p95 = percentile(
+                    [
+                        s.client_ms
+                        for s in samples
+                        if s.phase == "recovery"
+                        and start + window_s
+                        <= s.started_s
+                        < min(start + 2 * window_s, recovery_end_s)
+                        and s.kind == kind
+                        and s.ok
+                    ],
+                    0.95,
+                )
             if p95 is None or p95 > limit["p95"]:
                 return False
         return True

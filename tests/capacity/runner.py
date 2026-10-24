@@ -38,6 +38,8 @@ from tests.capacity.workload import PhaseSpec, Target, Workload
 PROBE_EVERY = 4
 #: Sequence numbers per verification page, kept well under any row limit.
 PAGE = 200
+#: Default worksheet idle lifetime in the API. Only known client inactivity is replaced.
+WORKSHEET_IDLE_SECONDS = 300.0
 
 
 class Prerequisite(Exception):
@@ -97,6 +99,7 @@ class UserClient:
         self.probe_lock = threading.Lock()
         self.execution_ids: list[str] = []
         self.sessions_replaced = 0
+        self.session_used: dict[str, float] = {}
 
     # -- credentials -------------------------------------------------------------------
 
@@ -153,8 +156,25 @@ class UserClient:
         return str(opened.body["session"]["sessionId"])
 
     def session(self, target: Target) -> str:
+        """Replace a worksheet left idle by a phase before sending fresh work.
+
+        Setup opens all targets for the first user, while steady uses only one.
+        Expiration of an active session remains a measured API error.
+        """
+
+        session = self.sessions.get(target.name)
+        if (
+            session
+            and time.monotonic() - self.session_used.get(session, time.monotonic())
+            >= WORKSHEET_IDLE_SECONDS
+        ):
+            self.request("DELETE", f"/api/v1/worksheets/{session}")
+            self.sessions.pop(target.name)
+            self.session_used.pop(session, None)
+            self.sessions_replaced += 1
         if target.name not in self.sessions:
             self.sessions[target.name] = self._open(target)
+            self.session_used[self.sessions[target.name]] = time.monotonic()
         return self.sessions[target.name]
 
     def probe_session(self, target: Target) -> str:
@@ -182,6 +202,7 @@ class UserClient:
             "deadlineSeconds": self.workload.limits.statement_deadline_seconds,
         }
         response = self.request("POST", f"/api/v1/worksheets/{session_id}/execute", body)
+        self.session_used[session_id] = time.monotonic()
         execution_id = response.outcome.get("executionId")
         if execution_id:
             self.execution_ids.append(str(execution_id))
@@ -459,19 +480,27 @@ class CapacityRun:
         if peer is owner:
             return
         with peer.probe_lock:
-            try:
-                session = peer.probe_session(target)
-            except SessionUnavailable as unavailable:
-                self.verification.incomplete.append(
-                    f"{peer.subject} could not open a probe session on {target.name} "
-                    f"({unavailable}), so probe {seq} for {owner.subject} did not run"
+            for _attempt in range(2):
+                try:
+                    session = peer.probe_session(target)
+                except SessionUnavailable as unavailable:
+                    self.verification.incomplete.append(
+                        f"{peer.subject} could not open a probe session on {target.name} "
+                        f"({unavailable}), so probe {seq} for {owner.subject} did not run"
+                    )
+                    return
+                seen = peer.execute(
+                    session,
+                    target.sql["countMarker"],
+                    {"run_id": self.run_id, "user_name": owner.subject, "seq": seq},
                 )
-                return
-            seen = peer.execute(
-                session,
-                target.sql["countMarker"],
-                {"run_id": self.run_id, "user_name": owner.subject, "seq": seq},
-            )
+                if not (
+                    seen.code in ("session_expired", "not_authorized", "session_quarantined")
+                    or seen.status == 404
+                ):
+                    break
+                peer.probe_sessions.pop(target.name, None)
+                peer.sessions_replaced += 1
         if seen.status != 200 or seen.code:
             self.verification.incomplete.append(
                 f"probe for {owner.subject}'s marker {seq} on {target.name} failed "
@@ -622,7 +651,11 @@ class CapacityRun:
                     # client has no record of is found only by looking where it should not be.
                     high = self.sequence.highest(subject)
                     found: set[int] = set()
-                    for low in range(1, high + 1, PAGE):
+                    page_size = min(PAGE, self.workload.limits.max_rows_per_read - 1)
+                    if page_size < 1:
+                        v.incomplete.append("verification requires max_rows_per_read >= 2")
+                        continue
+                    for low in range(1, high + 1, page_size):
                         page = first.execute(
                             session,
                             target.sql["listMarkers"],
@@ -631,9 +664,9 @@ class CapacityRun:
                                 "target_name": target.name,
                                 "user_name": subject,
                                 "lo": low,
-                                "hi": low + PAGE - 1,
+                                "hi": low + page_size - 1,
                             },
-                            max_rows=PAGE + 1,
+                            max_rows=page_size + 1,
                         )
                         result_set = page.outcome.get("resultSet") or {}
                         if page.code or result_set.get("truncated"):
@@ -759,6 +792,7 @@ def execute(
     finally:
         report.samples = list(run.samples)
         report.peak_in_flight = run.gate.peak
+        report.sessions_replaced = sum(user.sessions_replaced for user in run.users.values())
         try:
             run.verify()
         finally:
