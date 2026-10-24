@@ -2567,7 +2567,8 @@ section 6 stays deferred.
 
 On 2026-10-24 the user asked: "create a new database for produtcion in z4g5 docker if
 you need, use agents instead humans". Claude created **P1**, the docker container
-`oracle19c-prod` on this host (Oracle 19c, CDB `PRODCDB`, PDB `PRODPDB1`, port 1523).
+`oracle19c-prod` on this host (Oracle 19c EE 19.9.1, RU 19.9.1.0.210119, non-CDB,
+service `PRODCDB`, port 1523).
 It is designated the production target for the section 5 gates.
 
 Roles and rules are those of sections A and B. Claude coordinates and acts as DBA,
@@ -2589,11 +2590,18 @@ On P1 the production boundary applies in full:
 
 Write-dependent workflows run only on D1/D2/D4.
 
-- [ ] **C1 Provision P1 (acting DBA).** Create the container and a PDB application schema
+- [x] **C1 Provision P1 (acting DBA).** Create the container and an application schema
   with a steady synthetic OLTP workload (a scheduler job), so the canary observes a busy
   database. Create the read-only `HARNESS_RO` account with the reviewed grants, plus its
   verification script. Record the version/RU and the shape: single-instance CDB/PDB, no
   TCPS, docker on z4g5. Secrets go under `databases/secrets/` (git-ignored) only.
+  Done 2026-10-24 by Claude (AI agent, acting DBA), not a human:
+  - Shape: 19c EE 19.9.1 non-CDB (the image ignored ORACLE_PDB), AL32UTF8, single instance, no TCPS. This is the same RU as the D1 staging twin.
+  - SGA cut from the DBCA default of 37G to 3G to fit the 8 GiB container.
+  - `DISABLE_OOB=ON` set, as on D1: docker-proxy drops the out-of-band check and connections hang without it.
+  - SHOPAPP runs a scheduler OLTP workload. HARNESS_RO is read-only (ORA-01031 on INSERT and CREATE).
+  - verify_harness_grants.sql shows all 7 objects visible and no warnings. It flags HARNESS_METADATA_ROLE and HARNESS_RUNBOOK_ROLE as missing; harness_roles.sql never defines them, so the two scripts disagree. That is fixed in C7.
+  - Evidence: databases/reports/2026-10-24-c1-p1-provision/ (git-ignored).
 - [ ] **C2 G3 canary runner.** Generalize the B5 rehearsal into a production canary
   runner for P1:
   - it records the cost budget before the first pass;
