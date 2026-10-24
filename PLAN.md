@@ -2512,9 +2512,6 @@ section 6 stays deferred.
 - [x] **B2 NP-05 editor/UI.** Drive DataForge's own UI with the adapter in a browser
   (Playwright): the assist panel, a streamed answer, a diff review, cancellation and an
   outage message.
-  Done 2026-10-24, agent-qualified on test stand-ins (AI agent, not a human): 6/6 Playwright
-  scenarios against DataForge local commit 6f3439a. DataForge had no assist UI, so B2 added a
-  minimal assist panel (local commits, upstreamed in B3).
   Done 2026-10-24, agent-qualified on test stand-ins (AI agent, not a human):
   6/6 Playwright scenarios at local DataForge `6f3439a`; 159 visible renders,
   reviewed apply/stale refusal, recorded cancellation, actual outage with a
