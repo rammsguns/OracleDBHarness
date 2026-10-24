@@ -85,7 +85,12 @@ class UserIn(Schema):
     roles: list[str] = Field(default_factory=list)
 
 
+class TargetStateIn(Schema):
+    reason: str = Field(min_length=1)
+
+
 class ProfileIn(Schema):
+    enabled: bool = True
     name: str
     environment: Environment = Environment.DEVELOPMENT
     host: str
@@ -135,6 +140,7 @@ class CapabilityView(Schema):
 
 
 class TargetView(Schema):
+    enabled: bool = True
     id: str
     name: str
     environment: str

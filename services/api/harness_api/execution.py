@@ -346,6 +346,7 @@ class ExecutionService:
         service still get their own proof.
         """
 
+        self._policy.require_enabled(profile)
         if is_production(profile):
             # Persist invalidation before connecting: a failed refresh must not leave
             # an earlier successful identity authorizing production reads.
@@ -435,8 +436,23 @@ class ExecutionService:
             raise
         return session
 
+    def authorize_read(self, principal, profile, grant, operation_id: str) -> PolicyDecision:
+        identity = self.target_identity(profile)
+        return self._policy.authorize(
+            principal=principal,
+            profile=profile,
+            grant=grant,
+            permission=PERMISSION_READ,
+            risk=RiskClass.READ,
+            operation_id=operation_id,
+            target_major_version=identity.major_version if identity else None,
+        )
+
     def worksheet(self, principal: Principal, session_id: str) -> WorksheetSession:
-        return self._registry.get(session_id, principal.user_id or principal.subject)
+        session = self._registry.get(session_id, principal.user_id or principal.subject)
+        with self._sessions_factory() as db:
+            self._policy.require_enabled(load_profile(db, session.target_id))
+        return session
 
     def list_worksheets(self, principal: Principal) -> list[WorksheetSession]:
         return self._registry.list_for_actor(principal.user_id or principal.subject)
@@ -473,6 +489,7 @@ class ExecutionService:
             record.commit_requested_at = None
 
     def close_worksheet(self, db: Session, principal: Principal, session_id: str) -> dict:
+        self.worksheet(principal, session_id)
         result = self._registry.close(session_id, principal.user_id or principal.subject)
         self._mark_session_closed(db, session_id, "closed by user")
         self._audit(

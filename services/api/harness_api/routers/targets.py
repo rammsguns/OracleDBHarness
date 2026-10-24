@@ -42,6 +42,7 @@ def _capability_views(profile: ConnectionProfile) -> list[CapabilityView]:
 
 def _target_view(profile: ConnectionProfile, grant: UserTargetGrant | None) -> TargetView:
     return TargetView(
+        enabled=profile.enabled,
         id=profile.id,
         name=profile.name,
         environment=profile.environment,
@@ -81,6 +82,7 @@ def get_target(profile_id: str, principal: CurrentUser, db: Db, state: State) ->
     profile = load_profile(db, profile_id)
     grant = load_grant(db, principal, profile_id)
     grant = state.execution.policy.require_grant(principal, profile, grant)
+    state.execution.authorize_read(principal, profile, grant, "target.get")
     return _target_view(profile, grant)
 
 
@@ -93,6 +95,7 @@ def test_connection(
     profile = load_profile(db, profile_id)
     grant = load_grant(db, principal, profile_id)
     grant = state.execution.policy.require_grant(principal, profile, grant)
+    state.execution.authorize_read(principal, profile, grant, "target.test")
     # A fresh probe is a request for current facts; drop any cached schema panel.
     state.schema_panel_cache.invalidate(profile_id)
     try:

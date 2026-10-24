@@ -514,9 +514,9 @@ def upgrade_schema(engine: Engine) -> str:
 def verify_upgrade(
     engine: Engine,
     snapshot: dict[str, Any],
-    expected_version: str = "5",
+    expected_version: str = "6",
 ) -> None:
-    """Verify that an upgraded database retained all records and matches schema version 5."""
+    """Verify that an upgraded database retained all records and matches schema version 6."""
     # 1. Verify schema version
     current_version = get_schema_version(engine)
     if current_version != expected_version:
@@ -610,6 +610,9 @@ def verify_upgrade(
     cp_columns = {c["name"] for c in inspector.get_columns("connection_profiles")}
     if "wallet_secret_reference_id" not in cp_columns:
         raise AssertionError("connection_profiles is missing wallet_secret_reference_id column!")
+
+    if "enabled" not in cp_columns:
+        raise AssertionError("connection_profiles is missing enabled column!")
 
     # Verify existing rows have empty or NULL defaults
     with engine.connect() as conn:
@@ -706,7 +709,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     verify_p = subparsers.add_parser("verify", help="Verify upgrade data retention and schema.")
     verify_p.add_argument("--db-url", required=True, help="Database connection URL.")
     verify_p.add_argument("--snapshot", required=True, help="Path to pre-upgrade snapshot JSON.")
-    verify_p.add_argument("--expected-version", default="5", help="Expected schema version.")
+    verify_p.add_argument("--expected-version", default="6", help="Expected schema version.")
 
     # verify-idempotent
     idem_p = subparsers.add_parser("verify-idempotent", help="Verify upgrade idempotency.")

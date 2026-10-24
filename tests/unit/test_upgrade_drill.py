@@ -15,7 +15,7 @@ if str(deploy_dir) not in sys.path:
 
 import upgrade_drill_helper as helper  # noqa: E402
 
-from harness_api.db import initialize_schema  # noqa: E402
+from harness_api.db import SCHEMA_VERSION, initialize_schema  # noqa: E402
 
 
 @pytest.fixture
@@ -28,6 +28,7 @@ def _setup_store_at_v3(engine: Engine) -> None:
     """Build a store shaped as version 3 left it."""
     initialize_schema(engine)
     with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE connection_profiles DROP COLUMN enabled"))
         conn.execute(text("ALTER TABLE connection_profiles DROP COLUMN wallet_secret_reference_id"))
         conn.execute(text("ALTER TABLE executions DROP COLUMN owner_id"))
         conn.execute(text("ALTER TABLE executions DROP COLUMN dispatched_at"))
@@ -45,14 +46,14 @@ def test_helper_seed_and_snapshot(sqlite_engine: Engine) -> None:
     helper.seed_representative_data(sqlite_engine, run_demo_seed=False)
 
     snapshot = helper.take_snapshot(sqlite_engine)
-    assert snapshot["schema_version"] == "5"
+    assert snapshot["schema_version"] == SCHEMA_VERSION
     assert "users" in snapshot["table_counts"]
     assert "executions" in snapshot["table_counts"]
     assert len(snapshot["records"]["users"]) >= 1
     assert len(snapshot["records"]["executions"]) >= 1
 
     # Verify that verify_upgrade passes on this snapshot
-    helper.verify_upgrade(sqlite_engine, snapshot, expected_version="5")
+    helper.verify_upgrade(sqlite_engine, snapshot, expected_version=SCHEMA_VERSION)
 
 
 def test_helper_verify_upgrade_catches_missing_row(sqlite_engine: Engine) -> None:
@@ -65,7 +66,7 @@ def test_helper_verify_upgrade_catches_missing_row(sqlite_engine: Engine) -> Non
         conn.execute(text("DELETE FROM executions WHERE id = 'exe_drill_1'"))
 
     with pytest.raises(AssertionError, match="Row count mismatch in 'executions'"):
-        helper.verify_upgrade(sqlite_engine, snapshot, expected_version="5")
+        helper.verify_upgrade(sqlite_engine, snapshot, expected_version=SCHEMA_VERSION)
 
 
 def test_helper_verify_upgrade_catches_corrupted_field(sqlite_engine: Engine) -> None:
@@ -78,7 +79,7 @@ def test_helper_verify_upgrade_catches_corrupted_field(sqlite_engine: Engine) ->
         conn.execute(text("UPDATE executions SET state = 'corrupted' WHERE id = 'exe_drill_1'"))
 
     with pytest.raises(AssertionError, match="changed"):
-        helper.verify_upgrade(sqlite_engine, snapshot, expected_version="5")
+        helper.verify_upgrade(sqlite_engine, snapshot, expected_version=SCHEMA_VERSION)
 
 
 def test_helper_verify_upgrade_catches_version_mismatch(sqlite_engine: Engine) -> None:
@@ -99,7 +100,7 @@ def test_helper_idempotency_check(sqlite_engine: Engine) -> None:
     helper.verify_idempotency(sqlite_engine, snapshot)
 
 
-def test_helper_simulated_v3_to_v5_upgrade(sqlite_engine: Engine) -> None:
+def test_helper_simulated_v3_to_current_upgrade(sqlite_engine: Engine) -> None:
     # 1. Start with store shaped as version 3
     _setup_store_at_v3(sqlite_engine)
     helper.seed_representative_data(sqlite_engine, run_demo_seed=False)
@@ -109,13 +110,13 @@ def test_helper_simulated_v3_to_v5_upgrade(sqlite_engine: Engine) -> None:
     assert snapshot_v3["schema_version"] == "3"
     assert "store_owner" not in snapshot_v3["table_counts"]
 
-    # 3. Upgrade to current version (5)
+    # 3. Upgrade to current version
     result_version = helper.upgrade_schema(sqlite_engine)
-    assert result_version == "5"
+    assert result_version == SCHEMA_VERSION
 
     # 4. Verify upgrade data retention and schema extensions
-    helper.verify_upgrade(sqlite_engine, snapshot_v3, expected_version="5")
+    helper.verify_upgrade(sqlite_engine, snapshot_v3, expected_version=SCHEMA_VERSION)
 
     # 5. Verify idempotency
-    snapshot_v5 = helper.take_snapshot(sqlite_engine)
-    helper.verify_idempotency(sqlite_engine, snapshot_v5)
+    snapshot_current = helper.take_snapshot(sqlite_engine)
+    helper.verify_idempotency(sqlite_engine, snapshot_current)

@@ -25,7 +25,13 @@ from typing import Any
 from harness_api.models import AppRole, ConnectionProfile, TargetCapability, UserTargetGrant
 from harness_api.security import Principal
 from harness_worker.catalog import CatalogEntry
-from harness_worker.errors import AuthorizationError, CapabilityError, PolicyError
+from harness_worker.errors import (
+    AuthorizationError,
+    CapabilityError,
+    PermissionDeniedError,
+    PolicyError,
+    TargetDisabledError,
+)
 from harness_worker.types import Capability, RiskClass
 
 # Permissions a grant can carry. They describe harness operations, not Oracle
@@ -106,11 +112,20 @@ class PolicyEngine:
             return profile.environment in self._production
         return is_production(profile)
 
+    @staticmethod
+    def require_enabled(profile: ConnectionProfile) -> None:
+        # Transient ORM profiles have no INSERT defaults yet. Persisted rows are non-null.
+        if profile.enabled is False:
+            raise TargetDisabledError(
+                f"The target {profile.name!r} is disabled.", detail={"profileId": profile.id}
+            )
+
     # -- target access -------------------------------------------------------------
 
     def require_grant(
         self, principal: Principal, profile: ConnectionProfile, grant: UserTargetGrant | None
     ) -> UserTargetGrant:
+        self.require_enabled(profile)
         if principal.is_integration:
             raise AuthorizationError(
                 "An integration credential grants copilot access only. It cannot open "
@@ -142,6 +157,7 @@ class PolicyEngine:
         target_major_version: int | None = None,
         operation_id: str = "",
     ) -> PolicyDecision:
+        self.require_enabled(profile)
         decision = PolicyDecision(allowed=True, permission=permission, risk=risk)
 
         if permission not in (grant.permissions or []):
@@ -149,7 +165,8 @@ class PolicyEngine:
             decision.reason = (
                 f"Your grant on {profile.name!r} does not include the {permission!r} permission."
             )
-            raise PolicyError(decision.reason, detail=decision.as_dict())
+            error_type = PermissionDeniedError if operation_id == "target.test" else PolicyError
+            raise error_type(decision.reason, detail=decision.as_dict())
 
         allowed_roles = _ROLE_FOR_PERMISSION[permission]
         if not principal.has_role(*allowed_roles):
@@ -162,7 +179,10 @@ class PolicyEngine:
             raise PolicyError(decision.reason, detail=decision.as_dict())
 
         self._check_environment(profile, permission, risk, decision)
-        self.check_production_identity(profile, target_major_version)
+        # The identity probe must be able to establish the first production identity.
+        # It still requires a read grant and role before opening any connection.
+        if operation_id != "target.test":
+            self.check_production_identity(profile, target_major_version)
         self._check_capabilities(required_capabilities, target_capabilities or [], decision)
         self._check_version(min_version, target_major_version, decision, operation_id)
         return decision

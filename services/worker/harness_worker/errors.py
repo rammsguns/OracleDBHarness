@@ -68,6 +68,15 @@ class PolicyError(HarnessError):
     http_status = 403
 
 
+class TargetDisabledError(PolicyError):
+    code = "target_disabled"
+    http_status = 403
+
+
+class PermissionDeniedError(PolicyError, AuthorizationError):
+    code = "not_authorized"
+
+
 class CapabilityError(HarnessError):
     """A required Oracle privilege or view is not available on this target."""
 

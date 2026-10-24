@@ -1920,3 +1920,18 @@ G3 remains blocked, and PLAN.md B5 is left unchecked for Claude's review.
 Verification: `pytest -q tests/unit` passed **787 tests, 7 skipped**; repository-wide
 Ruff checks and format checks passed, and the CI mypy command passed with
 `tests/canary` added to its module list.
+
+
+#### B7 follow-up: target disable in the drill, 2026-10-24
+
+Agent-rehearsed on a test stand-in (AI agent, not a human). After B7 added
+`POST /admin/targets/{id}/disable` and `/enable`, Claude (acting DBA) re-ran the
+rehearsal on D4 with 2 passes, 30 s apart (`--passes 2 --interval 30`). The drill
+followed the G3 rollback order as written:
+- disable the target: object reads and the connection test both refused with `target_disabled`;
+- lock HARNESS_APP: the harness still refuses, and a direct login gets ORA-28000;
+- in `finally`: unlock, re-enable, and verify recovery (account OPEN, direct and
+  harness reads work, Oracle grants unchanged, 3 principals restored).
+
+Timeline 22:41:25–22:41:35 UTC. Local evidence: `databases/reports/2026-10-24-b7-drill/`.
+The B5 deviations of dev auth and compressed passes still apply; G3 stays blocked.

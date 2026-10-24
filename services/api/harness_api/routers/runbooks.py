@@ -39,6 +39,7 @@ def preview(
     profile = load_profile(db, payload.profile_id)
     grant = load_grant(db, principal, payload.profile_id)
     grant = state.execution.policy.require_grant(principal, profile, grant)
+    state.execution.authorize_read(principal, profile, grant, "runbook.preview")
     preview = state.runbooks.preview(spec, payload.parameters)
     preview["target"] = {
         "profileId": profile.id,

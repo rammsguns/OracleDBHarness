@@ -4,7 +4,7 @@
 #
 # Tests migrating the metadata store from an older release baseline (defaulting to
 # initial commit c31c97e at schema version 3, falling back to 530e9c2 at schema version 4
-# if the oldest commit cannot run) up to the current schema version (version 5).
+# if the oldest commit cannot run) up to the current schema version (version 6).
 #
 # Asserts that:
 #   * Every pre-upgrade table and row is retained with identifying values intact.
@@ -228,7 +228,7 @@ say "verifying upgrade results against pre-upgrade snapshot (schema v5, retained
 (
   cd "$MAIN_REPO"
   uv run --extra postgres \
-    python deploy/upgrade_drill_helper.py verify --db-url "$PG_URL" --snapshot "$SNAPSHOT_PRE" --expected-version "5"
+    python deploy/upgrade_drill_helper.py verify --db-url "$PG_URL" --snapshot "$SNAPSHOT_PRE" --expected-version "6"
 )
 
 # -- 5. verify idempotency on a second run ---------------------------------------------

@@ -170,7 +170,15 @@ def list_scripts(principal: CurrentUser, db: Db) -> dict[str, Any]:
 
 
 @router.post("/scripts", status_code=201)
-def save_script(payload: SavedScriptIn, principal: CurrentUser, db: Db) -> dict[str, Any]:
+def save_script(
+    payload: SavedScriptIn, principal: CurrentUser, db: Db, state: State
+) -> dict[str, Any]:
+    if payload.profile_id:
+        profile = load_profile(db, payload.profile_id)
+        grant = state.execution.policy.require_grant(
+            principal, profile, load_grant(db, principal, payload.profile_id)
+        )
+        state.execution.authorize_read(principal, profile, grant, "script.save")
     row = SavedScript(
         user_id=principal.user_id or "",
         profile_id=payload.profile_id,

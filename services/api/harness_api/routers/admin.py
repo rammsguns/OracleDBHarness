@@ -38,6 +38,7 @@ from harness_api.schemas import (
     ProfileIn,
     ReconciliationView,
     SecretReferenceIn,
+    TargetStateIn,
     UserIn,
     VerificationFindingIn,
 )
@@ -237,6 +238,7 @@ def create_target(payload: ProfileIn, admin: Administrator, db: Db, state: State
         wallet_dir=payload.wallet_dir,
         secret_reference_id=secret.id,
         wallet_secret_reference_id=wallet_secret_id,
+        enabled=payload.enabled,
         worksheets_enabled=payload.worksheets_enabled,
         mutating_runbooks_enabled=payload.mutating_runbooks_enabled,
         notes=payload.notes,
@@ -271,6 +273,46 @@ def create_target(payload: ProfileIn, admin: Administrator, db: Db, state: State
     db.commit()
     state.schema_panel_cache.invalidate(profile.id)
     return {"id": profile.id, "name": profile.name, "environment": profile.environment}
+
+
+def _set_target_enabled(profile_id, payload, admin, db, state, *, enabled):
+    profile = db.get(ConnectionProfile, profile_id)
+    if profile is None:
+        raise NotFoundError("No such connection profile.", detail={"profileId": profile_id})
+    if not payload.reason.strip():
+        raise ValidationError("A nonempty reason is required.")
+    if not enabled:
+        state.execution.policy.require_enabled(profile)
+    profile.enabled = enabled
+    db.add(
+        AuditEvent(
+            actor_id=admin.user_id or "",
+            actor_subject=admin.subject,
+            profile_id=profile_id,
+            operation_id="admin.target.enable" if enabled else "admin.target.disable",
+            risk_class=RiskClass.ADMINISTRATIVE.value,
+            policy_decision="allowed",
+            outcome="succeeded",
+            detail={"reason": payload.reason, "enabled": enabled},
+        )
+    )
+    db.commit()
+    state.schema_panel_cache.invalidate(profile_id)
+    return {"id": profile_id, "enabled": enabled}
+
+
+@router.post("/targets/{profile_id}/disable")
+def disable_target(
+    profile_id: str, payload: TargetStateIn, admin: Administrator, db: Db, state: State
+) -> dict:
+    return _set_target_enabled(profile_id, payload, admin, db, state, enabled=False)
+
+
+@router.post("/targets/{profile_id}/enable")
+def enable_target(
+    profile_id: str, payload: TargetStateIn, admin: Administrator, db: Db, state: State
+) -> dict:
+    return _set_target_enabled(profile_id, payload, admin, db, state, enabled=True)
 
 
 # -- grants -----------------------------------------------------------------------------

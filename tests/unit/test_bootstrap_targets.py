@@ -175,3 +175,36 @@ def test_operator_role_change_reconciles_grants(manifest: dict, settings: Settin
     engine = create_engine(settings.metadata_url)
     with Session(engine) as db:
         assert all(grant.permissions == ["read"] for grant in db.scalars(select(UserTargetGrant)))
+
+
+def test_disabled_manifest_flag_is_persisted(manifest, settings):
+    manifest["targets"][0]["enabled"] = False
+    assert bootstrap(manifest, settings, probe=False) == []
+    assert bootstrap(manifest, settings, probe=False) == []
+    with Session(create_engine(settings.metadata_url)) as db:
+        assert (
+            db.scalar(select(ConnectionProfile).where(ConnectionProfile.name == "dev")).enabled
+            is False
+        )
+        assert (
+            db.scalar(select(ConnectionProfile).where(ConnectionProfile.name == "lab")).enabled
+            is True
+        )
+    manifest["targets"][0]["enabled"] = "false"
+    with pytest.raises(ValueError, match="enabled must be boolean"):
+        validate_manifest(manifest)
+
+
+def test_disabled_manifest_does_not_probe(manifest, settings, monkeypatch):
+    from unittest.mock import Mock
+
+    for target in manifest["targets"]:
+        target["enabled"] = False
+    service = Mock()
+    service._backend.connect.side_effect = AssertionError("disabled target connected")
+    monkeypatch.setattr("scripts.bootstrap_targets.ExecutionService", Mock(return_value=service))
+    results = bootstrap(manifest, settings.model_copy(update={"oracle_backend": "oracledb"}))
+    assert len(results) == 2
+    assert all(row["skipped"] and row["error"] == "target_disabled" for row in results)
+    service.probe_target.assert_not_called()
+    service._backend.connect.assert_not_called()
