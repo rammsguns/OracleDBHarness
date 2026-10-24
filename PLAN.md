@@ -2399,7 +2399,7 @@ Tasks, one at a time:
     - steady metadata p50 was 1354 ms against 800 ms, because `schema.list_schemas`
       counts `ALL_OBJECTS` on a fresh connection; recovery failed through the same p95;
     - a few probes timed out on the remote D4.
-    Four driver defects found by the live runs were fixed first. Evidence is in
+    Five driver and measurement defects found by the live runs were fixed first. Evidence is in
     docs/compatibility.md, "Three-database, ten-user capacity run". Follow-up: A10.
 - [x] **A3 NP-01/03 Oracle re-qualification at current main.** Re-run the
   qualification, process-death and isolation suites on D1 and D4 (thin and thick) and

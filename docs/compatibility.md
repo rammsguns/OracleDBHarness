@@ -694,7 +694,7 @@ was 244 ms. Recovery uses the steady p95 thresholds, so it cannot pass while ste
 metadata p95 is at its limit. The failed D4 probes were 30 s `execution_timeout` or
 client read timeouts on a primary-key count, on the remote link only.
 
-Getting a meaningful run took four driver fixes. The earlier runs' reports are kept in
+Getting a meaningful run took five driver and measurement fixes. A read-only agy review of PR #77 then tightened the ledger (abandoned transactions must be absent, ledger-only ambiguous commits count as unknown outcomes), lost-commit paging and recovery borrowing (`9c84a7d`); none of these changes the run5 verdict, which had no unknown markers, no paging failures and no recovery. The earlier runs' reports are kept in
 the ignored report directory (`databases/reports/2026-10-24-a2-capacity/run1`–`run5`):
 
 | Finding | Kind | Fix |
