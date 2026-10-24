@@ -548,6 +548,28 @@ those thresholds before the run. API CPU and memory limits were declared rather 
 observed, and the load client and API shared this host. The marker table was dropped
 from `HARNESS_APP` on D1, D2, and D4 after the run; no lab schema was modified.
 
+### Install, restore and upgrade drills, 2026-10-24 (A4, NP-02)
+
+Run by Claude (AI agent, acting DBA and application owner, not a human) on the z4g5 test
+host: Docker 29.8.0, Compose 5.5.1, `postgres:16-alpine`. Both drills use throwaway
+secrets and no Oracle target. This is agent-qualified on test stand-ins, not a
+production or pilot qualification.
+
+| Drill | Command | Result |
+| --- | --- | --- |
+| Compose install and restore | `HARNESS_WEB_HOST_PORT=18081 HARNESS_API_HOST_PORT=18000 deploy/backup-restore-drill.sh` | Passed. Clean install with build 21 s, `pg_dump` 1 s, restore into a fresh database 2 s, API recreated on the restore 10 s (recovery 12 s, dump excluded). Every table matched row for row, the dump held no secret values, and the API reconciled the execution in flight at backup time. Schema 5 |
+| Upgrade with retained data | `deploy/upgrade-drill.sh` (baseline `c31c97e`) | Passed. A store created and seeded by the initial commit's own code at schema 3 was upgraded by main to schema 5. All 23 rows in its 16 tables were retained with the same identifying values, the 4 tables added since were created, and a second run changed nothing |
+
+There are no release tags, so the oldest baseline is the initial commit, the earliest
+schema-version commit. That is not an upgrade from a released version, because none
+exists. Running the drills live found four defects that the offline tests could not:
+the baseline seed went to the wrong store, JSON parameters were not encoded for
+psycopg, the fallback's DROP DATABASE ran inside a transaction, and the PostgreSQL
+password file was unreadable by the container. All four are fixed in the drill. The host
+also needed configurable compose ports (`HARNESS_WEB_HOST_PORT`, `HARNESS_API_HOST_PORT`),
+because the local model server holds 8080. The drills ran with `TMPDIR` under the
+operator's home, because the docker daemon does not see this sandbox's private `/tmp`.
+
 ## Recording a run
 
 ### Live non-copilot API workflows, 2026-10-19 (Wave 1C)
