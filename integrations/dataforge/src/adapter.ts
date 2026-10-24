@@ -59,6 +59,8 @@ export interface AssistRequest {
   question?: string;
   editorId: string;
   editorRevision: string;
+  /** Complete buffer for safe whole-editor proposal apply; selection remains separate. */
+  editorText?: string;
   conversationId?: string;
 }
 
@@ -160,11 +162,13 @@ export class HarnessAdapter {
       if (!response.ok) {
         return {
           enabled: true,
-          reachable: true,
+          reachable: response.status < 500,
           compatible: false,
           actions: [],
           adapterVersion: ADAPTER_VERSION,
-          detail: `The harness refused the integration credential (${response.status}).`,
+          detail: response.status >= 500
+            ? `The harness is unavailable (${response.status}). Editing and running in DataForge are unaffected.`
+            : `The harness refused the integration credential (${response.status}).`,
           requestId,
         };
       }
@@ -206,6 +210,22 @@ export class HarnessAdapter {
         requestId,
       };
     }
+  }
+
+  /** Resolve exactly the permitted outgoing context without calling the provider. */
+  async preview(actor: DataForgeActor, request: AssistRequest) {
+    if (!this.config.enabled) throw new Error("integration_disabled");
+    if (!filterActionsForRole([request.action], actor.role).includes(request.action)) {
+      throw new Error("action_not_allowed");
+    }
+    return {
+      targetReference: this.resolver.targetReference(this.instanceId, request.connectionId, request.schema),
+      schema: request.schema ?? "",
+      action: request.action,
+      question: request.question ?? "",
+      editor: { editorId: request.editorId, revision: request.editorRevision, text: request.editorText ?? request.selection },
+      attachments: sanitize(await this.resolver.resolve(actor, request), this.config.maxContextBytes),
+    };
   }
 
   /**
@@ -261,7 +281,7 @@ export class HarnessAdapter {
         editor: {
           editorId: request.editorId,
           revision: request.editorRevision,
-          text: request.selection,
+          text: request.editorText ?? request.selection,
         },
         // An assertion about which of *our* users is acting, namespaced by the
         // harness. It is not a role and grants nothing.
@@ -306,6 +326,9 @@ export class HarnessAdapter {
       schema?: string;
     },
   ): Promise<{ canApply: boolean; reasons: string[]; proposedText?: string }> {
+    if (!this.config.enabled) {
+      return { canApply: false, reasons: ["integration_disabled"] };
+    }
     // Applying a proposal requires proposal assistance under the current role.
     if (!filterActionsForRole(["propose"], actor.role).includes("propose")) {
       return { canApply: false, reasons: ["action_not_allowed"] };
@@ -409,28 +432,28 @@ export async function* readSse(
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
-    let boundary = buffer.indexOf("\n\n");
-    while (boundary !== -1) {
-      const chunk = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
+    let boundary: RegExpExecArray | null;
+    while ((boundary = /\r?\n\r?\n/.exec(buffer))) {
+      const chunk = buffer.slice(0, boundary.index);
+      buffer = buffer.slice(boundary.index + boundary[0].length);
       const parsed = parseSse(chunk);
       if (parsed) yield parsed;
-      boundary = buffer.indexOf("\n\n");
     }
   }
 }
 
 export function parseSse(chunk: string): StreamEvent | null {
   let event = "";
-  let data = "";
-  for (const line of chunk.split("\n")) {
-    if (line.startsWith("event: ")) event = line.slice(7).trim();
-    else if (line.startsWith("data: ")) data += line.slice(6);
+  const data: string[] = [];
+  for (const line of chunk.split(/\r?\n/)) {
+    if (line.startsWith(":")) continue;
+    if (line.startsWith("event:")) event = line.slice(6).trim();
+    else if (line.startsWith("data:")) data.push(line.slice(5).replace(/^ /, ""));
   }
-  if (!event || !data) return null;
+  if (!event || !data.length) return null;
   if (!(KNOWN_STREAM_EVENTS as readonly string[]).includes(event)) return null;
   try {
-    return { event: event as StreamEventName, data: JSON.parse(data) };
+    return { event: event as StreamEventName, data: JSON.parse(data.join("\n")) };
   } catch {
     return null;
   }

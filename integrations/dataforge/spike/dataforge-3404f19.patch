@@ -1,9 +1,92 @@
+diff --git a/README.md b/README.md
+index e07b307..7d997be 100644
+--- a/README.md
++++ b/README.md
+@@ -1,6 +1,6 @@
+ # Oracle DataForge
+ 
+-Oracle DataForge is a focused browser IDE for Oracle Database, extracted from the Oracle functionality in InsightDB AI Suite. It keeps the database-development workflow and removes every alternate database engine, AI assistant, model-provider integration, and enterprise control-plane dependency.
++Oracle DataForge is a focused browser IDE for Oracle Database, extracted from the Oracle functionality in InsightDB AI Suite. It keeps the database-development workflow without alternate database engines or a required model-provider integration.
+ 
+ ## Included Oracle features
+ 
+@@ -25,7 +25,7 @@ Oracle DataForge is a focused browser IDE for Oracle Database, extracted from th
+ - Passphrase-encrypted export and import of saved connections, wallets included (AES-256-GCM, scrypt)
+ - Dark/light themes and resizable Explorer
+ 
+-There is no Copilot panel, AI endpoint, provider configuration, model SDK, alternate SQL dialect, or non-Oracle driver in this project.
++Optional worksheet assistance connects to a separately deployed OracleDBHarness. It is off by default; DataForge includes no model SDK or provider configuration.
+ 
+ ## Requirements
+ 
+@@ -144,3 +144,48 @@ The token stays in the local backend. After Oracle compilation succeeds without
+ | [performance.md](docs/performance.md) | Row limits, pooling, caching, and what gets slow at scale |
+ | [known_limitations.md](docs/known_limitations.md) | Caps, unsupported inputs, and single-instance assumptions |
+ | [changelog.md](docs/changelog.md) | What changed, when, and why |
++
++## Optional harness assistance
++
++Assistance is disabled unless `DATAFORGE_HARNESS_ENABLED=true` is set on the backend.
++Editing, execution and compilation continue independently of the harness.
++
++Issue a scoped integration credential as a harness Administrator with
++`POST /api/v1/admin/integrations` and the body
++`{"name":"dataforge","kind":"dataforge","scopes":["copilot:assist"]}`.
++Store the returned one-time credential only in backend environment configuration:
++
++```dotenv
++DATAFORGE_HARNESS_ENABLED=true
++DATAFORGE_HARNESS_URL=https://harness.example.com
++DATAFORGE_HARNESS_TOKEN=<integration credential>
++DATAFORGE_INSTANCE_ID=dataforge-production
++```
++
++Use a stable, unique instance ID for each installation. HTTPS is required except on
++loopback. Optional limits are `DATAFORGE_HARNESS_TIMEOUT_MS` (default `60000`) and
++`DATAFORGE_HARNESS_MAX_CONTEXT_BYTES` (default `131072`). Never put the credential
++in browser configuration, URLs or logs. Revoke it in the harness to disconnect.
++
++Open **Assist** in a worksheet, choose an action and review outgoing context before
++sending. The backend forwards the supplied selection (or full buffer when nothing
++is selected), question, complete editor buffer and revision, schema, opaque target
++reference, actor identity and supplied error/plan text. The harness owns provider
++configuration, context policy and request history. Review its retention and provider
++policy before sending source. The current resolver does not expand schema metadata
++or query Oracle for context and leaves the database version unspecified.
++
++Analysts receive explain-only assistance; the server rejects other actions and
++proposal apply checks under their current role. Other roles use the harness's
++advertised actions. Responses stream, cancellation propagates upstream, and proposed
++changes require diff review plus a fresh editor revision/text check before applying.
++Applying changes edits the buffer only. The integration never executes proposals,
++compiles objects, commits transactions, changes connection settings, sends database
++credentials or wallets, or opens another Oracle connection. Selected-text explanation
++does not execute EXPLAIN PLAN.
++
++Known limits: no dedicated integration settings screen; configuration is server-side.
++Hosted providers and proxies beyond the shipped harness nginx are unqualified.
++Agent-run backend and browser checks on Oracle test stand-ins are recorded in the
++[harness compatibility matrix](https://github.com/rammsguns/OracleDBHarness/blob/main/integrations/dataforge/COMPATIBILITY.md);
++they do not establish human pilot or production qualification.
+diff --git a/package.json b/package.json
+index bfeedbd..f9e5e0a 100644
+--- a/package.json
++++ b/package.json
+@@ -8,7 +8,7 @@
+   },
+   "scripts": {
+     "dev": "vite",
+-    "test": "node --import tsx --test server/dbmsOutput.test.ts server/connectionExport.test.ts server/connectionRole.test.ts server/oracleWallet.test.ts server/oracleSessions.test.ts server/objectCopy.test.ts server/tableDataCopy.test.ts server/userStore.test.ts server/authConcurrency.test.ts server/worksheetSessions.test.ts server/worksheetDescribe.test.ts server/dbaManagement.test.ts server/performanceResources.test.ts src/utils/completions.test.ts src/utils/worksheetStatement.test.ts src/utils/packageSync.test.ts src/utils/editorDiagnostics.test.ts src/utils/tableTransactions.test.ts src/utils/tableDataDependencies.test.ts src/utils/routineTesting.test.ts src/utils/plsqlBlock.test.ts src/utils/sessionClient.test.ts src/utils/sessionGrid.test.ts",
++    "test": "node --import tsx --test server/harnessRoutes.test.ts server/harnessAdapter.test.ts server/dbmsOutput.test.ts server/connectionExport.test.ts server/connectionRole.test.ts server/oracleWallet.test.ts server/oracleSessions.test.ts server/objectCopy.test.ts server/tableDataCopy.test.ts server/userStore.test.ts server/authConcurrency.test.ts server/worksheetSessions.test.ts server/worksheetDescribe.test.ts server/dbaManagement.test.ts server/performanceResources.test.ts src/utils/completions.test.ts src/utils/worksheetStatement.test.ts src/utils/packageSync.test.ts src/utils/editorDiagnostics.test.ts src/utils/tableTransactions.test.ts src/utils/tableDataDependencies.test.ts src/utils/routineTesting.test.ts src/utils/plsqlBlock.test.ts src/utils/sessionClient.test.ts src/utils/sessionGrid.test.ts src/utils/assist.test.ts",
+     "dev:server": "node --env-file-if-exists=.env.local --import tsx server/index.ts",
+     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json",
+     "build": "tsc -b && vite build",
 diff --git a/server/harness/adapter.ts b/server/harness/adapter.ts
 new file mode 100644
-index 0000000..effe83a
+index 0000000..56962e8
 --- /dev/null
 +++ b/server/harness/adapter.ts
-@@ -0,0 +1,434 @@
+@@ -0,0 +1,466 @@
 +/**
 + * The OracleDataForge backend bridge.
 + *
@@ -65,6 +148,8 @@ index 0000000..effe83a
 +  question?: string;
 +  editorId: string;
 +  editorRevision: string;
++  /** Complete buffer for safe whole-editor proposal apply; selection remains separate. */
++  editorText?: string;
 +  conversationId?: string;
 +}
 +
@@ -166,11 +251,13 @@ index 0000000..effe83a
 +      if (!response.ok) {
 +        return {
 +          enabled: true,
-+          reachable: true,
++          reachable: response.status < 500,
 +          compatible: false,
 +          actions: [],
 +          adapterVersion: ADAPTER_VERSION,
-+          detail: `The harness refused the integration credential (${response.status}).`,
++          detail: response.status >= 500
++            ? `The harness is unavailable (${response.status}). Editing and running in DataForge are unaffected.`
++            : `The harness refused the integration credential (${response.status}).`,
 +          requestId,
 +        };
 +      }
@@ -214,6 +301,22 @@ index 0000000..effe83a
 +    }
 +  }
 +
++  /** Resolve exactly the permitted outgoing context without calling the provider. */
++  async preview(actor: DataForgeActor, request: AssistRequest) {
++    if (!this.config.enabled) throw new Error("integration_disabled");
++    if (!filterActionsForRole([request.action], actor.role).includes(request.action)) {
++      throw new Error("action_not_allowed");
++    }
++    return {
++      targetReference: this.resolver.targetReference(this.instanceId, request.connectionId, request.schema),
++      schema: request.schema ?? "",
++      action: request.action,
++      question: request.question ?? "",
++      editor: { editorId: request.editorId, revision: request.editorRevision, text: request.editorText ?? request.selection },
++      attachments: sanitize(await this.resolver.resolve(actor, request), this.config.maxContextBytes),
++    };
++  }
++
 +  /**
 +   * Run one assist request and yield the harness stream events.
 +   *
@@ -227,6 +330,11 @@ index 0000000..effe83a
 +  ): AsyncGenerator<StreamEvent, void, unknown> {
 +    if (!this.config.enabled) {
 +      yield errorEvent("integration_disabled", "The harness integration is disabled.");
++      return;
++    }
++
++    if (!filterActionsForRole([request.action], actor.role).includes(request.action)) {
++      yield errorEvent("action_not_allowed", "Your DataForge role does not allow this action.");
 +      return;
 +    }
 +
@@ -262,7 +370,7 @@ index 0000000..effe83a
 +        editor: {
 +          editorId: request.editorId,
 +          revision: request.editorRevision,
-+          text: request.selection,
++          text: request.editorText ?? request.selection,
 +        },
 +        // An assertion about which of *our* users is acting, namespaced by the
 +        // harness. It is not a role and grants nothing.
@@ -307,6 +415,13 @@ index 0000000..effe83a
 +      schema?: string;
 +    },
 +  ): Promise<{ canApply: boolean; reasons: string[]; proposedText?: string }> {
++    if (!this.config.enabled) {
++      return { canApply: false, reasons: ["integration_disabled"] };
++    }
++    // Applying a proposal requires proposal assistance under the current role.
++    if (!filterActionsForRole(["propose"], actor.role).includes("propose")) {
++      return { canApply: false, reasons: ["action_not_allowed"] };
++    }
 +    const response = await this.call(
 +      "POST",
 +      `/api/v1/copilot/proposals/${encodeURIComponent(proposalId)}/apply-check`,
@@ -363,7 +478,7 @@ index 0000000..effe83a
 + * schema-context expansion until that has been reviewed separately.
 + */
 +export function filterActionsForRole(actions: string[], role: string): string[] {
-+  if (role.toLowerCase() === "analyst") {
++  if (role.trim().toLowerCase() === "analyst") {
 +    return actions.filter((action) => action === "explain");
 +  }
 +  return actions;
@@ -406,28 +521,28 @@ index 0000000..effe83a
 +    const { done, value } = await reader.read();
 +    if (done) break;
 +    buffer += decoder.decode(value, { stream: true });
-+    let boundary = buffer.indexOf("\n\n");
-+    while (boundary !== -1) {
-+      const chunk = buffer.slice(0, boundary);
-+      buffer = buffer.slice(boundary + 2);
++    let boundary: RegExpExecArray | null;
++    while ((boundary = /\r?\n\r?\n/.exec(buffer))) {
++      const chunk = buffer.slice(0, boundary.index);
++      buffer = buffer.slice(boundary.index + boundary[0].length);
 +      const parsed = parseSse(chunk);
 +      if (parsed) yield parsed;
-+      boundary = buffer.indexOf("\n\n");
 +    }
 +  }
 +}
 +
 +export function parseSse(chunk: string): StreamEvent | null {
 +  let event = "";
-+  let data = "";
-+  for (const line of chunk.split("\n")) {
-+    if (line.startsWith("event: ")) event = line.slice(7).trim();
-+    else if (line.startsWith("data: ")) data += line.slice(6);
++  const data: string[] = [];
++  for (const line of chunk.split(/\r?\n/)) {
++    if (line.startsWith(":")) continue;
++    if (line.startsWith("event:")) event = line.slice(6).trim();
++    else if (line.startsWith("data:")) data.push(line.slice(5).replace(/^ /, ""));
 +  }
-+  if (!event || !data) return null;
++  if (!event || !data.length) return null;
 +  if (!(KNOWN_STREAM_EVENTS as readonly string[]).includes(event)) return null;
 +  try {
-+    return { event: event as StreamEventName, data: JSON.parse(data) };
++    return { event: event as StreamEventName, data: JSON.parse(data.join("\n")) };
 +  } catch {
 +    return null;
 +  }
@@ -541,10 +656,10 @@ index 0000000..30c0e16
 +}
 diff --git a/server/harness/routes.ts b/server/harness/routes.ts
 new file mode 100644
-index 0000000..628d347
+index 0000000..1121057
 --- /dev/null
 +++ b/server/harness/routes.ts
-@@ -0,0 +1,174 @@
+@@ -0,0 +1,191 @@
 +/**
 + * Same-origin routes for the DataForge Express backend.
 + *
@@ -565,6 +680,8 @@ index 0000000..628d347
 +}
 +
 +export interface MinimalResponse {
++  readonly writableFinished?: boolean;
++  on(event: "close", listener: () => void): void;
 +  status(code: number): MinimalResponse;
 +  json(body: unknown): void;
 +  setHeader(name: string, value: string): void;
@@ -603,6 +720,15 @@ index 0000000..628d347
 +    response.json(await adapter.capabilities(actor));
 +  });
 +
++  router.post("/api/ai/context-preview", async (request, response) => {
++    const actor = await currentActor(request);
++    if (!actor) { response.status(401).json({ error: "Sign in to DataForge first." }); return; }
++    const parsed = parseAssistRequest(request.body);
++    if ("error" in parsed) { response.status(400).json({ error: parsed.error }); return; }
++    try { response.json(await adapter.preview(actor, parsed.request)); }
++    catch (cause) { response.status(403).json({ error: (cause as Error).message }); }
++  });
++
 +  router.post("/api/ai/chat", async (request, response) => {
 +    const actor = await currentActor(request);
 +    if (!actor) {
@@ -617,7 +743,11 @@ index 0000000..628d347
 +    }
 +
 +    const controller = new AbortController();
-+    request.on("close", () => controller.abort());
++    // IncomingMessage close means the parsed request body is complete on Node 24.
++    // The response closes early when the streaming client disconnects.
++    response.on("close", () => {
++      if (!response.writableFinished) controller.abort();
++    });
 +
 +    response.setHeader("Content-Type", "text/event-stream");
 +    response.setHeader("Cache-Control", "no-cache, no-transform");
@@ -628,6 +758,7 @@ index 0000000..628d347
 +
 +    try {
 +      for await (const event of adapter.assist(actor, parsed.request, controller.signal)) {
++        if (controller.signal.aborted) break;
 +        response.write(`event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`);
 +        response.flush?.();
 +      }
@@ -712,6 +843,7 @@ index 0000000..628d347
 +      question: typeof body.question === "string" ? body.question : undefined,
 +      editorId,
 +      editorRevision,
++      editorText: typeof body.editorText === "string" ? body.editorText : undefined,
 +      conversationId:
 +        typeof body.conversationId === "string" ? body.conversationId : undefined,
 +    },
@@ -719,8 +851,267 @@ index 0000000..628d347
 +}
 +
 +export { ALLOWED_CONTEXT_CATEGORIES };
+diff --git a/server/harnessAdapter.test.ts b/server/harnessAdapter.test.ts
+new file mode 100644
+index 0000000..9e021c2
+--- /dev/null
++++ b/server/harnessAdapter.test.ts
+@@ -0,0 +1,190 @@
++import assert from "node:assert/strict";
++import test from "node:test";
++import { parseSse, readSse, HarnessAdapter, type AssistRequest, type ContextResolver, type DataForgeActor } from "./harness/adapter.ts";
++import { readConfig } from "./harness/config.ts";
++
++const ACTOR: DataForgeActor = { id: "df-user-7", role: "Developer", durable: true };
++
++const RESOLVER: ContextResolver = {
++  targetReference: (instanceId, connectionId, schema) =>
++    `dataforge:${instanceId}:${connectionId}:${schema ?? ""}`,
++  databaseVersion: async () => "19.3.0.0.0",
++  resolve: async () => [
++    {
++      category: "selected_source",
++      name: "selection",
++      content: "SELECT 1 FROM dual",
++      provenance: "editor selection",
++    },
++  ],
++};
++
++function config(overrides: Record<string, string> = {}) {
++  return readConfig({
++    DATAFORGE_HARNESS_ENABLED: "true",
++    DATAFORGE_HARNESS_URL: "http://localhost:8000",
++    DATAFORGE_HARNESS_TOKEN: "odbh_test",
++    ...overrides,
++  });
++}
++
++function sseResponse(events: Array<[string, unknown]>): Response {
++  const body = events
++    .map(([name, data]) => `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`)
++    .join("");
++  return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } });
++}
++
++const REQUEST: AssistRequest = {
++  action: "explain",
++  connectionId: "conn-9",
++  schema: "APP_SCHEMA",
++  selection: "SELECT 1 FROM dual",
++  editorId: "buffer-1",
++  editorRevision: "3",
++};
++
++for (const [role, action, allowed] of [
++  ["Analyst", "diagnose", false],
++  ["Analyst", "explain", true],
++  ["Developer", "diagnose", true],
++] as const) {
++  test(`${role} submitting ${action} is ${allowed ? "allowed" : "refused before context or fetch"}`, async () => {
++    let calls = 0;
++    let resolutions = 0;
++    const adapter = new HarnessAdapter({
++      config: config(), instanceId: "role-test",
++      resolver: { ...RESOLVER, resolve: async (...args) => { resolutions++; return RESOLVER.resolve(...args); } },
++      fetchImpl: async () => { calls++; return sseResponse([["done", { outcome: "succeeded" }]]); },
++    });
++    const events = [];
++    for await (const event of adapter.assist({ ...ACTOR, role }, { ...REQUEST, action })) events.push(event);
++    assert.equal(calls, allowed ? 1 : 0);
++    assert.equal(resolutions, allowed ? 1 : 0);
++    assert.equal(events[0]?.event, allowed ? "done" : "error");
++    if (!allowed) assert.equal(events[0]?.data.code, "action_not_allowed");
++  });
++}
++
++test("Analyst apply-check is refused without a harness fetch", async () => {
++  const adapter = new HarnessAdapter({
++    config: config(), instanceId: "role-test", resolver: RESOLVER,
++    fetchImpl: async () => { assert.fail("must not fetch"); },
++  });
++  assert.deepEqual(await adapter.applyCheck({ ...ACTOR, role: "Analyst" }, "proposal", {
++    editorId: "editor", revision: "1", currentText: "SELECT 1", connectionId: "conn",
++  }), { canApply: false, reasons: ["action_not_allowed"] });
++});
++
++test("preview uses the permission resolver without contacting the provider", async () => {
++  let resolvedActor: DataForgeActor | undefined;
++  const adapter = new HarnessAdapter({ config: config(), instanceId: "preview-test",
++    resolver: { ...RESOLVER, resolve: async (actor, request) => { resolvedActor = actor; return RESOLVER.resolve(actor, request); } },
++    fetchImpl: async () => { assert.fail("preview must not fetch"); },
++  });
++  const preview = await adapter.preview(ACTOR, REQUEST);
++  assert.equal(resolvedActor, ACTOR);
++  assert.equal(preview.targetReference, "dataforge:preview-test:conn-9:APP_SCHEMA");
++  assert.equal(preview.attachments[0]?.content, REQUEST.selection);
++  await assert.rejects(adapter.preview({...ACTOR, role: "Analyst"}, {...REQUEST, action: "propose"}), /action_not_allowed/);
++});
++
++test("upstream gateway outage is reported as unavailable", async () => {
++  const adapter = new HarnessAdapter({ config: config(), instanceId: "preview-test", resolver: RESOLVER,
++    fetchImpl: async () => new Response("", {status: 502}),
++  });
++  const caps = await adapter.capabilities(ACTOR);
++  assert.equal(caps.reachable, false);
++  assert.deepEqual(caps.actions, []);
++  assert.match(caps.detail, /unavailable/);
++});
++
++test("whole editor text survives preview and assist independently of selection", async () => {
++  const request = { ...REQUEST, editorText: "SELECT 1 FROM dual;\nSELECT 2 FROM dual;" };
++  let payload: { editor: { text: string }; attachments: { content: string }[] } | undefined;
++  const adapter = new HarnessAdapter({ config: config(), instanceId: "editor-test", resolver: RESOLVER,
++    fetchImpl: async (_url, init) => { payload = JSON.parse(String(init?.body)); return sseResponse([["done", {}]]); },
++  });
++  assert.equal((await adapter.preview(ACTOR, request)).editor.text, request.editorText);
++  for await (const _event of adapter.assist(ACTOR, request)) { /* consume */ }
++  assert.equal(payload?.editor.text, request.editorText);
++  assert.equal(payload?.attachments[0].content, REQUEST.selection);
++  assert.equal((await adapter.preview(ACTOR, REQUEST)).editor.text, REQUEST.selection);
++});
++
++test("disabled preview refuses before resolving context or contacting harness", async () => {
++  const adapter = new HarnessAdapter({ config: readConfig({}), instanceId: "disabled",
++    resolver: { ...RESOLVER, resolve: async () => assert.fail("must not resolve") },
++    fetchImpl: async () => assert.fail("must not fetch"),
++  });
++  await assert.rejects(adapter.preview(ACTOR, REQUEST), /integration_disabled/);
++});
++
++test("credential refusal remains reachable but incompatible", async () => {
++  const adapter = new HarnessAdapter({ config: config(), instanceId: "credentials", resolver: RESOLVER,
++    fetchImpl: async () => new Response("", { status: 401 }),
++  });
++  const caps = await adapter.capabilities(ACTOR);
++  assert.equal(caps.reachable, true);
++  assert.equal(caps.compatible, false);
++  assert.match(caps.detail, /credential/);
++});
++
++for (const method of ["capabilities", "preview", "assist", "applyCheck"] as const) {
++  test(`disabled ${method} never fetches or resolves context`, async () => {
++    let calls = 0;
++    const adapter = new HarnessAdapter({
++      config: readConfig({}), instanceId: "disabled",
++      resolver: {
++        targetReference: () => assert.fail("must not resolve target"),
++        databaseVersion: async () => assert.fail("must not resolve version"),
++        resolve: async () => assert.fail("must not resolve context"),
++      },
++      fetchImpl: async () => { calls++; return new Response("{}"); },
++    });
++    if (method === "capabilities") assert.equal((await adapter.capabilities(ACTOR)).enabled, false);
++    if (method === "preview") await assert.rejects(adapter.preview(ACTOR, REQUEST), /integration_disabled/);
++    if (method === "assist") {
++      const events = [];
++      for await (const event of adapter.assist(ACTOR, REQUEST)) events.push(event);
++      assert.equal(events.length, 1);
++      assert.equal(events[0]?.data.code, "integration_disabled");
++    }
++    if (method === "applyCheck") assert.deepEqual(await adapter.applyCheck(ACTOR, "proposal", {
++      editorId: "editor", revision: "1", currentText: "SELECT 1", connectionId: "conn",
++    }), { canApply: false, reasons: ["integration_disabled"] });
++    assert.equal(calls, 0);
++  });
++}
++
++test("SSE parses CRLF, comments and multiline data with optional field spaces", () => {
++  assert.deepEqual(parseSse(': keepalive\r\nevent:delta\r\ndata: {\r\ndata: "text": "hello"\r\ndata: }'), {
++    event: "delta", data: { text: "hello" },
++  });
++  // Concatenating these lines would incorrectly turn two numbers into 12.
++  assert.equal(parseSse('event: delta\ndata: {"value":1\ndata: 2}'), null);
++});
++
++for (const newline of ["\n", "\r\n"]) {
++  test(`SSE retains events across every chunk split (${JSON.stringify(newline)})`, async () => {
++    const wire = [": comment", "event: delta", 'data: {', 'data: "text": "héllo"', 'data: }', "", "event: done", 'data: {}', "", ""].join(newline);
++    const bytes = new TextEncoder().encode(wire);
++    for (let split = 1; split < bytes.length; split++) {
++      const stream = new ReadableStream<Uint8Array>({ start(controller) {
++        controller.enqueue(bytes.slice(0, split));
++        controller.enqueue(bytes.slice(split));
++        controller.close();
++      } });
++      const events = [];
++      for await (const event of readSse(stream)) events.push(event);
++      assert.deepEqual(events, [{ event: "delta", data: { text: "héllo" } }, { event: "done", data: {} }], `split ${split}`);
++    }
++  });
++}
++
++test("SSE preserves existing behavior of dropping an unterminated trailing event", async () => {
++  const stream = new Response('event: delta\ndata: {"text":"complete"}\n\nevent: done\ndata: {}').body!;
++  const events = [];
++  for await (const event of readSse(stream)) events.push(event);
++  assert.deepEqual(events, [{ event: "delta", data: { text: "complete" } }]);
++});
+diff --git a/server/harnessRoutes.test.ts b/server/harnessRoutes.test.ts
+new file mode 100644
+index 0000000..893d721
+--- /dev/null
++++ b/server/harnessRoutes.test.ts
+@@ -0,0 +1,57 @@
++import assert from "node:assert/strict";
++import { once } from "node:events";
++import { test } from "node:test";
++import express from "express";
++import { HarnessAdapter } from "./harness/adapter.ts";
++import { registerHarnessRoutes } from "./harness/routes.ts";
++
++test("a client disconnect mid-stream aborts the upstream fetch signal", { timeout: 5000 }, async () => {
++  let upstreamSignal: AbortSignal | undefined;
++  let aborted!: () => void;
++  const upstreamAborted = new Promise<void>((resolve) => { aborted = resolve; });
++  const adapter = new HarnessAdapter({
++    config: { enabled: true, baseUrl: "http://localhost", token: "test-only", timeoutMs: 4000, maxContextBytes: 1024, adapterVersion: "0.1.0" },
++    instanceId: "test",
++    resolver: {
++      targetReference: () => "test:target",
++      databaseVersion: async () => "19",
++      resolve: async () => [{ category: "selected_source", name: "selection", content: "SELECT 1 FROM dual", provenance: "test" }],
++    },
++    fetchImpl: async (_url, init) => {
++      upstreamSignal = init?.signal ?? undefined;
++      return new Response(new ReadableStream({
++        start(controller) {
++          controller.enqueue(new TextEncoder().encode('event: delta\ndata: {"text":"first"}\n\n'));
++          upstreamSignal?.addEventListener("abort", () => {
++            aborted();
++            controller.error(new DOMException("Aborted", "AbortError"));
++          }, { once: true });
++        },
++      }), { headers: { "Content-Type": "text/event-stream" } });
++    },
++  });
++  const app = express();
++  app.use(express.json());
++  registerHarnessRoutes({ router: app, adapter, currentActor: async () => ({ id: "test", role: "Developer", durable: true }) });
++  const server = app.listen(0, "0.0.0.0");
++  await once(server, "listening");
++  const address = server.address();
++  assert.ok(address && typeof address === "object");
++  const controller = new AbortController();
++  try {
++    const response = await fetch(`http://127.0.0.1:${address.port}/api/ai/chat`, {
++      method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal,
++      body: JSON.stringify({ action: "explain", connectionId: "test", selection: "SELECT 1 FROM dual", editorId: "editor", editorRevision: "1" }),
++    });
++    const first = await response.body!.getReader().read();
++    assert.match(new TextDecoder().decode(first.value), /event: delta/);
++    assert.equal(upstreamSignal?.aborted, false, "consuming the POST body must not abort the stream");
++    controller.abort();
++    await upstreamAborted;
++    assert.equal(upstreamSignal?.aborted, true);
++  } finally {
++    controller.abort();
++    server.closeAllConnections();
++    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
++  }
++});
 diff --git a/server/index.ts b/server/index.ts
-index f7c76d4..26a6ec1 100644
+index f7c76d4..6b9930b 100644
 --- a/server/index.ts
 +++ b/server/index.ts
 @@ -8,6 +8,9 @@ import { readDbmsOutput, withDbmsOutput, type DbmsOutput } from "./dbmsOutput.ts
@@ -741,7 +1132,7 @@ index f7c76d4..26a6ec1 100644
 +try {
 +  harnessConfig = readConfig(process.env);
 +} catch (err) {
-+  console.warn("Harness configuration error:", err);
++  console.warn("Harness integration disabled: invalid configuration.");
 +  harnessConfig = {
 +    enabled: false,
 +    baseUrl: "",
@@ -795,7 +1186,7 @@ index f7c76d4..26a6ec1 100644
 +  resolver: {
 +    targetReference: (instanceId, connectionId, schema) =>
 +      `dataforge:${instanceId}:${connectionId}:${schema ?? ""}`,
-+    databaseVersion: async (_connectionId) => "19.0.0.0.0",
++    databaseVersion: async (_connectionId) => "",
 +    resolve: (actor, request) => resolveContextForActor(actor, request),
 +  },
 +});
@@ -819,3 +1210,260 @@ index f7c76d4..26a6ec1 100644
  /** Tells the browser who it's actually authenticated as, so the UI reflects the role the
   *  server will enforce instead of a client-chosen guess. */
  app.get("/api/session", (_req, res) => {
+diff --git a/src/components/AssistPanel.tsx b/src/components/AssistPanel.tsx
+new file mode 100644
+index 0000000..85fdec4
+--- /dev/null
++++ b/src/components/AssistPanel.tsx
+@@ -0,0 +1,84 @@
++import { useEffect, useRef, useState } from "react";
++import DiffView from "./DiffView";
++import { Btn } from "./ui";
++import { answerEvent, emptyAnswer, sseParser } from "../utils/assist";
++
++type Body = { action: string; connectionId: string; schema: string; selection: string; editorId: string; editorRevision: string; editorText: string; question: string };
++async function jsonPost(url: string, body: unknown) {
++  const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
++  const data = await response.json();
++  if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
++  return data;
++}
++
++export default function AssistPanel({ text, selection, connectionId, schema, editorId, onApply }: {
++  text: string; selection: string; connectionId: string; schema: string; editorId: string; onApply: (text: string) => void;
++}) {
++  const [caps, setCaps] = useState<{actions: string[]; detail: string; enabled: boolean; reachable: boolean; compatible: boolean; providerReady?: boolean} | null>(null);
++  const [action, setAction] = useState("explain");
++  const [question, setQuestion] = useState("");
++  const [review, setReview] = useState<{ body: Body; preview: unknown } | null>(null);
++  const [answer, setAnswer] = useState(emptyAnswer);
++  const [notice, setNotice] = useState("");
++  const [busy, setBusy] = useState(false);
++  const controller = useRef<AbortController | null>(null);
++  const mounted = useRef(true);
++  const source = useRef({text, revision: crypto.randomUUID()});
++  if (source.current.text !== text) source.current = { text, revision: crypto.randomUUID() };
++  const current = useRef({text, revision: source.current.revision});
++  current.current = {text, revision: source.current.revision};
++  const refresh = () => { void fetch("/api/ai/capabilities").then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }).then(setCaps).catch(() => setNotice("Harness unavailable. Refresh integration status to retry.")); };
++  useEffect(() => { mounted.current = true; refresh(); return () => { mounted.current = false; controller.current?.abort(); }; }, []);
++  const body = (): Body => ({ action, connectionId, schema, selection: selection || text, editorId, editorRevision: source.current.revision, editorText: text, question });
++  const reviewContext = async () => {
++    setBusy(true); setNotice(""); setReview(null);
++    try { const request = body(); setReview({ body: request, preview: await jsonPost("/api/ai/context-preview", request) }); }
++    catch (cause) { setNotice((cause as Error).message); }
++    finally { setBusy(false); }
++  };
++  const send = async () => {
++    if (!review) return;
++    const request = review.body;
++    if (JSON.stringify(request) !== JSON.stringify(body())) { setReview(null); setNotice("Context changed. Review outgoing context again."); return; }
++    const abort = new AbortController(); controller.current = abort;
++    setAnswer({...emptyAnswer(), status: "streaming"}); setReview(null); setBusy(true); setNotice("");
++    try {
++      const response = await fetch("/api/ai/chat", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(request), signal: abort.signal});
++      if (!response.ok || !response.body) throw new Error(`Assist HTTP ${response.status}`);
++      const reader = response.body.getReader(); const decoder = new TextDecoder();
++      const feed = sseParser(event => { if (!abort.signal.aborted) setAnswer(previous => answerEvent(previous, event)); });
++      while (true) { const {done, value} = await reader.read(); if (done) break; feed(decoder.decode(value, {stream: true})); }
++      feed(decoder.decode());
++      if (!abort.signal.aborted) setAnswer(previous => previous.status === "streaming" ? {...previous, status: "Stream ended before completion"} : previous);
++    } catch (cause) { if (!abort.signal.aborted) setNotice(`Harness unavailable: ${(cause as Error).message}`); }
++    finally { if (controller.current === abort) { controller.current = null; setBusy(false); } }
++  };
++  const cancel = () => { controller.current?.abort(); setAnswer(previous => ({...previous, status: "cancelled", proposal: null})); setBusy(false); };
++  const apply = async () => {
++    if (!answer.proposal) return;
++    setBusy(true);
++    const snapshot = {...current.current};
++    try {
++      const result = await jsonPost(`/api/ai/proposals/${encodeURIComponent(String(answer.proposal.proposalId))}/apply-check`, {editorId, connectionId, schema, revision: snapshot.revision, currentText: snapshot.text});
++      if (!mounted.current) return;
++      if (current.current.revision !== snapshot.revision) { setNotice("Editor changed during apply check. Review again."); return; }
++      if (result.canApply && typeof result.proposedText === "string") { onApply(result.proposedText); setNotice("Applied to editor. Nothing executed."); }
++      else setNotice(`Apply refused: ${(result.reasons ?? []).join(", ")}`);
++    } catch (cause) { setNotice(`Apply unavailable: ${(cause as Error).message}`); }
++    finally { setBusy(false); }
++  };
++  const available = caps?.enabled && caps.reachable && caps.compatible && caps.providerReady !== false;
++  return <section aria-label="Assist panel" className="border-b border-bdrsoft bg-panel2 p-3 text-[12px] max-h-[55vh] overflow-auto shrink-0">
++    <div className="flex gap-2 items-center"><strong>Assist</strong><Btn onClick={refresh} disabled={busy}>Refresh integration status</Btn></div>
++    <p role="status">{caps ? caps.detail || (available ? "Harness ready" : "Assistance unavailable") : "Checking integration…"}</p>
++    <div className="flex gap-2 my-2"><select aria-label="Assist action" value={action} onChange={e => {setAction(e.target.value); setReview(null);}} disabled={busy || !available}>{caps?.actions.map(a => <option key={a} value={a}>{a}</option>)}</select>
++    <input aria-label="Assist question" className="bg-panel border border-bdr flex-1 px-2" value={question} disabled={busy} onChange={e => {setQuestion(e.target.value); setReview(null);}} placeholder="Ask about the selected SQL" />
++    <Btn disabled={busy || !available || !caps?.actions.includes(action)} onClick={() => void reviewContext()}>Review outgoing context</Btn>
++    {busy && controller.current && <Btn onClick={cancel}>Cancel</Btn>}</div>
++    {review && <div aria-label="Outgoing context"><p>Review selection, target and schema before sending. Question: {review.body.question}</p><pre className="whitespace-pre-wrap">{JSON.stringify(review.preview, null, 2)}</pre><Btn onClick={() => void send()}>Send {review.body.action}</Btn></div>}
++    <p data-testid="assist-status">{answer.status}</p><p>{answer.provider}{answer.model && ` · ${answer.model}`}</p>
++    <pre data-testid="assist-answer" data-updates={answer.updates} data-request-id={answer.requestId} className="whitespace-pre-wrap">{answer.text}</pre>
++    {answer.proposal && <div aria-label="Proposal diff" className="flex flex-col max-h-56"><DiffView oldSrc={text} newSrc={String(answer.proposal.proposedText ?? "")} /><Btn disabled={busy} onClick={() => void apply()}>Apply proposal</Btn></div>}
++    <p role="alert">{notice}</p>
++  </section>;
++}
+diff --git a/src/components/SqlWorksheet.tsx b/src/components/SqlWorksheet.tsx
+index a926ffd..73d2404 100644
+--- a/src/components/SqlWorksheet.tsx
++++ b/src/components/SqlWorksheet.tsx
+@@ -16,6 +16,8 @@ import {
+ } from "lucide-react";
+ import { useStudio } from "../state/store";
+ import SqlEditor from "./SqlEditor";
++import AssistPanel from "./AssistPanel";
++import { useHarnessEnabled } from "../utils/useHarnessEnabled";
+ import ResultsGrid from "./ResultsGrid";
+ import ExplainPlan from "./ExplainPlan";
+ import { Btn, EmptyState, Spinner } from "./ui";
+@@ -23,6 +25,9 @@ import { download } from "../utils/sql";
+ 
+ export default function SqlWorksheet() {
+   const s = useStudio();
++  const harnessEnabled = useHarnessEnabled();
++  const [assistOpen, setAssistOpen] = useState(false);
++  const [selection, setSelection] = useState({start: 0, end: 0, source: s.sql});
+   const [reconnecting, setReconnecting] = useState(false);
+   const reconnectingRef = useRef(false);
+   const activeConnection = s.connections.find((c) => c.id === s.activeConnId);
+@@ -98,6 +103,7 @@ export default function SqlWorksheet() {
+           <ListTree size={13} />
+           Explain
+         </Btn>
++        {harnessEnabled && <Btn variant="outline" onClick={() => setAssistOpen(open => !open)}>Assist</Btn>}
+         <Btn variant="outline" onClick={s.doFormat} title="Format SQL (Ctrl+Shift+F)">
+           <AlignLeft size={13} />
+           Format
+@@ -157,10 +163,14 @@ export default function SqlWorksheet() {
+         {!s.autoCommit && <span className="text-warn">Manual sessions roll back on disconnect or after 30 minutes idle.</span>}
+       </div>
+ 
++      {assistOpen && <AssistPanel key={`${s.activeTabId}:${s.activeConnId}:${JSON.stringify(s.session)}`} text={s.sql}
++        selection={selection.source === s.sql ? s.sql.slice(selection.start, selection.end) : ""}
++        connectionId={s.activeConnId} schema={activeConnection?.user.toUpperCase() ?? ""}
++        editorId={s.activeTabId} onApply={s.setSql} />}
+       {/* editor */}
+       <div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden">
+         <div hidden={expanded} style={{ height: `${editorPct}%` }} className="min-h-24 min-w-0 shrink-0 overflow-hidden">
+-          <SqlEditor value={s.sql} onChange={s.setSql} errorLine={errorLine} onSelectionChange={s.setSqlSelection} onRun={runSql} />
++          <SqlEditor value={s.sql} onChange={s.setSql} errorLine={errorLine} onSelectionChange={(start, end) => { s.setSqlSelection(start, end); setSelection({start, end, source: s.sql}); }} onRun={runSql} />
+         </div>
+ 
+         {/* splitter */}
+diff --git a/src/components/Workspace.tsx b/src/components/Workspace.tsx
+index fcf8956..89e6bca 100644
+--- a/src/components/Workspace.tsx
++++ b/src/components/Workspace.tsx
+@@ -23,6 +23,8 @@ import {
+ import { useStudio } from "../state/store";
+ import type { TabKind } from "../types";
+ import SqlWorksheet from "./SqlWorksheet";
++import AssistPanel from "./AssistPanel";
++import { useHarnessEnabled } from "../utils/useHarnessEnabled";
+ import DataBrowser from "./DataBrowser";
+ import ObjectEditor from "./ObjectEditor";
+ import TableDesigner from "./TableDesigner";
+@@ -79,6 +81,7 @@ const LAUNCHERS: { kind: TabKind; title: string; label: string }[] = [
+ ];
+ 
+ export default function Workspace() {
++  const harnessEnabled = useHarnessEnabled();
+   const s = useStudio();
+   const active = s.tabs.find((t) => t.id === s.activeTabId) ?? s.tabs[0];
+   const activeTabRef = useRef<HTMLDivElement>(null);
+@@ -97,6 +100,7 @@ export default function Workspace() {
+ 
+   return (
+     <div className="flex flex-col h-full min-w-0 bg-panel">
++      {harnessEnabled && s.accessRole === "Analyst" && <AssistPanel key={JSON.stringify(s.session)} text="" selection="" connectionId={s.activeConnId} schema="" editorId="analyst-documentation" onApply={() => {}} />}
+       <div className="flex items-center gap-2 px-2 py-1.5 border-b border-bdr shrink-0">
+         <select aria-label="Open tabs" value={active.id} onChange={(e) => s.setActiveTabId(e.target.value)} className="min-w-0 max-w-52 rounded border border-bdr bg-panel2 px-2 py-1 text-[12px]">
+           {s.tabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.title}{tab.dirty ? " •" : ""}</option>)}
+diff --git a/src/utils/assist.test.ts b/src/utils/assist.test.ts
+new file mode 100644
+index 0000000..4b4b8a8
+--- /dev/null
++++ b/src/utils/assist.test.ts
+@@ -0,0 +1,22 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { sseParser, answerEvent, emptyAnswer } from "./assist.ts";
++
++test("SSE frames survive every possible transport split and CRLF", () => {
++  const wire = 'event: delta\r\ndata: {"text":"é"}\r\n\r\nevent: done\ndata: {"outcome":"succeeded"}\n\n';
++  for (let split = 0; split <= wire.length; split++) {
++    const events: unknown[] = [];
++    const feed = sseParser(e => events.push(e));
++    feed(wire.slice(0, split)); feed(wire.slice(split));
++    assert.deepEqual(events, [{event: "delta", data: {text: "é"}}, {event: "done", data: {outcome: "succeeded"}}]);
++  }
++});
++test("cancelled answers cannot receive late deltas or proposals", () => {
++  const state = { ...emptyAnswer(), status: "cancelled" };
++  assert.equal(answerEvent(state, {event: "delta", data: {text: "late"}}), state);
++  assert.equal(answerEvent(state, {event: "proposal", data: {proposedText: "late"}}), state);
++});
++test("typed errors survive a terminal done event", () => {
++  const failed = answerEvent({...emptyAnswer(), status: "streaming"}, {event: "error", data: {code: "provider_failure", message: "Unavailable"}});
++  assert.equal(answerEvent(failed, {event: "done", data: {outcome: "failed"}}).status, "provider_failure: Unavailable");
++});
+diff --git a/src/utils/assist.ts b/src/utils/assist.ts
+new file mode 100644
+index 0000000..b46857d
+--- /dev/null
++++ b/src/utils/assist.ts
+@@ -0,0 +1,36 @@
++export interface AssistEvent { event: string; data: Record<string, unknown> }
++
++/** Incremental SSE decoder: retain incomplete frames, including split CRLF. */
++export function sseParser(emit: (event: AssistEvent) => void) {
++  let pending = "";
++  return (chunk: string) => {
++    pending += chunk;
++    let boundary: RegExpExecArray | null;
++    while ((boundary = /\r?\n\r?\n/.exec(pending))) {
++      const block = pending.slice(0, boundary.index);
++      pending = pending.slice(boundary.index + boundary[0].length);
++      let event = "message";
++      const data: string[] = [];
++      for (const line of block.split(/\r?\n/)) {
++        if (line.startsWith("event:")) event = line.slice(6).trim();
++        if (line.startsWith("data:")) data.push(line.slice(5).replace(/^ /, ""));
++      }
++      if (data.length) emit({ event, data: JSON.parse(data.join("\n")) as Record<string, unknown> });
++    }
++  };
++}
++
++export interface AnswerState {
++  status: string; text: string; provider: string; model: string; requestId: string;
++  proposal: Record<string, unknown> | null; updates: number;
++}
++export const emptyAnswer = (): AnswerState => ({ status: "ready", text: "", provider: "", model: "", requestId: "", proposal: null, updates: 0 });
++export function answerEvent(state: AnswerState, { event, data }: AssistEvent): AnswerState {
++  if (state.status === "cancelled") return state;
++  if (event === "start") return { ...state, requestId: String(data.requestId ?? ""), provider: String(data.provider ?? ""), model: String(data.model ?? "") };
++  if (event === "delta") return { ...state, text: state.text + String(data.text ?? ""), updates: state.updates + 1 };
++  if (event === "proposal") return { ...state, proposal: data };
++  if (event === "error") return { ...state, status: `${data.code}: ${data.message}` };
++  if (event === "done" && state.status === "streaming") return { ...state, status: String(data.outcome ?? "done") };
++  return state;
++}
+diff --git a/src/utils/useHarnessEnabled.ts b/src/utils/useHarnessEnabled.ts
+new file mode 100644
+index 0000000..acb0db1
+--- /dev/null
++++ b/src/utils/useHarnessEnabled.ts
+@@ -0,0 +1,15 @@
++import { useEffect, useState } from "react";
++
++/** Disabled integrations expose no assistance controls. */
++export function useHarnessEnabled() {
++  const [enabled, setEnabled] = useState(false);
++  useEffect(() => {
++    const controller = new AbortController();
++    void fetch("/api/ai/capabilities", { signal: controller.signal })
++      .then(response => response.ok ? response.json() : null)
++      .then(capabilities => setEnabled(capabilities?.enabled === true))
++      .catch(() => {});
++    return () => controller.abort();
++  }, []);
++  return enabled;
++}

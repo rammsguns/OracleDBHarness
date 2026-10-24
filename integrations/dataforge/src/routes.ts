@@ -18,6 +18,8 @@ export interface MinimalRequest {
 }
 
 export interface MinimalResponse {
+  readonly writableFinished?: boolean;
+  on(event: "close", listener: () => void): void;
   status(code: number): MinimalResponse;
   json(body: unknown): void;
   setHeader(name: string, value: string): void;
@@ -56,6 +58,15 @@ export function registerHarnessRoutes({ adapter, currentActor, router }: RouteOp
     response.json(await adapter.capabilities(actor));
   });
 
+  router.post("/api/ai/context-preview", async (request, response) => {
+    const actor = await currentActor(request);
+    if (!actor) { response.status(401).json({ error: "Sign in to DataForge first." }); return; }
+    const parsed = parseAssistRequest(request.body);
+    if ("error" in parsed) { response.status(400).json({ error: parsed.error }); return; }
+    try { response.json(await adapter.preview(actor, parsed.request)); }
+    catch (cause) { response.status(403).json({ error: (cause as Error).message }); }
+  });
+
   router.post("/api/ai/chat", async (request, response) => {
     const actor = await currentActor(request);
     if (!actor) {
@@ -70,7 +81,11 @@ export function registerHarnessRoutes({ adapter, currentActor, router }: RouteOp
     }
 
     const controller = new AbortController();
-    request.on("close", () => controller.abort());
+    // IncomingMessage close means the parsed request body is complete on Node 24.
+    // The response closes early when the streaming client disconnects.
+    response.on("close", () => {
+      if (!response.writableFinished) controller.abort();
+    });
 
     response.setHeader("Content-Type", "text/event-stream");
     response.setHeader("Cache-Control", "no-cache, no-transform");
@@ -81,6 +96,7 @@ export function registerHarnessRoutes({ adapter, currentActor, router }: RouteOp
 
     try {
       for await (const event of adapter.assist(actor, parsed.request, controller.signal)) {
+        if (controller.signal.aborted) break;
         response.write(`event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`);
         response.flush?.();
       }
@@ -165,6 +181,7 @@ export function parseAssistRequest(
       question: typeof body.question === "string" ? body.question : undefined,
       editorId,
       editorRevision,
+      editorText: typeof body.editorText === "string" ? body.editorText : undefined,
       conversationId:
         typeof body.conversationId === "string" ? body.conversationId : undefined,
     },

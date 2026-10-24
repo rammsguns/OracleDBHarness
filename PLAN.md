@@ -2516,9 +2516,13 @@ section 6 stays deferred.
   6/6 Playwright scenarios at local DataForge `6f3439a`; 159 visible renders,
   reviewed apply/stale refusal, recorded cancellation, actual outage with a
   successful D1 worksheet SELECT, and Analyst explain-only. See COMPATIBILITY.md.
-- [ ] **B3 NP-05 upstream.** Open a pull request on rammsguns/OracleDataForge with the
+- [x] **B3 NP-05 upstream.** Open a pull request on rammsguns/OracleDataForge with the
   adapter patch, rebased on its current HEAD, with its own tests passing. Merge only
   after its CI is green and an independent agent review passes.
+  Done 2026-10-24: [upstream PR #77](https://github.com/rammsguns/OracleDataForge/pull/77)
+  merged as `431147a` after green CI and an independent agy review (changes requested,
+  fixed, approved). Merged by Claude (AI agent, acting release owner, not a human). The
+  last fixes (disabled guards, SSE parsing, Assist hidden when disabled) are unit-tested only.
 - [ ] **B5 G3 canary rehearsal.** Register a test target (D4) under the production
   boundary (observation only, copilot and Kiwi off). Then:
   - run a compressed canary with DBA-style observation workflows on a schedule;

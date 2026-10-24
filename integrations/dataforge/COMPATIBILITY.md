@@ -2,6 +2,15 @@
 
 Nothing in this table is a certification. It records what has actually been run.
 
+## Current upstream status
+
+**merged upstream**: [PR #77](https://github.com/rammsguns/OracleDataForge/pull/77), branch
+`feat/harness-assist`, head `a40cf9c8a91046371e10598100f55021067624d6` on main
+`3404f1905da183e1903a35193a7d5b0df18d0870`, merged 2026-10-24 as `431147a5ff69a3aecbb9ee2d3906b62af428994c`
+by Claude (AI agent, acting release owner, not a human) after green CI and an
+independent agy review (CHANGES REQUESTED, fixed, then APPROVE). Earlier entries
+below preserve the exact commits and qualification boundaries of historical runs.
+
 ## Tested
 
 | Component | Version | How it was tested |
@@ -17,7 +26,7 @@ Nothing in this table is a certification. It records what has actually been run.
 
 | Component | Status |
 | --- | --- |
-| OracleDataForge completion | Pinned `3404f19` plus local patch commits through `51767c8`: B1c passed 16/16 real-route/backend checks with Oracle and the local model through shipped nginx on 2026-10-24, agent-qualified on test stand-ins (AI agent, not a human). Selected-text explain, cancellation and Analyst non-allowed action refusal pass; B1 found the action-enforcement security bug, fixed in the patch. B2 now passes 6/6 browser scenarios at local DataForge `6f3439a`; upstream and human qualification remain open. |
+| OracleDataForge completion | Pinned `3404f19` plus local patch commits through `51767c8`: B1c passed 16/16 real-route/backend checks with Oracle and the local model through shipped nginx on 2026-10-24, agent-qualified on test stand-ins (AI agent, not a human). Selected-text explain, cancellation and Analyst non-allowed action refusal pass; B1 found the action-enforcement security bug, fixed in the patch. B2 now passes 6/6 browser scenarios at local DataForge `6f3439a`. Upstream: merged into DataForge main as `431147a` (PR #77, B3); its last review fixes are unit-tested only. Human qualification remains open. |
 | Oracle 19c | D1 19.9.1.0.0 bootstrapped/probed in B1c: selected-text explain succeeds with unchanged DataForge connections, harness target/profile registry and D1 DataForge/node sessions. Live EXPLAIN PLAN through this integration is not a feature: no bridge exists, by design. D2 23.26.3.0.0 worksheet/compile regression passed through harness HTTP; see B1 below and [harness evidence](../../docs/compatibility.md). |
 | A real model provider | B1 exercised the real local `qwen3.8-flash-next-iq3_s` provider through DataForge and nginx. Anthropic and other hosted providers remain untested through this integration. |
 | Proxy coverage beyond shipped nginx | A6 exercised real DataForge routes and chunk delivery through the shipped nginx config. Other deployment proxies, compression settings, ALBs and CDNs remain untested. |
@@ -33,7 +42,7 @@ NP-05 completion is open (human-owned). A6 is agent-qualified on test stand-ins
 - Human/editor demonstration of explaining a selected statement without a second
   Oracle connection; B1c passes the real backend/route check with unchanged registries
   and D1 DataForge/node sessions. Live EXPLAIN PLAN has no integration bridge, by design.
-- Upstream integration beyond the local adapter/UI commits; B2 passes six browser scenarios and DataForge's 289 tests, typecheck and build.
+- Live re-run of the final upstream head: PR #77 merged as `431147a` (B3), but its post-B2 fixes (disabled guards, SSE parsing, Assist hidden when disabled, resolver version) are unit-tested only; B2 passed six browser scenarios at `6f3439a`.
 - DataForge editor/UI regression for worksheet, compilation and confirmation dialogs; B1c passed harness HTTP worksheet/compile and backend confirmation refusal. Harness viewers intentionally receive supplied-text assistance and are refused worksheet/compile; DataForge Analyst non-allowed action refusal now passes after the B1c patch fix.
 - Broader editor/UI coverage beyond the six B2 scenarios; B1c passed typed partial-provider failure through real routes, and B2 verifies visible cancellation plus its harness record.
 
@@ -258,3 +267,41 @@ The pre-existing Oracle stand-ins and shared model were retained.
 Not exercised here: human or production qualification, upstream integration,
 compile/confirmation UI, hosted providers, or other proxies. B1's backend
 worksheet/compile/confirmation evidence remains separate.
+
+### 2026-10-24, upstream PR preparation (B3)
+
+PR #77 and its head are recorded above. All eight original feature/fix commits were
+preserved as a reviewable series and missing co-author trailers normalized; two
+additional commits document/gate opt-in behavior and add adapter regression checks.
+The resolver no longer claims a hard-coded Oracle version. Disabled installations
+hide assistance controls; invalid configuration is logged without URL/credential
+contents. No live database or model calls were made for this preparation.
+
+Local DataForge checks: `npm ci`, `npm test` (**292 passed**), `npm run typecheck`
+and `npm run build` passed, covering every command in its CI workflow. Build emits
+the existing large-chunk advisory. Harness checks: `pytest -q tests/test_dataforge_real.py`
+**7 passed**; Node adapter tests **39 passed, 4 live-launcher-only skips**;
+adapter TypeScript check, `ruff check` and `ruff format --check` passed.
+
+The spike patch is refreshed to the exact diff against upstream main, preserving
+the existing pinned-checkout reproduction workflow rather than replacing it with
+an online-only pointer. It includes no machine paths, credentials or live bench
+configuration. Upstream CI passed (build job, run `40121765646`); the independent review and merge followed (below). No human sign-off is claimed.
+
+### 2026-10-24, B3b independent review fixes
+
+PR #77 head `a40cf9c8a91046371e10598100f55021067624d6` adds the missing disabled apply-check
+guard and aligns server SSE parsing with CRLF boundaries, multiline data and
+comment handling. Unit tests cover all four public adapter methods refusing
+network access while disabled, every stream chunk split, and the existing
+behavior of dropping unterminated trailing events.
+
+The two post-B2 changes (Assist hidden when disabled; the resolver no longer
+hard-codes the Oracle version) and these review fixes were not re-run live
+against the Oracle stand-ins; they are covered by unit tests only. DataForge:
+300 tests passed, typecheck and build passed (existing large-chunk advisory).
+Harness Node suite: 47 passed and 4 live-launcher-only skips.
+Harness `ruff check` and `ruff format --check` passed (394 files);
+`pytest -q tests/test_dataforge_real.py` passed all 7 tests. Upstream CI
+build passed in run `40122712957`. The agy re-review approved, and PR #77 was merged
+as `431147a5ff69a3aecbb9ee2d3906b62af428994c` by Claude (AI agent, acting release owner, not a human).
