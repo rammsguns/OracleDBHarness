@@ -9,7 +9,7 @@ import secrets
 import subprocess
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -40,6 +40,7 @@ class RealRunReport:
     checks: list[CheckResult]
     ok: bool
     summary: str
+    environment: dict[str, Any] = field(default_factory=dict)
 
     def to_json(self) -> str:
         payload = {
@@ -50,6 +51,7 @@ class RealRunReport:
             "protocolVersion": self.protocol_version,
             "ok": self.ok,
             "summary": self.summary,
+            "environment": self.environment,
             "checks": [
                 {
                     "name": c.name,
@@ -83,7 +85,9 @@ class RealRunReport:
             status = "PASS" if c.ok else "FAIL"
             escaped_detail = c.detail.replace("|", "\\|").replace("\n", " ")
             lines.append(f"| {c.name} | {status} | {c.duration_ms:.1f} | {escaped_detail} |")
-        lines.append("")
+        lines.extend(
+            ["", "## Environment", "", "```json", json.dumps(self.environment, indent=2), "```", ""]
+        )
         return "\n".join(lines)
 
 
@@ -140,7 +144,12 @@ class DataForgeProcess:
                     f"DataForge process exited early (code {self._proc.returncode}). Log:\n{self.log()}"
                 )
             try:
-                resp = httpx.get(f"{self.base_url}/api/health", timeout=1.0)
+                auth_token = self.extra_env.get("DATAFORGE_AUTH_TOKEN")
+                resp = httpx.get(
+                    f"{self.base_url}/api/health",
+                    timeout=1.0,
+                    auth=("dataforge", auth_token) if auth_token else None,
+                )
                 if resp.status_code == 200:
                     return
             except httpx.TransportError:

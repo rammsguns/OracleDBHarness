@@ -180,6 +180,8 @@ function createDataForgeStandIn(
         },
       };
       const minimalResponse: MinimalResponse = {
+        get writableFinished() { return response.writableFinished; },
+        on: (event, listener) => { response.on(event, listener); },
         status(code) {
           response.statusCode = code;
           return minimalResponse;

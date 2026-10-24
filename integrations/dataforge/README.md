@@ -7,6 +7,16 @@ The code here is written to be copied or vendored into the DataForge repository.
 has no runtime dependencies, and its Express types are structural, so it drops into
 the existing app without changing DataForge's stack.
 
+## Upstream status
+
+**merged upstream**: [OracleDataForge PR #77](https://github.com/rammsguns/OracleDataForge/pull/77),
+head `a40cf9c8a91046371e10598100f55021067624d6`, merged into DataForge main as
+`431147a5ff69a3aecbb9ee2d3906b62af428994c` on 2026-10-24 after green CI and an independent agent review.
+The vendored `src/*.ts` matches this PR. The refreshed
+`spike/dataforge-3404f19.patch` is the exact binary-capable diff from upstream main
+to that head; retaining it preserves the existing pinned-checkout reproduction path.
+Prefer the PR branch when reviewing history. No live suite was rerun for B3.
+
 ## What each side owns
 
 | Owns | DataForge | OracleDBHarness |
@@ -39,8 +49,7 @@ against a DataForge connection.
    database execution, no harness target access, and no harness administration. A
    DataForge Administrator does not become a harness Administrator.
 
-3. **Configure DataForge.** These are new settings to add; they are not existing
-   DataForge environment variables:
+3. **Configure DataForge.** The upstream PR reads these server-side settings (disabled by default):
 
    ```
    DATAFORGE_HARNESS_ENABLED=true
@@ -133,13 +142,13 @@ role filtering, context sanitising, and the browser-supplied-field refusals.
 
 To run integration checks against a real OracleDataForge Express server:
 
-1. Clone `rammsguns/OracleDataForge` and apply the adapter spike patch:
+1. Clone `rammsguns/OracleDataForge` and apply the pinned PR diff:
 
    ```bash
    git clone https://github.com/rammsguns/OracleDataForge /path/to/dataforge
    git -C /path/to/dataforge checkout 3404f1905da183e1903a35193a7d5b0df18d0870
    git -C /path/to/dataforge apply integrations/dataforge/spike/dataforge-3404f19.patch
-   npm --prefix /path/to/dataforge install
+   npm --prefix /path/to/dataforge ci
    ```
 
 2. Run the integration runner against a disposable harness:
@@ -163,17 +172,46 @@ capability negotiation (`GET /api/ai/capabilities`), streaming assist with SSE c
 (`POST /api/ai/chat`), proposal apply verification (stale rejection and reviewable match),
 harness outage and disabled mode fallback, and invalid token and incompatible protocol refusal.
 
-## Not done yet
+### B1: Oracle test targets and the local model
 
-This is the adapter side of a two-repository change. The DataForge repository still
-needs:
+The Oracle mode selects only `load-db-1` (D1) and `load-db-2` (D2), both as
+`harness_app`, from the capacity configuration. It starts disposable PostgreSQL,
+provisions a credential-free manifest with `scripts/bootstrap_targets.py`, starts
+the thin `oracledb` backend and places it behind `deploy/nginx.conf` in
+`nginx:1.27-alpine`. The local provider must already report the requested
+`qwen3.8-flash-next-iq3_s` model healthy at `http://127.0.0.1:8080/health`.
+Its key is copied privately from `/home/kiwi/llm-rig/strata/.config/strata/api-key`
+and registered as a file-backed `copilot_api_key_ref`; it is never a command argument.
 
-- Independent worksheet buffers with stable revisions. The inspected state store
-  shares one SQL buffer across tabs, which has to be fixed before named-editor apply
-  actions are safe.
-- The settings screen and status indicator described above.
-- A `resolveContextForActor` implementation over its existing authorization helpers,
-  extracted rather than called through an internal HTTP request with a shared
-  administrator credential.
+```bash
+mkdir -p /home/kiwi/.cache/harness-capacity-tmp
+TMPDIR=/home/kiwi/.cache/harness-capacity-tmp \
+UV_CACHE_DIR=/home/kiwi/.cache/harness-uv \
+uv run python -m tests.dataforge_live dataforge \
+  --backend oracledb --targets databases/capacity/a2-run.json \
+  --dataforge-dir /home/kiwi/harness-drills/dataforge \
+  --report databases/reports/2026-10-24-b1-dataforge-oracle.md
+```
 
-See `COMPATIBILITY.md` for what has and has not been tested.
+Docker bind mounts require this daemon-visible `TMPDIR` on the test host. The
+runner serializes model calls, injects a malformed SSE frame only after a real
+provider delta for the partial-response check, and removes its containers,
+processes, temporary secrets and owned D2 table/procedure when finished. It
+returns nonzero for failed checks and preserves them in Markdown and JSON.
+Worksheet, compilation, confirmation and viewer-principal regression checks use
+harness HTTP routes while DataForge is running; they do not claim DataForge UI
+coverage. The setup timer starts after both applications and nginx are healthy,
+and ends after consuming the first successful assist's terminal event; its exact
+included and excluded steps are recorded in the report.
+
+## Remaining qualification
+
+PR #77 supplies the worksheet Assist panel, outgoing context preview, status,
+cancellation and reviewed buffer apply. Analysts have an explain-only documentation
+panel. Context currently includes supplied text only, without schema expansion or
+an Oracle version probe. Integration settings remain server-side.
+
+B1 passed 16/16 backend checks and B2 passed 6/6 Playwright scenarios on Oracle
+19c/23ai test stand-ins, agent-qualified (AI agents, not human sign-off). Upstream
+review/merge, a human pilot, hosted providers, other proxies, compile/confirmation
+UI and production qualification remain open. See `COMPATIBILITY.md`.

@@ -2478,3 +2478,59 @@ Tasks, one at a time:
     identity/DataForge evidence, administrative audit, environment labels, cache and
     keepalive settings. NP-04/K-7 remains not met; human gates stay open and production
     gates blocked, with section 6 writes deferred and no pilot/production qualification.
+
+## B. Agent stand-ins, second round — 2026-10-24
+
+On 2026-10-24 the user asked to continue "use agents instead humans, use databases if
+you need". Roles and rules are those of section A: Claude coordinates and acts as DBA,
+application owner, integration owner and release owner; codex and agy implement and
+review through Orca. All of these are AI agents, not humans.
+
+Results are agent-rehearsed or agent-qualified on test stand-ins only. No production
+access is used, no fleet facts are invented, no named human sign-off is claimed, and
+section 6 stays deferred.
+
+- [ ] **B4 G5 driver-upgrade rehearsal.** In a separate worktree, move python-oracledb
+  from 4.0.2 to 26.0.1. Then:
+  - re-run A3's six qualification profiles (D1, D2, D4; thin and thick);
+  - run the capacity main run.
+  If everything passes, the acting DBA records an ADR to move the P4 pin. Otherwise
+  record the failures and keep 4.0.2.
+- [x] **B1 NP-05 Oracle and a real provider through DataForge.** Extend the A6 real
+  runner so the harness behind the deployed proxy uses the oracledb backend on the D1 and
+  D2 test profiles, and the local model on this host as its copilot provider. Then show:
+  - context, streaming, stale and reviewed diffs, and outages;
+  - explaining a selected statement without registering a second Oracle connection;
+  - worksheet commit and rollback, compilation, role restrictions and confirmations,
+    unchanged;
+  - cancellation and partial responses;
+  - a measured setup time.
+  Done 2026-10-24, agent-qualified on test stand-ins (AI agent, not a human): 16/16 checks
+  in B1c, setup 10.9 s scripted. B1 found and fixed two DataForge patch bugs: client abort
+  not passed upstream, and Analyst action filter not enforced on submit. See
+  integrations/dataforge/COMPATIBILITY.md.
+- [x] **B2 NP-05 editor/UI.** Drive DataForge's own UI with the adapter in a browser
+  (Playwright): the assist panel, a streamed answer, a diff review, cancellation and an
+  outage message.
+  Done 2026-10-24, agent-qualified on test stand-ins (AI agent, not a human):
+  6/6 Playwright scenarios at local DataForge `6f3439a`; 159 visible renders,
+  reviewed apply/stale refusal, recorded cancellation, actual outage with a
+  successful D1 worksheet SELECT, and Analyst explain-only. See COMPATIBILITY.md.
+- [x] **B3 NP-05 upstream.** Open a pull request on rammsguns/OracleDataForge with the
+  adapter patch, rebased on its current HEAD, with its own tests passing. Merge only
+  after its CI is green and an independent agent review passes.
+  Done 2026-10-24: [upstream PR #77](https://github.com/rammsguns/OracleDataForge/pull/77)
+  merged as `431147a` after green CI and an independent agy review (changes requested,
+  fixed, approved). Merged by Claude (AI agent, acting release owner, not a human). The
+  last fixes (disabled guards, SSE parsing, Assist hidden when disabled) are unit-tested only.
+- [ ] **B5 G3 canary rehearsal.** Register a test target (D4) under the production
+  boundary (observation only, copilot and Kiwi off). Then:
+  - run a compressed canary with DBA-style observation workflows on a schedule;
+  - check the audit records and the database cost (session and SQL statistics) on each
+    pass, against a budget set beforehand;
+  - drill the failure gate: disable the target, revoke the harness grants or lock the
+    account, verify that access is refused, and restore.
+  Record the result as agent-rehearsed. G3 itself stays blocked until there is a real
+  production target.
+- [ ] **B6 Documentation.** Reconcile the README, the gate status table and the
+  compatibility docs with B1–B5.
