@@ -378,6 +378,18 @@ access is refused. Retain the incident and recovery evidence. This is the
 PLAN.md G3 rollback order: disable, revoke/lock, verify refusal, retain
 evidence.
 
+The B5 test-stand-in rehearsal tool is `uv run python -m tests.canary.rehearsal`
+(default six passes, five minutes apart; `--passes` and `--interval` configure it).
+The current app has no target-disable endpoint; running the tool requires explicit
+acceptance of its grant-based disable deviation with `--disable-via-read-grants`.
+`--observe-only` runs the scheduled reads without DCL; `--drill-only` retains
+those pass results and runs the rollback drill. See the dated B5 section in
+[compatibility.md](compatibility.md) for the budget, measurements and deviations.
+It waits for the B4 D4 gate before connecting, writes its budget and evidence under
+`databases/reports/2026-10-24-b5-canary/`, and uses a disposable PostgreSQL/API.
+This is agent-rehearsed on a test stand-in (AI agent, not a human), with local dev
+authentication as an explicit deviation from OIDC; it does not qualify G3.
+
 ## Production fleet discovery
 
 A8 prepared the observation-only [fleet-discovery runbook](fleet-discovery.md) and

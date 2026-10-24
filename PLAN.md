@@ -2527,7 +2527,7 @@ section 6 stays deferred.
   merged as `431147a` after green CI and an independent agy review (changes requested,
   fixed, approved). Merged by Claude (AI agent, acting release owner, not a human). The
   last fixes (disabled guards, SSE parsing, Assist hidden when disabled) are unit-tested only.
-- [ ] **B5 G3 canary rehearsal.** Register a test target (D4) under the production
+- [x] **B5 G3 canary rehearsal.** Register a test target (D4) under the production
   boundary (observation only, copilot and Kiwi off). Then:
   - run a compressed canary with DBA-style observation workflows on a schedule;
   - check the audit records and the database cost (session and SQL statistics) on each
@@ -2536,5 +2536,9 @@ section 6 stays deferred.
     account, verify that access is refused, and restore.
   Record the result as agent-rehearsed. G3 itself stays blocked until there is a real
   production target.
+  Done 2026-10-24, agent-rehearsed on a test stand-in (AI agent, not a human): 6/6 passes on
+  D4 within the pre-set budget (peak 1 session, 1.3 s SQL, 105k buffer gets, 16 executions);
+  every request audited, writes refused; drill revoke -> lock (ORA-28000) -> restore verified.
+  Found: no target-disable endpoint, and the connection test ignores grant permissions (B7).
 - [ ] **B6 Documentation.** Reconcile the README, the gate status table and the
   compatibility docs with B1–B5.

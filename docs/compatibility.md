@@ -25,7 +25,7 @@ Nothing is pilot- or production-qualified. Section 6 production writes remain de
 | NP-08 reconciliation | agent-qualified on test stand-ins (AI agent, not a human) | A9: documentation reconciled with section A; no human acceptance implied. |
 | G1 | open (human-owned) | Agent role assignment does not supply named human owners and dates. |
 | G2 | open (human-owned) | A7 independent AI reviews and C-1/C-2 fixes do not replace named human security review and DBA approval. |
-| G3 | blocked (no production access) | No production canary. |
+| G3 | blocked (no production access) | No production canary; rehearsed on D4 (B5), with grant-based disabling. |
 | G4 | blocked (no production access) | No production expansion. |
 | G5 / P4 | agent-qualified on test stand-ins (AI agent, not a human) | B4: 26.0.1 six-profile rerun and capacity main/soak passed; ADR-0015 moves the pin. Production promotion and fleet qualification remain blocked (no production access). |
 | P5 | blocked (no production access) | A8 discovery tool/runbook tried only on D1/D2/D4; no production fleet facts. |
@@ -1808,3 +1808,115 @@ Observed Oracle behaviour:
 | Process death during a read | API process 2011944 ended with SIGKILL at `statement_returned`. Dead session 48,48591 cleaned up after 0.4s (the session left V$SESSION and its row lock was free). Restart recorded `failed` with no verification required. |
 | Process death during a write (applied, uncommitted, answer not recorded) | API process 2011977 ended with SIGKILL at `statement_returned`. Dead session 48,39735 cleaned up after 0.4s (the session left V$SESSION and its row lock was free). Restart recorded `outcome_unknown` with verification required. The independent session read salary 11500 (was 11500): Oracle rolled the dead session's transaction back. Recorded finding `not_applied`. |
 | Process death while a write waits inside the database | API process 2012074 ended with SIGKILL at `statement_sent`. Dead session 48,17694 cleaned up after 0.5s (the session left V$SESSION and its row lock was free). The session was waiting on `enq: TX - row lock contention (blocked by SID 26)` when killed; immediately after the kill V$SESSION still showed it as {'status': 'ACTIVE', 'blockingSession': 26, 'event': 'enq: TX - row lock contention', 'module': 'OracleDBHarness'}. After the lock was released the independent session read salary 11500 (was 11500). Restart recorded `outcome_unknown`. |
+
+### B5 G3 canary rehearsal, 2026-10-24
+
+**agent-rehearsed on a test stand-in (AI agent, not a human).** This rehearsal
+uses D4, the remote Oracle 19c test stand-in, under Claude's dispatch as acting
+DBA and release owner; Codex built and ran the tool. **G3 stays blocked: there
+is no production target or production canary.** PLAN.md B5 remains for Claude to
+review and mark.
+
+The tool is `uv run python -m tests.canary.rehearsal`. It creates a disposable
+PostgreSQL store and local HTTP API with environment `production`, copilot and
+Kiwi off, python-oracledb thin mode, one worker, and a production target with
+`worksheetsEnabled=false` and `mutatingRunbooksEnabled=false`. Three DBA-role
+principals receive only the `read` permission and rotate through the passes.
+B4's `CAPDONE` marker was observed before any D4 connection. No marker tables or
+other workload objects are created.
+
+The budget is written to the ignored JSON/Markdown report before connecting:
+
+| D4 cost per pass | Ceiling |
+| --- | ---: |
+| Harness sessions | 2 |
+| Cumulative harness SQL elapsed time | 30 seconds |
+| Buffer gets | 1,000,000 |
+| Executions | 200 |
+
+A2 measured D4 schema enumeration at 1.1–1.3 seconds, with about 1.1 seconds of
+connection overhead, metadata p95 of 2517 ms, and some 30-second probe timeouts.
+Those results support a small sequential observation workload, one worker and
+an aggregate SQL ceiling of 30 seconds, rather than another saturation run.
+The buffer-get and execution ceilings are provisional conservative limits;
+A2 did not publish those counters, so they are not presented as A2 measurements.
+Sessions are polled with a 250 ms pause plus remote query latency; short peaks
+can escape sampling. `v$sql` deltas include every `HARNESS_APP` parsing-schema
+cursor and exclude the acting DBA. Cursor identity includes SQL ID, child number,
+child address and first-load time; aging or counter reset fails verification.
+
+The nine HTTP requests per pass cover schema/object browsing, the DBA overview
+(sessions, blocking, tablespaces, invalid objects and scheduler observations),
+cached SQL statistics and plans, and the read-only health-report runbook.
+Worksheet opening, estimated explain (which writes PLAN_TABLE), and a mutating
+statistics runbook must all return `policy_refused`. Fresh audit records must
+identify the principal, target and expected outcome for every workflow request.
+No SQL text, query rows, passwords or tokens are retained in the report.
+
+Deviations are explicit: local dev authentication and loopback HTTP replace
+OIDC/deployed TLS, and six passes with five-minute pauses replace the proposed
+two-week production canary and human DBA sign-off. The app has no dedicated
+target-disable endpoint. The rehearsal therefore uses the existing admin grants
+API to revoke the application target grant for **every** principal on its disposable target,
+then verifies that both object reads and connection tests are refused; it restores
+read-only grants in `finally`. This tests
+grant-based disabling, not a persistent target-suspension feature. The account
+lock preserves the Oracle grants and avoids revoke/re-grant ambiguity.
+
+The live commands separate the observations and rollback drill:
+
+```sh
+uv run python -m tests.canary.rehearsal --observe-only
+uv run python -m tests.canary.rehearsal --drill-only --disable-via-read-grants
+```
+
+A combined run uses `--disable-via-read-grants`; `--passes` and `--interval`
+configure the pass count and pause. Reports and prior-attempt evidence are kept
+in `databases/reports/2026-10-24-b5-canary/` (git-ignored).
+
+**Result: compressed observations and rollback drill completed with the deviations above.**
+
+| Pass / DBA | Start UTC | Sessions | SQL seconds | Buffer gets | Executions | Audit records |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 1 / dba-1 | 21:30:23 | 1 | 1.321115 | 104,694 | 16 | 19 |
+| 2 / dba-2 | 21:35:53 | 1 | 1.156015 | 104,676 | 16 | 19 |
+| 3 / dba-3 | 21:41:23 | 1 | 1.078104 | 104,676 | 16 | 19 |
+| 4 / dba-1 | 21:46:53 | 1 | 1.055621 | 104,676 | 16 | 19 |
+| 5 / dba-2 | 21:52:23 | 1 | 1.153126 | 104,676 | 16 | 19 |
+| 6 / dba-3 | 21:57:53 | 1 | 1.022112 | 104,676 | 16 | 19 |
+
+All 54 workflow requests had matching fresh audit evidence: 114 records in total,
+including all 18 expected production write refusals. No pass exceeded any budget.
+The worst pass used 1/2 sessions, 1.321115/30 SQL seconds, 104,694/1,000,000 buffer
+gets and 16/200 executions. The complete six-pass run had no incidents.
+
+Failure-gate timeline (UTC), retained in `report.json` and `report.md`:
+
+| Time | Evidence |
+| --- | --- |
+| 21:59:06 | All four application target grants revoked through the admin API; object reads and connection tests both returned audited HTTP 403 `not_authorized`. |
+| 21:59:07 | Acting DBA locked `HARNESS_APP`; both harness paths remained refused with typed, audited errors. |
+| 21:59:08 | A direct harness-account login was refused with `ORA-28000`. |
+| 21:59:09 | `finally` unlocked the account through a fresh DBA connection and restored all four read-only application grants. |
+| 21:59:16 | Account status verified `OPEN`; Oracle role/system/object grants matched their pre-drill snapshot; direct `SELECT 1` worked; all three DBA principals completed harness reads with three fresh successful audit records. |
+
+No restoration failure occurred. The disposable PostgreSQL containers and API/runner
+processes were removed, with no canary processes or containers remaining. No Oracle
+grants were revoked: account locking preserved them, and the only Oracle DCL was
+`ALTER USER harness_app ACCOUNT LOCK` / `ACCOUNT UNLOCK`.
+
+Two preliminary runner failures are retained in the ignored prior-attempt reports:
+the shell-style `$REPO` password-file path was initially unresolved, and an idle DBA
+measurement connection broke before pass 2. Safe assignment parsing and a fresh DBA
+connection per pass plus keepalive fixed them. Neither preliminary attempt issued
+account DCL. The rehearsal also found that retaining an empty-permission grant still
+allows connection-test probing; the drill therefore deletes grants rather than only
+clearing permissions. Missing-grant target access denials now produce refusal audit
+records; offline object/probe regressions and the live drill verify that coverage.
+
+This is a test-stand-in rehearsal, not a production qualification or DBA sign-off.
+G3 remains blocked, and PLAN.md B5 is left unchecked for Claude's review.
+
+Verification: `pytest -q tests/unit` passed **787 tests, 7 skipped**; repository-wide
+Ruff checks and format checks passed, and the CI mypy command passed with
+`tests/canary` added to its module list.
