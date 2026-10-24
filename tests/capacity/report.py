@@ -301,7 +301,8 @@ class CapacityReport:
             f"Sessions replaced: {self.sessions_replaced}",
             "",
             f"Verification: {v.committed} committed, {v.rolled_back} rolled back, {v.unknown} unknown "
-            f"markers; {v.probes} cross-user probes; {len(v.contaminations)} contamination(s), "
+            f"markers, {v.abandoned} abandoned; {v.probes} cross-user probes; "
+            f"{len(v.contaminations)} contamination(s), "
             f"{len(v.lost_commits)} lost commit(s), {len(v.leaked_sessions)} leaked session(s).",
         ]
         for heading, items in (

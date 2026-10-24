@@ -36,6 +36,7 @@ class Sample:
     server_ms: float | None = None
     db_ms: float | None = None
     note: str = ""
+    seq: int | None = None
 
 
 def percentile(values: list[float], fraction: float) -> float | None:
@@ -110,8 +111,9 @@ def recovered_after(
     """Seconds into the recovery phase after which every window meets the steady thresholds.
 
     Windows are 60 seconds, evaluated every 10 seconds. Each kind must have a passing
-    p95 in the window; an absent kind may borrow successful samples from the immediately
-    following non-overlapping window (bounded by the recovery phase). Empty windows and
+    p95 in the window; only a kind with zero samples (successful or failed) may borrow
+    successes from the immediately following non-overlapping window, bounded by recovery.
+    A kind with samples but no successes fails the window. Empty windows and
     error-rate breaches always fail; borrowed samples must also meet the p95 threshold.
     ``None`` means it never recovered within the phase, including a phase too short to
     hold a single window.
@@ -136,7 +138,7 @@ def recovered_after(
             return False
         for kind, limit in thresholds.latency_ms.items():
             p95 = percentile([s.client_ms for s in chosen if s.kind == kind and s.ok], 0.95)
-            if p95 is None:
+            if not any(s.kind == kind for s in chosen):
                 p95 = percentile(
                     [
                         s.client_ms
@@ -180,6 +182,8 @@ class Verification:
     committed: int = 0
     rolled_back: int = 0
     unknown: int = 0
+    abandoned: int = 0
+    unknown_commit_markers: list[tuple[str, str, int]] = field(default_factory=list)
     probes: int = 0
 
 
@@ -276,12 +280,15 @@ def evaluate(
                 criterion.measured = "not applicable (steady-only soak)"
                 criterion.passed = None
 
-    unknown = sum(1 for s in samples if s.code == "outcome_unknown")
+    api_unknown = [s for s in samples if s.code == "outcome_unknown"]
+    api_markers = {(s.target, s.user, s.seq) for s in api_unknown if s.seq is not None}
+    ledger_unknown = len(set(verification.unknown_commit_markers) - api_markers)
+    unknown = len(api_unknown) + ledger_unknown
     criteria.append(
         Criterion(
             "outcome_unknown results",
             f"<= {thresholds.max_outcome_unknown}",
-            str(unknown),
+            f"{unknown} ({len(api_unknown)} API + {ledger_unknown} ledger-only unknown commits)",
             unknown <= thresholds.max_outcome_unknown,
         )
     )

@@ -575,6 +575,7 @@ def test_capacity_declared_phases_run_and_soak_can_pass(monkeypatch, steady_only
         assert phase_criteria[-1].passed is False
 
 
+@pytest.mark.parametrize("marker_present", [True, False])
 @pytest.mark.parametrize("commit", [True, False])
 @pytest.mark.parametrize("stage", ["insert", "end"])
 @pytest.mark.parametrize(
@@ -588,7 +589,9 @@ def test_capacity_declared_phases_run_and_soak_can_pass(monkeypatch, steady_only
         (200, "outcome_unknown", True),
     ],
 )
-def test_capacity_transaction_outcomes(monkeypatch, commit, stage, status, code, unknown):
+def test_capacity_transaction_outcomes(
+    monkeypatch, commit, stage, status, code, unknown, marker_present
+):
     run = _measurement_run()
     user = run.users[run.order[0]]
     target = run.workload.targets[0]
@@ -608,9 +611,13 @@ def test_capacity_transaction_outcomes(monkeypatch, commit, stage, status, code,
     monkeypatch.setattr(user, "request", request)
     sample = run._transaction("steady", user, target, 0, commit)
     key = (target.name, user.subject)
-    assert run.ledger.unknown.get(key, set()) == ({1} if unknown else set())
+    ambiguous_commit = unknown and stage == "end" and commit
+    abandoned = unknown and not ambiguous_commit
+    assert run.ledger.unknown_commit.get(key, set()) == ({1} if ambiguous_commit else set())
+    assert run.ledger.abandoned.get(key, set()) == ({1} if abandoned else set())
     assert run.ledger.rolled_back.get(key, set()) == (set() if unknown else {1})
     assert not run.ledger.committed
+    assert sample.seq == 1
     assert sample.code == code
     assert sample.note == "API detail"
     assert not sample.ok
@@ -619,7 +626,7 @@ def test_capacity_transaction_outcomes(monkeypatch, commit, stage, status, code,
 
     # Simulate a server-side commit despite the lost response. Unknown markers are
     # allowed present or absent, even if an older ledger also called one rolled back.
-    if unknown:
+    if ambiguous_commit:
         run.ledger.add(run.ledger.rolled_back, target.name, user.subject, 1)
     monkeypatch.setattr(user, "_open", lambda t: t.name)
 
@@ -628,21 +635,28 @@ def test_capacity_transaction_outcomes(monkeypatch, commit, stage, status, code,
         if statement == target.sql["listMarkers"]:
             rows = (
                 [[1]]
-                if unknown and session == target.name and binds["user_name"] == user.subject
+                if marker_present
+                and unknown
+                and session == target.name
+                and binds["user_name"] == user.subject
                 else []
             )
         return Response(200, {"outcome": {"resultSet": {"rows": rows}}}, 0)
 
     monkeypatch.setattr(user, "execute", verify_execute)
     run.verify()
-    assert run.verification.unknown == int(unknown)
-    assert not run.verification.contaminations
+    assert run.verification.unknown == int(ambiguous_commit)
+    assert run.verification.abandoned == int(abandoned)
+    if abandoned and marker_present:
+        assert any("abandoned marker 1" in item for item in run.verification.contaminations)
+    else:
+        assert not run.verification.contaminations
     assert not run.verification.lost_commits
     for client in run.users.values():
         client.http.close()
 
 
-def test_capacity_refusal_with_failed_rollback_remains_unknown(monkeypatch):
+def test_capacity_refusal_with_failed_rollback_is_abandoned(monkeypatch):
     run = _measurement_run()
     user = run.users[run.order[0]]
     target = run.workload.targets[0]
@@ -662,7 +676,7 @@ def test_capacity_refusal_with_failed_rollback_remains_unknown(monkeypatch):
         ),
     )
     run._transaction("steady", user, target, 0, True)
-    assert run.ledger.unknown[(target.name, user.subject)] == {1}
+    assert run.ledger.abandoned[(target.name, user.subject)] == {1}
     assert not run.ledger.rolled_back
     assert "transaction" in user.retired_sessions
     for client in run.users.values():
@@ -758,3 +772,75 @@ def test_capacity_forget_closes_before_removing(monkeypatch, status, code):
     assert target.name not in user.sessions
     for client in run.users.values():
         client.http.close()
+
+
+@pytest.mark.parametrize("failure", ["error", "truncated"])
+def test_capacity_incomplete_page_only_reports_losses_in_read_ranges(monkeypatch, failure):
+    run = _measurement_run()
+    user = run.users[run.order[0]]
+    target = run.workload.targets[0]
+    for _ in range(150):
+        seq = run.sequence.take(user.subject)
+        run.ledger.add(run.ledger.committed, target.name, user.subject, seq)
+    monkeypatch.setattr(user, "_open", lambda target: target.name)
+    monkeypatch.setattr(user, "request", lambda *args: Response(200, {}, 0))
+
+    def execute(session, statement, binds=None, **limits):
+        if statement == target.sql["listMarkers"]:
+            if binds["lo"] > 1:
+                if failure == "error":
+                    return Response(500, {"error": {"code": "internal_error"}}, 0)
+                return Response(200, {"outcome": {"resultSet": {"truncated": True}}}, 0)
+            # The first page is fully read, but marker 1 really is absent.
+            rows = (
+                [[n] for n in range(2, binds["hi"] + 1)]
+                if session == target.name and binds["user_name"] == user.subject
+                else []
+            )
+        else:
+            rows = [[0]]
+        return Response(200, {"outcome": {"resultSet": {"rows": rows}}}, 0)
+
+    monkeypatch.setattr(user, "execute", execute)
+    run.verify()
+    assert run.verification.incomplete
+    assert run.verification.lost_commits == [
+        f"committed marker 1 of {user.subject} is missing from {target.name}"
+    ]
+    for client in run.users.values():
+        client.http.close()
+
+
+def test_capacity_unknown_criterion_counts_ledger_only_and_deduplicates_identity():
+    workload = load(EXAMPLE_WORKLOAD)
+    samples = [
+        metrics.Sample("steady", "transaction", "u", "t", 0, 1, False, "outcome_unknown", seq=1),
+        metrics.Sample(
+            "steady", "transaction", "u", "t", 1, 1, False, "transport_ReadTimeout", seq=2
+        ),
+    ]
+    verification = metrics.Verification(
+        unknown=4,
+        unknown_commit_markers=[("t", "u", 1), ("t", "u", 2), ("other", "u", 1), ("t", "other", 1)],
+    )
+    criterion = next(
+        c
+        for c in metrics.evaluate(workload, samples, verification, None)
+        if c.name == "outcome_unknown results"
+    )
+    assert criterion.measured == "4 (1 API + 3 ledger-only unknown commits)"
+    assert not criterion.passed
+
+
+def test_capacity_recovery_cannot_borrow_for_kind_with_only_failures():
+    workload = load(EXAMPLE_WORKLOAD)
+    kinds = list(workload.thresholds.latency_ms)
+    sparse_kind = kinds[-1]
+    samples = [
+        metrics.Sample("recovery", kind, "u", "t", second, 10, True)
+        for kind in kinds[:-1]
+        for second in range(120)
+    ] + [metrics.Sample("recovery", sparse_kind, "u", "t", 65, 10, True)]
+    assert metrics.recovered_after(samples, workload, 0, 120, step_s=60) == 0
+    samples.append(metrics.Sample("recovery", sparse_kind, "u", "t", 5, 10, False, "session_busy"))
+    assert metrics.recovered_after(samples, workload, 0, 120, step_s=60) == 60

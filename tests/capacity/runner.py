@@ -268,11 +268,12 @@ def _ms(started: float) -> float:
 
 @dataclass
 class Ledger:
-    """What each user committed, rolled back or could not vouch for, per target."""
+    """Per-target transactions: committed, rolled back, abandoned, or ambiguous commit."""
 
     committed: dict[tuple[str, str], set[int]] = field(default_factory=dict)
     rolled_back: dict[tuple[str, str], set[int]] = field(default_factory=dict)
-    unknown: dict[tuple[str, str], set[int]] = field(default_factory=dict)
+    abandoned: dict[tuple[str, str], set[int]] = field(default_factory=dict)
+    unknown_commit: dict[tuple[str, str], set[int]] = field(default_factory=dict)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def add(self, book: dict[tuple[str, str], set[int]], target: str, user: str, seq: int) -> None:
@@ -480,10 +481,12 @@ class CapacityRun:
         total = inserted.client_ms
         if inserted.status != 200 or inserted.code:
             # An uncertain insert can still be in flight. Never reuse its connection.
-            book = self.ledger.rolled_back if _definite_refusal(inserted) else self.ledger.unknown
+            book = self.ledger.rolled_back if _definite_refusal(inserted) else self.ledger.abandoned
             self.ledger.add(book, target.name, user.subject, seq)
             user.drop_session(target)
-            return self._sample(phase, "transaction", user, target, started, inserted, total)
+            sample = self._sample(phase, "transaction", user, target, started, inserted, total)
+            sample.seq = seq
+            return sample
 
         with self.transactions_lock:
             self.transactions += 1
@@ -500,8 +503,12 @@ class CapacityRun:
             self.ledger.add(book, target.name, user.subject, seq)
         else:
             # A refusal says the commit did not run, but the insert is still pending.
-            # Only a confirmed rollback makes that marker definitely absent.
-            book = self.ledger.unknown
+            # Without a commit, dropping the session must leave the marker absent.
+            book = (
+                self.ledger.unknown_commit
+                if commit and not _definite_refusal(end)
+                else self.ledger.abandoned
+            )
             if _definite_refusal(end):
                 discarded = user.request("POST", f"/api/v1/worksheets/{session}/rollback")
                 total += discarded.client_ms
@@ -511,6 +518,7 @@ class CapacityRun:
             user.drop_session(target)
         sample = self._sample(phase, "transaction", user, target, started, end, total)
         # Statement timings belong to the insert; commit responses carry no outcome.
+        sample.seq = seq
         sample.server_ms = inserted.outcome.get("elapsedMs")
         sample.db_ms = inserted.outcome.get("databaseElapsedMs")
         return sample
@@ -657,9 +665,16 @@ class CapacityRun:
         with self.ledger.lock:
             committed = {key: set(value) for key, value in self.ledger.committed.items()}
             rolled_back = {key: set(value) for key, value in self.ledger.rolled_back.items()}
-            unknown = {key: set(value) for key, value in self.ledger.unknown.items()}
+            abandoned = {key: set(value) for key, value in self.ledger.abandoned.items()}
+            unknown = {key: set(value) for key, value in self.ledger.unknown_commit.items()}
         v.committed = sum(len(s) for s in committed.values())
         v.rolled_back = sum(len(s) for s in rolled_back.values())
+        v.abandoned = sum(len(s) for s in abandoned.values())
+        v.unknown_commit_markers = [
+            (target, subject, seq)
+            for (target, subject), seqs in unknown.items()
+            for seq in sorted(seqs)
+        ]
         v.unknown = sum(len(s) for s in unknown.values())
 
         for target in self.workload.targets:
@@ -692,6 +707,7 @@ class CapacityRun:
                     # client has no record of is found only by looking where it should not be.
                     high = self.sequence.highest(subject)
                     found: set[int] = set()
+                    read_high = 0
                     page_size = min(PAGE, self.workload.limits.max_rows_per_read - 1)
                     if page_size < 1:
                         v.incomplete.append("verification requires max_rows_per_read >= 2")
@@ -710,24 +726,37 @@ class CapacityRun:
                             max_rows=page_size + 1,
                         )
                         result_set = page.outcome.get("resultSet") or {}
-                        if page.code or result_set.get("truncated"):
+                        if page.status != 200 or page.code or result_set.get("truncated"):
                             v.incomplete.append(
-                                f"marker page {low} for {subject} on {target.name} ({page.code or 'truncated'})"
+                                f"marker page {low} for {subject} on {target.name} ({page.code or ('truncated' if result_set.get('truncated') else page.status)})"
                             )
                             break
                         found.update(int(row[0]) for row in result_set.get("rows", []))
+                        read_high = low + page_size - 1
                     for seq in sorted(
                         (found & rolled_back.get(key, set())) - unknown.get(key, set())
                     ):
                         v.contaminations.append(
                             f"rolled-back marker {seq} of {subject} is present on {target.name}"
                         )
-                    stray = found - expected - unknown.get(key, set()) - rolled_back.get(key, set())
+                    for seq in sorted(
+                        (found & abandoned.get(key, set())) - unknown.get(key, set())
+                    ):
+                        v.contaminations.append(
+                            f"abandoned marker {seq} of {subject} is present on {target.name}"
+                        )
+                    stray = (
+                        found
+                        - expected
+                        - unknown.get(key, set())
+                        - rolled_back.get(key, set())
+                        - abandoned.get(key, set())
+                    )
                     for seq in sorted(stray):
                         v.contaminations.append(
                             f"marker {seq} of {subject} is on {target.name}, which never committed it"
                         )
-                    for seq in sorted(expected - found):
+                    for seq in sorted(seq for seq in expected - found if seq <= read_high):
                         v.lost_commits.append(
                             f"committed marker {seq} of {subject} is missing from {target.name}"
                         )

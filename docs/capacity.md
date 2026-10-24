@@ -177,10 +177,11 @@ docs/compatibility.md with its report.
 - `devToken` runs do not exercise OIDC token verification.
 
 Recovery windows must contain traffic and meet the steady error-rate limit. Each thresholded
-kind must have a passing p95; when a kind has no successful sample, only the immediately
-following non-overlapping 60-second window may supply its evidence, bounded by the end
-of recovery. A kind absent from both windows fails. Empty windows and error-rate breaches
-always fail. All windows from the reported recovery point onward must pass.
+kind must have a passing p95. Only a kind with zero samples (successful or failed) may borrow
+successful samples from the immediately following non-overlapping 60-second window, bounded
+by the end of recovery. A kind with samples but no successes fails the window. A kind absent
+from both windows fails. Empty windows and error-rate breaches always fail. All windows from
+the reported recovery point onward must pass.
 
 The report includes client p50/p95 per kind and target in each phase, plus
 `sessions_replaced`. The driver replaces worksheets it knows have had no worksheet
