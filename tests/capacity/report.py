@@ -200,6 +200,11 @@ class CapacityReport:
                 }
                 for phase in workload.phases
             },
+            "outcomeUnknownResults": [
+                {"target": s.target, "phase": s.phase, "kind": s.kind, "message": s.note}
+                for s in self.samples
+                if s.code == "outcome_unknown"
+            ],
             "recoverySeconds": self.recovery_s,
             "verification": asdict(self.verification),
             "criteria": [asdict(c) for c in self.criteria],
@@ -270,6 +275,14 @@ class CapacityReport:
             if examples:
                 lines += ["", "Example error per code:", ""]
                 lines += [f"- `{code}`: {message}" for code, message in examples.items()]
+        unknown_results = [s for s in self.samples if s.code == "outcome_unknown"]
+        if unknown_results:
+            lines += ["", "Outcome unknown results:", ""]
+            lines += [
+                f"- Target `{s.target}`, phase `{s.phase}`, kind `{s.kind}`: "
+                f"{s.note or '(no message)'}"
+                for s in unknown_results
+            ]
         recovery = next((c for c in self.criteria if c.name == "recovery after saturation"), None)
         recovery_text = (
             "not applicable (steady-only soak)"

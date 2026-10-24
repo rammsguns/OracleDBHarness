@@ -22,7 +22,7 @@ from tests.capacity.driver import (
     validate_driver_config,
 )
 from tests.capacity.report import CapacityReport
-from tests.capacity.runner import CapacityRun, Response
+from tests.capacity.runner import CapacityRun, Response, UserClient
 from tests.capacity.workload import load, parse
 
 EXAMPLE_CONFIG = Path(__file__).resolve().parents[1] / "capacity" / "capacity-run.example.json"
@@ -386,8 +386,13 @@ def test_capacity_probe_replaces_stale_session_once(monkeypatch, status, code, r
         return Response(200, {"outcome": {"resultSet": {"rows": [[0]]}}}, 0)
 
     monkeypatch.setattr(peer, "execute", execute)
+    closed = []
+    monkeypatch.setattr(
+        peer, "request", lambda method, path: closed.append(path) or Response(404, {}, 0)
+    )
     run._probe(owner, target, 1)
     assert calls == ["stale", "fresh"]
+    assert "/api/v1/worksheets/stale" in closed
     assert bool(run.verification.incomplete) is not retry_ok
     assert run.verification.probes == int(retry_ok)
     for client in run.users.values():
@@ -401,12 +406,16 @@ def test_capacity_known_idle_session_replaced_before_use(monkeypatch):
     monkeypatch.setattr("tests.capacity.runner.time.monotonic", lambda: 1000)
     user.sessions[target.name] = "idle"
     user.session_used["idle"] = 0
-    monkeypatch.setattr(user, "request", lambda *args: Response(200, {}, 0))
+    closed = []
+    monkeypatch.setattr(
+        user, "request", lambda method, path: closed.append(path) or Response(200, {}, 0)
+    )
     monkeypatch.setattr(user, "_open", lambda target: "fresh")
     assert user.session(target) == "fresh"
     assert user.sessions_replaced == 1
     assert user.session(target) == "fresh"
     assert user.sessions_replaced == 1
+    assert closed == ["/api/v1/worksheets/idle"]
     for client in run.users.values():
         client.http.close()
 
@@ -564,3 +573,188 @@ def test_capacity_declared_phases_run_and_soak_can_pass(monkeypatch, steady_only
         assert all(c.passed is not None for c in phase_criteria)
         assert not report.qualified  # Short fake recovery has no complete window.
         assert phase_criteria[-1].passed is False
+
+
+@pytest.mark.parametrize("commit", [True, False])
+@pytest.mark.parametrize("stage", ["insert", "end"])
+@pytest.mark.parametrize(
+    "status,code,unknown",
+    [
+        (0, "transport_ReadTimeout", True),
+        (500, "internal_error", True),
+        (502, "outcome_unknown", True),
+        (409, "session_busy", False),
+        (400, "unrecognized_error", True),
+        (200, "outcome_unknown", True),
+    ],
+)
+def test_capacity_transaction_outcomes(monkeypatch, commit, stage, status, code, unknown):
+    run = _measurement_run()
+    user = run.users[run.order[0]]
+    target = run.workload.targets[0]
+    user.sessions[target.name] = "transaction"
+    error = Response(status, {"error": {"code": code, "message": "API detail"}}, 2)
+    calls = []
+
+    def request(method, path):
+        calls.append((method, path))
+        if path.endswith("/commit" if commit else "/rollback") and len(calls) == 1:
+            return error
+        return Response(200, {}, 1)
+
+    monkeypatch.setattr(
+        user, "execute", lambda *args: error if stage == "insert" else Response(200, {}, 1)
+    )
+    monkeypatch.setattr(user, "request", request)
+    sample = run._transaction("steady", user, target, 0, commit)
+    key = (target.name, user.subject)
+    assert run.ledger.unknown.get(key, set()) == ({1} if unknown else set())
+    assert run.ledger.rolled_back.get(key, set()) == (set() if unknown else {1})
+    assert not run.ledger.committed
+    assert sample.code == code
+    assert sample.note == "API detail"
+    assert not sample.ok
+    assert target.name not in user.sessions
+    assert calls[-1] == ("DELETE", "/api/v1/worksheets/transaction")
+
+    # Simulate a server-side commit despite the lost response. Unknown markers are
+    # allowed present or absent, even if an older ledger also called one rolled back.
+    if unknown:
+        run.ledger.add(run.ledger.rolled_back, target.name, user.subject, 1)
+    monkeypatch.setattr(user, "_open", lambda t: t.name)
+
+    def verify_execute(session, statement, binds=None, **limits):
+        rows = [[0]]
+        if statement == target.sql["listMarkers"]:
+            rows = (
+                [[1]]
+                if unknown and session == target.name and binds["user_name"] == user.subject
+                else []
+            )
+        return Response(200, {"outcome": {"resultSet": {"rows": rows}}}, 0)
+
+    monkeypatch.setattr(user, "execute", verify_execute)
+    run.verify()
+    assert run.verification.unknown == int(unknown)
+    assert not run.verification.contaminations
+    assert not run.verification.lost_commits
+    for client in run.users.values():
+        client.http.close()
+
+
+def test_capacity_refusal_with_failed_rollback_remains_unknown(monkeypatch):
+    run = _measurement_run()
+    user = run.users[run.order[0]]
+    target = run.workload.targets[0]
+    user.sessions[target.name] = "transaction"
+    monkeypatch.setattr(user, "execute", lambda *args: Response(200, {}, 0))
+    monkeypatch.setattr(
+        user,
+        "request",
+        lambda method, path: Response(
+            409 if path.endswith("/commit") else 0,
+            {
+                "error": {
+                    "code": "session_busy" if path.endswith("/commit") else "transport_ReadTimeout"
+                }
+            },
+            0,
+        ),
+    )
+    run._transaction("steady", user, target, 0, True)
+    assert run.ledger.unknown[(target.name, user.subject)] == {1}
+    assert not run.ledger.rolled_back
+    assert "transaction" in user.retired_sessions
+    for client in run.users.values():
+        client.http.close()
+
+
+def test_capacity_close_checks_live_sessions_and_retries_failed_closes(monkeypatch):
+    run = _measurement_run()
+    user = run.users[run.order[0]]
+    target = run.workload.targets[0]
+    user.sessions[target.name] = "uncertain"
+    calls = []
+    attempts = 0
+
+    def request(self, method, path, body=None):
+        nonlocal attempts
+        calls.append((self.subject, method, path))
+        if method == "DELETE":
+            attempts += 1
+            return Response(0 if attempts == 1 else 200, {}, 0)
+        if path == "/api/v1/worksheets":
+            sessions = [
+                {"sessionId": sid} for sid in ("gone", "quarantined", "live", "unreachable")
+            ]
+            return Response(200, {"sessions": sessions if self.subject == user.subject else []}, 0)
+        if path.endswith("/gone"):
+            return Response(404, {}, 0)
+        if path.endswith("/quarantined"):
+            return Response(409, {"error": {"code": "session_quarantined"}}, 0)
+        return Response(500 if path.endswith("/unreachable") else 200, {}, 0)
+
+    monkeypatch.setattr(UserClient, "request", request)
+    user.drop_session(target)
+    assert "uncertain" in user.retired_sessions
+    run.close_and_check_leaks()
+    assert attempts == 2
+    assert run.verification.leaked_sessions == [f"{user.subject}: live"]
+    assert len(run.verification.incomplete) == 1
+
+
+def test_capacity_report_lists_every_unknown_result():
+    run = _measurement_run()
+    run.report.samples = [
+        metrics.Sample(
+            "saturation",
+            "transaction",
+            "u",
+            target.name,
+            1,
+            2,
+            False,
+            "outcome_unknown",
+            note=f"API message {i}",
+        )
+        for i, target in enumerate(run.workload.targets)
+    ]
+    results = run.report.as_dict()["outcomeUnknownResults"]
+    assert len(results) == 3
+    markdown = run.report.as_markdown()
+    for i, result in enumerate(results):
+        assert result == {
+            "target": run.workload.targets[i].name,
+            "phase": "saturation",
+            "kind": "transaction",
+            "message": f"API message {i}",
+        }
+        assert (
+            f"Target `{result['target']}`, phase `saturation`, kind `transaction`: API message {i}"
+            in markdown
+        )
+    for client in run.users.values():
+        client.http.close()
+
+
+@pytest.mark.parametrize(
+    "status,code", [(404, "not_found"), (403, "not_authorized"), (409, "session_quarantined")]
+)
+def test_capacity_forget_closes_before_removing(monkeypatch, status, code):
+    run = _measurement_run()
+    user = run.users[run.order[0]]
+    target = run.workload.targets[0]
+    user.sessions[target.name] = "stale"
+    closed = []
+
+    def request(method, path):
+        assert user.sessions[target.name] == "stale"
+        closed.append((method, path))
+        return Response(status, {"error": {"code": code}}, 0)
+
+    monkeypatch.setattr(user, "request", request)
+    user.forget(target, Response(status, {"error": {"code": code}}, 0))
+    assert closed == [("DELETE", "/api/v1/worksheets/stale")]
+    assert target.name not in user.sessions
+    for client in run.users.values():
+        client.http.close()

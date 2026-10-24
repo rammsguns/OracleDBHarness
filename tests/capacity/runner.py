@@ -40,6 +40,24 @@ PROBE_EVERY = 4
 PAGE = 200
 #: Default worksheet idle lifetime in the API. Only known client inactivity is replaced.
 WORKSHEET_IDLE_SECONDS = 300.0
+# These API codes refuse dispatch before Oracle can apply the requested operation.
+DEFINITE_REFUSALS = frozenset(
+    {
+        "authentication_required",
+        "not_authorized",
+        "not_found",
+        "invalid_request",
+        "policy_refused",
+        "session_expired",
+        "session_busy",
+        "session_quarantined",
+        "limit_exceeded",
+    }
+)
+
+
+def _definite_refusal(response: Response) -> bool:
+    return 400 <= response.status < 500 and response.code in DEFINITE_REFUSALS
 
 
 class Prerequisite(Exception):
@@ -100,6 +118,7 @@ class UserClient:
         self.execution_ids: list[str] = []
         self.sessions_replaced = 0
         self.session_used: dict[str, float] = {}
+        self.retired_sessions: set[str] = set()
 
     # -- credentials -------------------------------------------------------------------
 
@@ -168,10 +187,7 @@ class UserClient:
             and time.monotonic() - self.session_used.get(session, time.monotonic())
             >= WORKSHEET_IDLE_SECONDS
         ):
-            self.request("DELETE", f"/api/v1/worksheets/{session}")
-            self.sessions.pop(target.name)
-            self.session_used.pop(session, None)
-            self.sessions_replaced += 1
+            self.drop_session(target)
         if target.name not in self.sessions:
             self.sessions[target.name] = self._open(target)
             self.session_used[self.sessions[target.name]] = time.monotonic()
@@ -182,15 +198,31 @@ class UserClient:
             self.probe_sessions[target.name] = self._open(target)
         return self.probe_sessions[target.name]
 
+    def drop_session(self, target: Target, *, probe: bool = False) -> None:
+        """Close before forgetting; retain failed closes for the final cleanup retry."""
+
+        sessions = self.probe_sessions if probe else self.sessions
+        session = sessions.get(target.name)
+        if session is None:
+            return
+        self.retired_sessions.add(session)
+        closed = self.request("DELETE", f"/api/v1/worksheets/{session}")
+        if closed.status in (200, 204, 404) or (
+            closed.status == 409 and closed.code in ("session_expired", "session_quarantined")
+        ):
+            self.retired_sessions.discard(session)
+        sessions.pop(target.name, None)
+        self.session_used.pop(session, None)
+        self.sessions_replaced += 1
+
     def forget(self, target: Target, response: Response) -> None:
-        """Drop a session the API no longer serves, so the next step opens a new one."""
+        """Close a stale or quarantined session before replacing it."""
 
         if (
             response.code in ("session_expired", "not_authorized", "session_quarantined")
             or response.status == 404
         ):
-            if self.sessions.pop(target.name, None) is not None:
-                self.sessions_replaced += 1
+            self.drop_session(target)
 
     def execute(
         self, session_id: str, statement: str, binds: dict[str, Any] | None = None, **limits: Any
@@ -209,10 +241,15 @@ class UserClient:
         return response
 
     def close(self) -> None:
-        for session_id in [*self.sessions.values(), *self.probe_sessions.values()]:
+        for session_id in {
+            *self.sessions.values(),
+            *self.probe_sessions.values(),
+            *self.retired_sessions,
+        }:
             self.request("DELETE", f"/api/v1/worksheets/{session_id}")
         self.sessions.clear()
         self.probe_sessions.clear()
+        self.retired_sessions.clear()
         self.http.close()
 
 
@@ -441,11 +478,11 @@ class CapacityRun:
         session = user.session(target)
         inserted = user.execute(session, target.sql["insertMarker"], binds)
         total = inserted.client_ms
-        if inserted.code == "outcome_unknown":
-            self.ledger.add(self.ledger.unknown, target.name, user.subject, seq)
         if inserted.status != 200 or inserted.code:
-            if inserted.status == 200:
-                user.request("POST", f"/api/v1/worksheets/{session}/rollback")
+            # An uncertain insert can still be in flight. Never reuse its connection.
+            book = self.ledger.rolled_back if _definite_refusal(inserted) else self.ledger.unknown
+            self.ledger.add(book, target.name, user.subject, seq)
+            user.drop_session(target)
             return self._sample(phase, "transaction", user, target, started, inserted, total)
 
         with self.transactions_lock:
@@ -458,19 +495,24 @@ class CapacityRun:
             "POST", f"/api/v1/worksheets/{session}/{'commit' if commit else 'rollback'}"
         )
         total += end.client_ms
-        if end.status == 200:
+        if end.status == 200 and not end.code:
             book = self.ledger.committed if commit else self.ledger.rolled_back
             self.ledger.add(book, target.name, user.subject, seq)
-        elif end.code == "outcome_unknown":
-            self.ledger.add(self.ledger.unknown, target.name, user.subject, seq)
-            user.sessions.pop(target.name, None)
         else:
-            # A definite refusal leaves the insert pending; discard it.
-            user.request("POST", f"/api/v1/worksheets/{session}/rollback")
-            self.ledger.add(self.ledger.rolled_back, target.name, user.subject, seq)
-        sample = self._sample(phase, "transaction", user, target, started, inserted, total)
-        if end.status != 200:
-            sample.ok, sample.code = False, end.code or f"http_{end.status}"
+            # A refusal says the commit did not run, but the insert is still pending.
+            # Only a confirmed rollback makes that marker definitely absent.
+            book = self.ledger.unknown
+            if _definite_refusal(end):
+                discarded = user.request("POST", f"/api/v1/worksheets/{session}/rollback")
+                total += discarded.client_ms
+                if discarded.status == 200 and not discarded.code:
+                    book = self.ledger.rolled_back
+            self.ledger.add(book, target.name, user.subject, seq)
+            user.drop_session(target)
+        sample = self._sample(phase, "transaction", user, target, started, end, total)
+        # Statement timings belong to the insert; commit responses carry no outcome.
+        sample.server_ms = inserted.outcome.get("elapsedMs")
+        sample.db_ms = inserted.outcome.get("databaseElapsedMs")
         return sample
 
     def _probe(self, owner: UserClient, target: Target, seq: int) -> None:
@@ -499,8 +541,7 @@ class CapacityRun:
                     or seen.status == 404
                 ):
                     break
-                peer.probe_sessions.pop(target.name, None)
-                peer.sessions_replaced += 1
+                peer.drop_session(target, probe=True)
         if seen.status != 200 or seen.code:
             self.verification.incomplete.append(
                 f"probe for {owner.subject}'s marker {seq} on {target.name} failed "
@@ -646,7 +687,7 @@ class CapacityRun:
                     )
                 for subject in self.order:
                     key = (target.name, subject)
-                    expected = committed.get(key, set())
+                    expected = committed.get(key, set()) - unknown.get(key, set())
                     # Every number this user was ever given, on any target: a marker the
                     # client has no record of is found only by looking where it should not be.
                     high = self.sequence.highest(subject)
@@ -675,7 +716,9 @@ class CapacityRun:
                             )
                             break
                         found.update(int(row[0]) for row in result_set.get("rows", []))
-                    for seq in sorted(found & rolled_back.get(key, set())):
+                    for seq in sorted(
+                        (found & rolled_back.get(key, set())) - unknown.get(key, set())
+                    ):
                         v.contaminations.append(
                             f"rolled-back marker {seq} of {subject} is present on {target.name}"
                         )
@@ -724,9 +767,18 @@ class CapacityRun:
                 )
             else:
                 for session in listed.body.get("sessions", []):
-                    self.verification.leaked_sessions.append(
-                        f"{user.subject}: {session.get('sessionId')}"
-                    )
+                    session_id = session.get("sessionId")
+                    served = probe.request("GET", f"/api/v1/worksheets/{session_id}")
+                    if served.status == 200:
+                        self.verification.leaked_sessions.append(f"{user.subject}: {session_id}")
+                    elif served.status != 404 and served.code not in (
+                        "session_expired",
+                        "session_quarantined",
+                    ):
+                        self.verification.incomplete.append(
+                            f"could not check {user.subject}'s listed worksheet {session_id} "
+                            f"({served.code or served.status})"
+                        )
             probe.http.close()
 
 
