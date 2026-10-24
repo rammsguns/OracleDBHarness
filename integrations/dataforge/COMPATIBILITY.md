@@ -17,11 +17,11 @@ Nothing in this table is a certification. It records what has actually been run.
 
 | Component | Status |
 | --- | --- |
-| OracleDataForge completion | Pinned `3404f19` plus local patch commits through `8130137`: B1b passed 15/16 real-route/backend checks with Oracle and the local model through shipped nginx on 2026-10-24, agent-qualified on test stand-ins (AI agent, not a human). Selected-text explain and cancellation pass; Analyst non-allowed action refusal fails. Editor/UI, upstream and human qualification remain open. |
-| Oracle 19c | D1 19.9.1.0.0 bootstrapped/probed in B1b: selected-text explain succeeds with unchanged DataForge connections, harness target/profile registry and D1 DataForge/node sessions. Live EXPLAIN PLAN through this integration is not a feature: no bridge exists, by design. D2 23.26.3.0.0 worksheet/compile regression passed through harness HTTP; see B1 below and [harness evidence](../../docs/compatibility.md). |
+| OracleDataForge completion | Pinned `3404f19` plus local patch commits through `51767c8`: B1c passed 16/16 real-route/backend checks with Oracle and the local model through shipped nginx on 2026-10-24, agent-qualified on test stand-ins (AI agent, not a human). Selected-text explain, cancellation and Analyst non-allowed action refusal pass; B1 found the action-enforcement security bug, fixed in the patch. Editor/UI, upstream and human qualification remain open. |
+| Oracle 19c | D1 19.9.1.0.0 bootstrapped/probed in B1c: selected-text explain succeeds with unchanged DataForge connections, harness target/profile registry and D1 DataForge/node sessions. Live EXPLAIN PLAN through this integration is not a feature: no bridge exists, by design. D2 23.26.3.0.0 worksheet/compile regression passed through harness HTTP; see B1 below and [harness evidence](../../docs/compatibility.md). |
 | A real model provider | B1 exercised the real local `qwen3.8-flash-next-iq3_s` provider through DataForge and nginx. Anthropic and other hosted providers remain untested through this integration. |
 | Proxy coverage beyond shipped nginx | A6 exercised real DataForge routes and chunk delivery through the shipped nginx config. Other deployment proxies, compression settings, ALBs and CDNs remain untested. |
-| Ten-minute setup target | B1b measured 20.928 seconds from configured/healthy DataForge and harness to the first complete successful assist, using scripted steps (including admin registry and D1 session baselines). Initial installation, provisioning and human setup remain unmeasured. |
+| Ten-minute setup target | B1c measured 10.938 seconds from configured/healthy DataForge and harness to the first complete successful assist, using scripted steps (including admin registry and D1 session baselines). Initial installation, provisioning and human setup remain unmeasured. |
 
 ## Release gates still open
 
@@ -29,13 +29,13 @@ NP-05 completion is open (human-owned). A6 is agent-qualified on test stand-ins
 (AI agent, not a human), with no pilot or production qualification. From
 `ORACLEDATAFORGE_INTEGRATION.md`, these remain:
 
-- Human pilot setup; B1b measured the already-configured, running-stack scripted path in 20.928 seconds.
+- Human pilot setup; B1b measured the already-configured, running-stack scripted path in 10.938 seconds.
 - Human/editor demonstration of explaining a selected statement without a second
   Oracle connection; B1b passes the real backend/route check with unchanged registries
   and D1 DataForge/node sessions. Live EXPLAIN PLAN has no integration bridge, by design.
 - Editor/UI and upstream integration beyond the local adapter patch; DataForge's own
   279 tests, typecheck and build passed at the pinned commit in A6.
-- DataForge editor/UI regression for worksheet, compilation and confirmation dialogs; B1b passed harness HTTP worksheet/compile and backend confirmation refusal. Harness viewers intentionally receive supplied-text assistance and are refused worksheet/compile; DataForge Analyst non-allowed action refusal remains failed.
+- DataForge editor/UI regression for worksheet, compilation and confirmation dialogs; B1b passed harness HTTP worksheet/compile and backend confirmation refusal. Harness viewers intentionally receive supplied-text assistance and are refused worksheet/compile; DataForge Analyst non-allowed action refusal now passes after the B1c patch fix.
 - Editor/UI end-to-end coverage; B1b passed typed partial-provider failure and client
   cancellation through real routes after fixing DataForge response-close handling.
 
@@ -109,32 +109,36 @@ Still not done, so NP-05 stays open:
   beyond its own test suite.
 - The ten-minute setup measurement.
 
-### 2026-10-24, Oracle and real local provider (B1/B1b, agent stand-ins)
+### 2026-10-24, Oracle and real local provider (B1/B1b/B1c, agent stand-ins)
 
 **agent-qualified on test stand-ins (AI agent, not a human)**. Run by Codex on
 z4g5; this is backend/route evidence, with no human pilot or production qualification.
 The original B1 run passed 13/16; B1b applies Claude's acting-application-owner
 rulings on selected-text explain and viewer policy, fixes DataForge cancellation,
-and exposes a separate Analyst action-enforcement failure. NP-05 remains open.
+and exposes a separate Analyst action-enforcement failure. B1c fixes that security
+bug in both adapter copies: assist re-checks the current actor with
+`filterActionsForRole` before resolving context or sending any harness request,
+returning typed `action_not_allowed` for a denied action. Analyst proposal
+apply-checks are also refused locally under the current role. NP-05 remains open.
 
 | Item | Value |
 | --- | --- |
-| Harness baseline build | `646e12f8e2eb84e0a029837007f3563e97f0d642`, package 0.1.0, with the B1b runner changes in this branch |
-| DataForge | Package 1.2.0, local commit `81301377e061cb3d47d3d06df66133983f33333b` on adapter-patch `2883f605bc5e0b7632583b62a00a094d957df6a0` and upstream `3404f1905da183e1903a35193a7d5b0df18d0870`; not pushed to DataForge |
+| Harness baseline build | `dcc1d012315434acc36eee5a938b4e6012fdc765`, package 0.1.0, with the B1c typed-refusal assertion in this branch |
+| DataForge | Package 1.2.0, local commit `51767c8785b8370765af4c184519e45eaa2cb453` on cancellation fix `81301377e061cb3d47d3d06df66133983f33333b` on adapter-patch `2883f605bc5e0b7632583b62a00a094d957df6a0` and upstream `3404f1905da183e1903a35193a7d5b0df18d0870`; not pushed to DataForge |
 | Adapter / protocols | Adapter 0.1.0; adapter request protocol 1.1, harness capability protocol 1.5 (major-compatible) |
 | Runtime / metadata / proxy | Node v24.18.1; python-oracledb 4.0.2 thin; disposable `postgres:16-alpine`; `nginx:1.27-alpine` with shipped `deploy/nginx.conf` (only listen/upstream rewritten) |
 | Oracle test targets | `load-db-1` D1 19c reports 19.9.1.0.0; `load-db-2` D2 23ai PDB reports 23.26.3.0.0; both `harness_app`, provisioned with `scripts/bootstrap_targets.py` |
 | Real provider | `local`, `local_only=true`, `http://127.0.0.1:8080/v1`, `qwen3.8-flash-next-iq3_s`; health checked; key resolved by file-backed secret reference; calls serialized |
-| Live result | **15/16 checks passed, 1 failed**, runner exit 1; cancellation passes with terminal `cancelled` and no hung request |
-| Setup | **20.928 seconds**, fully scripted on the already-configured/running stack |
-| Offline verification | `pytest -q tests/unit tests/test_dataforge_real.py`: 782 passed, 7 skipped; `ruff check` and `ruff format --check` clean; adapter Node tests: 23 passed, 4 live-launcher-only skips |
-| DataForge verification | `npm test`: 280/280 passed, including real Express client-abort/upstream-fetch-signal regression; `npm run typecheck` and `npm run build` passed before the live reruns |
-| Reports (local, git-ignored) | `databases/reports/2026-10-24-b1-dataforge-oracle.md` and `.json`, overwritten by the final full B1b rerun |
+| Live result | **16/16 checks passed, 0 failed**, runner exit 0; cancellation passes with terminal `cancelled` and no hung request |
+| Setup | **10.938 seconds**, fully scripted on the already-configured/running stack |
+| Offline verification | `pytest -q tests/unit tests/test_dataforge_real.py`: 782 passed, 7 skipped; `ruff check` and `ruff format --check` clean; adapter Node tests: 27 passed, 4 live-launcher-only skips |
+| DataForge verification | `npm test`: 284/284 passed, including current-role/no-fetch enforcement and real Express client-abort/upstream-fetch-signal regressions; `npm run typecheck` and `npm run build` passed before the live reruns |
+| Reports (local, git-ignored) | `databases/reports/2026-10-24-b1-dataforge-oracle.md` and `.json`, overwritten by the final full B1c rerun |
 
 Check-by-check evidence:
 
 - PASS capabilities: harness 1.5 accepted by adapter 1.1.
-- PASS streaming: 222 network chunks / 222 SSE events through DataForge and shipped nginx,
+- PASS streaming: 114 network chunks / 114 SSE events through DataForge and shipped nginx,
   real local provider, terminal `succeeded`.
 - PASS context/connection registry: selected-source context only, D1 opaque target
   reference and unchanged DataForge connection list.
@@ -155,14 +159,15 @@ Check-by-check evidence:
 - PASS confirmation: administrative recompile of that owned throwaway procedure
   without confirmation refused explicitly for missing confirmation.
 - PASS teardown: owned marker table and procedure dropped; worksheet closed.
-- **FAIL revised role restrictions:** harness viewer worksheet and compile both
-  return 403; viewer supplied-text assist succeeds, intentionally, under
-  `PERMISSION_READ`. Real authenticated DataForge Analyst users were exercised in
-  an isolated source copy: offered actions are restricted to `explain`, and no
-  schema context is attached. However, a direct `diagnose` action is accepted and
-  returns model text: `filterActionsForRole` only filters capabilities, and
-  `HarnessAdapter.assist` lacks a server-side refusal. This is an actionable
-  DataForge gap, not a reason to disallow intended viewer documentation assistance.
+- PASS revised role restrictions: harness viewer worksheet and compile return 403;
+  supplied-text assistance succeeds as intended under `PERMISSION_READ`. Real
+  authenticated DataForge Analysts receive explain-only capabilities and selected
+  source without schema context; direct `diagnose` returns typed
+  `action_not_allowed` with no start/delta. B1 found a real security bug: the
+  capabilities filter was only advisory. B1c fixes server enforcement in the
+  DataForge patch and harness adapter copy, with no-fetch regression tests for
+  Analyst diagnose and apply-check, plus allowed Analyst explain and Developer
+  diagnose tests.
 - PASS cancellation: DataForge now listens to unfinished response `close` rather
   than request `close`; client abort after the first real delta reaches terminal
   `cancelled` in the harness, with no hung request. The harness router/service and
@@ -174,8 +179,8 @@ Check-by-check evidence:
   exposed typed `harness_error`; DataForge non-AI health still answered.
 - PASS disabled mode, invalid integration token, incompatible major protocol refusal.
 
-The final full suite follows the first completed B1b run (15/16, including successful
-cancellation). Two earlier startup attempts ran no checks: Docker's private `/tmp`
+The final full B1c suite passes 16/16, following the B1b 15/16 result with
+successful cancellation and the action-enforcement security finding. Two earlier startup attempts ran no checks: Docker's private `/tmp`
 prevented PostgreSQL from reading its mounted secret, then the new DBA observer
 needed `$REPO` expansion in the existing qualification password-file path. Both
 were resolved before collecting the two complete runs.
@@ -192,6 +197,6 @@ ten-minute setup.
 
 Not exercised: DataForge editor/worksheet/compile UI and confirmation dialogs,
 upstream integration, hosted model providers, other proxies, production, or human
-qualification. DataForge Analyst action refusal remains an explicit failed gate.
+qualification. The Analyst action-enforcement bug found by B1 is fixed in the local patch.
 Disposable API/DataForge processes, PostgreSQL and nginx are removed after each run;
 the pre-existing Oracle stand-ins and unrelated API process are retained.

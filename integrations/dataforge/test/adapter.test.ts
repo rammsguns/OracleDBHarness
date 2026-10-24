@@ -370,3 +370,35 @@ test("stream chunks that are not valid events are ignored", () => {
     data: { text: "hi" },
   });
 });
+
+for (const [role, action, allowed] of [
+  ["Analyst", "diagnose", false],
+  ["Analyst", "explain", true],
+  ["Developer", "diagnose", true],
+] as const) {
+  test(`${role} submitting ${action} is ${allowed ? "allowed" : "refused before context or fetch"}`, async () => {
+    let calls = 0;
+    let resolutions = 0;
+    const adapter = new HarnessAdapter({
+      config: config(), instanceId: "role-test",
+      resolver: { ...RESOLVER, resolve: async (...args) => { resolutions++; return RESOLVER.resolve(...args); } },
+      fetchImpl: async () => { calls++; return sseResponse([["done", { outcome: "succeeded" }]]); },
+    });
+    const events = [];
+    for await (const event of adapter.assist({ ...ACTOR, role }, { ...REQUEST, action })) events.push(event);
+    assert.equal(calls, allowed ? 1 : 0);
+    assert.equal(resolutions, allowed ? 1 : 0);
+    assert.equal(events[0]?.event, allowed ? "done" : "error");
+    if (!allowed) assert.equal(events[0]?.data.code, "action_not_allowed");
+  });
+}
+
+test("Analyst apply-check is refused without a harness fetch", async () => {
+  const adapter = new HarnessAdapter({
+    config: config(), instanceId: "role-test", resolver: RESOLVER,
+    fetchImpl: async () => { assert.fail("must not fetch"); },
+  });
+  assert.deepEqual(await adapter.applyCheck({ ...ACTOR, role: "Analyst" }, "proposal", {
+    editorId: "editor", revision: "1", currentText: "SELECT 1", connectionId: "conn",
+  }), { canApply: false, reasons: ["action_not_allowed"] });
+});

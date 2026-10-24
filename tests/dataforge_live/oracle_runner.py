@@ -496,9 +496,10 @@ def run_oracle_integration(dataforge_dir: Path, targets: Path, workdir: Path) ->
                             analyst_df.base_url,
                             assist_body(action="diagnose", question="Explain SELECT 1 briefly"),
                         )
-                        assert any(name == "error" for name, _ in denied) and not any(
-                            name in ("start", "delta") for name, _ in denied
-                        ), (
+                        assert any(
+                            name == "error" and data.get("code") == "action_not_allowed"
+                            for name, data in denied
+                        ) and not any(name in ("start", "delta") for name, _ in denied), (
                             "Viewer worksheet/compile 403 and assist allowed; Analyst capabilities explain-only and no schema context, but non-allowed diagnose was accepted"
                         )
                     return "Viewer worksheet and compile refused (403), supplied-text assist allowed as intended; authenticated DataForge Analyst offered explain only, no schema context, non-allowed action refused"
