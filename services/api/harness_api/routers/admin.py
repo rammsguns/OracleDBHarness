@@ -60,7 +60,7 @@ def list_secrets(_: Administrator, db: Db, state: State) -> dict:
 
 
 @router.post("/secrets", status_code=201)
-def create_secret(payload: SecretReferenceIn, _: Administrator, db: Db, state: State) -> dict:
+def create_secret(payload: SecretReferenceIn, admin: Administrator, db: Db, state: State) -> dict:
     if db.scalars(select(SecretReference).where(SecretReference.name == payload.name)).first():
         raise ValidationError(
             f"A secret reference named {payload.name!r} already exists.",
@@ -73,6 +73,23 @@ def create_secret(payload: SecretReferenceIn, _: Administrator, db: Db, state: S
         description=payload.description,
     )
     db.add(row)
+    db.flush()
+    db.add(
+        AuditEvent(
+            actor_id=admin.user_id or "",
+            actor_subject=admin.subject,
+            operation_id="admin.secret.create",
+            risk_class=RiskClass.ADMINISTRATIVE.value,
+            policy_decision="allowed",
+            outcome="succeeded",
+            detail={
+                "objectId": row.id,
+                "name": row.name,
+                "provider": row.provider,
+                "description": row.description,
+            },
+        )
+    )
     db.commit()
     resolver = SecretResolver(state.settings.secret_dir)
     return resolver.describe(row)
@@ -100,7 +117,7 @@ def list_users(_: Administrator, db: Db) -> dict:
 
 
 @router.post("/users", status_code=201)
-def create_user(payload: UserIn, _: Administrator, db: Db) -> dict:
+def create_user(payload: UserIn, admin: Administrator, db: Db) -> dict:
     for role in payload.roles:
         try:
             AppRole(role)
@@ -114,6 +131,23 @@ def create_user(payload: UserIn, _: Administrator, db: Db) -> dict:
         existing.display_name = payload.display_name or existing.display_name
         existing.email = payload.email or existing.email
         existing.roles = payload.roles
+        db.add(
+            AuditEvent(
+                actor_id=admin.user_id or "",
+                actor_subject=admin.subject,
+                operation_id="admin.user.update",
+                risk_class=RiskClass.ADMINISTRATIVE.value,
+                policy_decision="allowed",
+                outcome="succeeded",
+                detail={
+                    "objectId": existing.id,
+                    "subject": existing.subject,
+                    "roles": existing.roles,
+                    "displayName": existing.display_name,
+                    "email": existing.email,
+                },
+            )
+        )
         db.commit()
         return {"id": existing.id, "subject": existing.subject, "roles": existing.roles}
     row = User(
@@ -123,6 +157,24 @@ def create_user(payload: UserIn, _: Administrator, db: Db) -> dict:
         roles=payload.roles,
     )
     db.add(row)
+    db.flush()
+    db.add(
+        AuditEvent(
+            actor_id=admin.user_id or "",
+            actor_subject=admin.subject,
+            operation_id="admin.user.create",
+            risk_class=RiskClass.ADMINISTRATIVE.value,
+            policy_decision="allowed",
+            outcome="succeeded",
+            detail={
+                "objectId": row.id,
+                "subject": row.subject,
+                "roles": row.roles,
+                "displayName": row.display_name,
+                "email": row.email,
+            },
+        )
+    )
     db.commit()
     return {"id": row.id, "subject": row.subject, "roles": row.roles}
 
@@ -131,7 +183,7 @@ def create_user(payload: UserIn, _: Administrator, db: Db) -> dict:
 
 
 @router.post("/targets", status_code=201)
-def create_target(payload: ProfileIn, _: Administrator, db: Db, state: State) -> dict:
+def create_target(payload: ProfileIn, admin: Administrator, db: Db, state: State) -> dict:
     allowlist = state.settings.endpoint_allowlist
     endpoint = f"{payload.host}:{payload.port}"
     if allowlist and endpoint not in allowlist and payload.host not in allowlist:
@@ -190,6 +242,32 @@ def create_target(payload: ProfileIn, _: Administrator, db: Db, state: State) ->
         notes=payload.notes,
     )
     db.add(profile)
+    db.flush()
+    db.add(
+        AuditEvent(
+            actor_id=admin.user_id or "",
+            actor_subject=admin.subject,
+            profile_id=profile.id,
+            operation_id="admin.target.create",
+            risk_class=RiskClass.ADMINISTRATIVE.value,
+            policy_decision="allowed",
+            outcome="succeeded",
+            detail={
+                "objectId": profile.id,
+                "name": profile.name,
+                "environment": profile.environment,
+                "host": profile.host,
+                "port": profile.port,
+                "serviceName": profile.service_name,
+                "username": profile.username,
+                "defaultSchema": profile.default_schema,
+                "protocol": profile.protocol,
+                "worksheetsEnabled": profile.worksheets_enabled,
+                "mutatingRunbooksEnabled": profile.mutating_runbooks_enabled,
+                "secretReferenceId": profile.secret_reference_id,
+            },
+        )
+    )
     db.commit()
     return {"id": profile.id, "name": profile.name, "environment": profile.environment}
 
@@ -239,12 +317,33 @@ def create_grant(payload: GrantIn, admin: Administrator, db: Db) -> dict:
             UserTargetGrant.profile_id == profile.id,
         )
     ).first()
+    is_new = grant is None
     if grant is None:
         grant = UserTargetGrant(user_id=user.id, profile_id=profile.id)
         db.add(grant)
     grant.permissions = payload.permissions
     grant.secret_reference_id = secret_id
     grant.granted_by = admin.user_id or ""
+    db.flush()
+    db.add(
+        AuditEvent(
+            actor_id=admin.user_id or "",
+            actor_subject=admin.subject,
+            profile_id=profile.id,
+            operation_id="admin.grant.create" if is_new else "admin.grant.update",
+            risk_class=RiskClass.ADMINISTRATIVE.value,
+            policy_decision="allowed",
+            outcome="succeeded",
+            detail={
+                "objectId": grant.id,
+                "subject": user.subject,
+                "userId": user.id,
+                "profileId": profile.id,
+                "permissions": grant.permissions,
+                "usesOwnCredential": bool(secret_id),
+            },
+        )
+    )
     db.commit()
     return {
         "id": grant.id,
@@ -256,7 +355,7 @@ def create_grant(payload: GrantIn, admin: Administrator, db: Db) -> dict:
 
 
 @router.delete("/grants/{grant_id}")
-def revoke_grant(grant_id: str, _: Administrator, db: Db, state: State) -> dict:
+def revoke_grant(grant_id: str, admin: Administrator, db: Db, state: State) -> dict:
     grant = db.get(UserTargetGrant, grant_id)
     if grant is None:
         raise NotFoundError("No such grant.", detail={"grantId": grant_id})
@@ -265,6 +364,24 @@ def revoke_grant(grant_id: str, _: Administrator, db: Db, state: State) -> dict:
     # Revocation reaches the sessions that are already open, not just the next
     # request. Their uncommitted work is rolled back.
     closed = state.execution.revoke_target_access(db, user_id=user_id, target_id=profile_id)
+    db.add(
+        AuditEvent(
+            actor_id=admin.user_id or "",
+            actor_subject=admin.subject,
+            profile_id=profile_id,
+            operation_id="admin.grant.revoke",
+            risk_class=RiskClass.ADMINISTRATIVE.value,
+            policy_decision="allowed",
+            outcome="succeeded",
+            detail={
+                "objectId": grant_id,
+                "grantId": grant_id,
+                "userId": user_id,
+                "profileId": profile_id,
+                "closedSessions": closed,
+            },
+        )
+    )
     db.commit()
     return {
         "revoked": True,
@@ -301,7 +418,7 @@ def list_integrations(_: Administrator, db: Db) -> dict:
 
 
 @router.post("/integrations", status_code=201, response_model=IntegrationCreated)
-def create_integration(payload: IntegrationIn, _: Administrator, db: Db) -> IntegrationCreated:
+def create_integration(payload: IntegrationIn, admin: Administrator, db: Db) -> IntegrationCreated:
     """Issue a revocable integration credential.
 
     The scope is deliberately narrow. ``copilot:assist`` lets an adapter ask for
@@ -331,6 +448,23 @@ def create_integration(payload: IntegrationIn, _: Administrator, db: Db) -> Inte
         token_prefix=prefix,
     )
     db.add(row)
+    db.flush()
+    db.add(
+        AuditEvent(
+            actor_id=admin.user_id or "",
+            actor_subject=admin.subject,
+            operation_id="admin.integration.create",
+            risk_class=RiskClass.ADMINISTRATIVE.value,
+            policy_decision="allowed",
+            outcome="succeeded",
+            detail={
+                "objectId": row.id,
+                "name": row.name,
+                "kind": row.kind,
+                "scopes": row.scopes,
+            },
+        )
+    )
     db.commit()
     return IntegrationCreated(
         id=row.id,
@@ -346,12 +480,27 @@ def create_integration(payload: IntegrationIn, _: Administrator, db: Db) -> Inte
 
 
 @router.post("/integrations/{integration_id}/revoke")
-def revoke_integration(integration_id: str, _: Administrator, db: Db) -> dict:
+def revoke_integration(integration_id: str, admin: Administrator, db: Db) -> dict:
     row = db.get(IntegrationInstance, integration_id)
     if row is None:
         raise NotFoundError("No such integration.", detail={"integrationId": integration_id})
     row.enabled = False
     row.revoked_at = utcnow()
+    db.add(
+        AuditEvent(
+            actor_id=admin.user_id or "",
+            actor_subject=admin.subject,
+            operation_id="admin.integration.revoke",
+            risk_class=RiskClass.ADMINISTRATIVE.value,
+            policy_decision="allowed",
+            outcome="succeeded",
+            detail={
+                "objectId": integration_id,
+                "integrationId": integration_id,
+                "name": row.name,
+            },
+        )
+    )
     db.commit()
     return {
         "revoked": True,
