@@ -32,6 +32,11 @@ if [[ "${1:-}" == "--keep" ]]; then
 fi
 
 cd "$(dirname "$0")"
+# Host ports of the console and the API (deploy/compose.yaml); override them on a host
+# where 8080 or 8000 is already taken.
+WEB_PORT="${HARNESS_WEB_HOST_PORT:-8080}"
+API_PORT="${HARNESS_API_HOST_PORT:-8000}"
+export HARNESS_WEB_HOST_PORT="$WEB_PORT" HARNESS_API_HOST_PORT="$API_PORT"
 WORK="$(mktemp -d)"
 DUMP="$WORK/harness-metadata.sql"
 RESTORED_DB=harness_restored
@@ -139,17 +144,17 @@ echo "API healthy after ${INSTALL_SECONDS}s of build and start"
 
 say "the console is served"
 for attempt in $(seq 1 15); do
-  if curl -fsS http://127.0.0.1:8080/ >/dev/null 2>&1; then
+  if curl -fsS "http://127.0.0.1:$WEB_PORT/" >/dev/null 2>&1; then
     break
   fi
-  [[ "$attempt" == 15 ]] && fail "the console did not serve on 127.0.0.1:8080"
+  [[ "$attempt" == 15 ]] && fail "the console did not serve on 127.0.0.1:$WEB_PORT"
   sleep 2
 done
 # The console proxies /api to the API container, which is what lets them share an origin.
-curl -fsS http://127.0.0.1:8080/api/v1/system/info >/dev/null   || fail "the console did not proxy /api to the API"
+curl -fsS "http://127.0.0.1:$WEB_PORT/api/v1/system/info" >/dev/null   || fail "the console did not proxy /api to the API"
 
 say "the store was created at the schema version this build expects"
-INFO="$(curl -fsS http://127.0.0.1:8000/api/v1/system/info)"
+INFO="$(curl -fsS "http://127.0.0.1:$API_PORT/api/v1/system/info")"
 echo "$INFO"
 VERSION="$(printf '%s' "$INFO" | python3 -c 'import json,sys; print(json.load(sys.stdin)["metadataSchemaVersion"])')"
 [[ -n "$VERSION" ]] || fail "no schema version reported"
@@ -296,7 +301,7 @@ CUTOVER_SECONDS=$((SECONDS - START_CUTOVER))
 echo "serving on the restored store after ${CUTOVER_SECONDS}s"
 
 say "the API accepted the restored store at the expected schema version"
-curl -fsS http://127.0.0.1:8000/api/v1/system/info
+curl -fsS "http://127.0.0.1:$API_PORT/api/v1/system/info"
 
 say "and reconciled the execution that was in flight when the backup was taken"
 STATE="$(psql_store "$RESTORED_DB" \

@@ -78,7 +78,7 @@ services:
       - source: provider_api_key
         target: provider_api_key
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${HARNESS_API_HOST_PORT:-8000}:8000"
 
   web:
     build:
@@ -87,7 +87,7 @@ services:
     depends_on:
       - api
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${HARNESS_WEB_HOST_PORT:-8080}:8080"
 
 volumes:
   metadata:
