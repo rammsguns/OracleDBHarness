@@ -754,8 +754,35 @@ out while recovering from a previous socket timeout). With `expire_time=1`, idle
 durations through 15 minutes answered in about 150 ms. This explains the D4
 capacity probe timeouts: their worksheet sessions idle for minutes between uses.
 `HARNESS_ORACLE_EXPIRE_TIME_MINUTES=1` now enables keepalive by default in both
-driver modes (0 disables); the capacity workload still needs a re-run to verify
-all probes complete with the fix.
+driver modes (0 disables).
+
+### Capacity re-run with Oracle keepalive, 2026-10-24 (A11, NP-07 stand-in)
+
+Run by Claude (AI agent, acting DBA and application owner, not a human). It used the same
+host, targets, command and ADR-0013 thresholds as A2 and A10, at harness commit
+`d2bfdec`, with the 60 s schema panel cache and a 1-minute keepalive. There were two
+runs: the main run `cap-b549c907ac5b` and the steady-only soak `cap-ba14f5588e2d`.
+
+Verdict: **all agreed criteria met in both runs. This is agent-qualified on test
+stand-ins (AI agent, not a human), not a pilot qualification.** The NP-07 pilot gate
+still needs the pilot's own database shapes and a human application owner and DBA.
+
+| Measure (main / soak) | Threshold | Main | Soak |
+| --- | --- | --- | --- |
+| Steady metadata p50 / p95 | 800 / 2500 ms | 29 / 1502 ms | 29 / 1531 ms |
+| Steady bounded read p50 / p95 | 500 / 2000 ms | 190 / 290 ms | 190 / 289 ms |
+| Steady transaction p50 / p95 | 800 / 3000 ms | 91 / 393 ms | 90 / 396 ms |
+| Steady cancellation p50 / p95 | 3000 / 8000 ms | 1482 / 1830 ms | 1488 / 1877 ms |
+| Steady overhead p95 | 400 ms | 240 ms | 239 ms |
+| Steady / saturation error rate | 1% / 10% | 0.00% / 0.00% | 0.04% (1 `execution_cancelled`) / N/A |
+| Recovery after saturation | 120 s | 0 s | N/A |
+| Contamination / lost / unknown / leaked | 0 | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 |
+| Commits / rollbacks verified | - | 2424 / 650 | 1377 / 326 |
+| Probes that failed | 0 | 0 of 768 | 0 of 425 |
+| Observed API CPU peak / p95, RSS peak | 2 CPUs, 2048 MiB declared | 136% / 114%, 168 MiB | 51% / 9%, 168 MiB |
+
+Saturation, at three streams per user, drew no errors. Its client p95 was 1.7 s for bounded
+reads and 1.9 s for transactions.
 
 ## Recording a run
 
