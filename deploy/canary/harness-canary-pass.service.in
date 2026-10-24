@@ -1,0 +1,11 @@
+[Unit]
+Description=P1 stand-in daily canary pass
+Requires=harness-canary-api.service
+After=harness-canary-api.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=@REPO@
+Environment=TMPDIR=@TMP@
+ExecStart=@PYTHON@ -m tests.canary.production pass --state-dir @STATE@ --report-dir @REPORT@
+UMask=0077
