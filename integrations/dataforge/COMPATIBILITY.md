@@ -34,8 +34,10 @@ below preserve the exact commits and qualification boundaries of historical runs
 
 ## Release gates still open
 
-NP-05 completion is open (human-owned). A6 is agent-qualified on test stand-ins
-(AI agent, not a human), with no pilot or production qualification. From
+NP-05 completion is open (human-owned). A6/B1/B2 are agent-qualified on test stand-ins
+(AI agent, not a human): B1c 16/16 Oracle/local-provider checks and B2 6/6 browser
+scenarios. B3 merged upstream as `431147a`; its final fixes have unit coverage only.
+There is no pilot or production qualification. From
 `ORACLEDATAFORGE_INTEGRATION.md`, these remain:
 
 - Human pilot setup; B1c measured the already-configured, running-stack scripted path in 10.938 seconds.

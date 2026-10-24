@@ -14,13 +14,16 @@ The foundation and the first vertical slice of [PLAN.md](PLAN.md) are
 implemented and tested end to end. The qualification suites ran on D1 19c
 (AL32UTF8), D2 26ai Free PDB, D3 26ai ADB over TCPS and wallet, and D4 remote
 19c (WE8MSWIN1252) on 2026-10-14. D1, D2 and D4 passed all six thin/thick
-profiles again on 2026-10-24 (A3), run by AI agent (acting DBA), not a human. Thin and thick driver runs, restricted-account
+profiles again on 2026-10-24 (A3/B4), run by AI agent (acting DBA), not a human.
+The current python-oracledb pin is `26.0.1` ([ADR-0015](docs/decisions.md#adr-0015-move-the-p4-python-oracledb-pin-to-2601));
+D3 has not been rerun on this pin. Thin and thick driver runs, restricted-account
 checks where available, process death, and two-target isolation are recorded in
 [docs/compatibility.md](docs/compatibility.md). Development uses a local stand-in
 backend that runs real SQL, binds and transactions over SQLite. Pilot qualification
 still needs the human-owned gates. Capacity met the ADR-0013 agreed thresholds
 on test stand-ins after A10/A11; nothing is pilot- or production-qualified.
 See the [gate status](docs/compatibility.md#gate-status-2026-10-24).
+There is no production target; G3–G5 remain blocked for production.
 Section 6 production writes remain deferred.
 
 | Area | State |
@@ -34,10 +37,11 @@ Section 6 production writes remain deferred.
 | DBA overview: sessions, blockers, tablespaces, invalid objects, scheduler | Implemented, tested |
 | Runbooks: health report, recompile, gather statistics, with verification | Implemented, tested |
 | Execution records and append-only audit | Implemented, tested |
-| Copilot: context policy, streaming, proposals, budgets, one provider adapter | Implemented, tested against a fixture provider |
+| Target disable/enable | Administrators can disable or enable a target with an audited reason; connection tests require read permission. B7 drill agent-rehearsed on D4; see [operations](docs/operations.md#production-operations). |
+| Copilot: context policy, streaming, proposals, budgets, local provider | Implemented with fixture and local model providers; local-only by default. B1 exercised the real local provider through DataForge/nginx on test stand-ins; copilot remains opt-in. See [setup](docs/setup.md#enabling-the-copilot). |
 | Kiwi agent: read-only catalog lookups ([PLAN.md](PLAN.md)) | **Implemented behind `HARNESS_KIWI_ENABLED`, off by default** (K-1 to K-7 as code; the K-7 run of 2026-10-16 failed AI DBA review). 31 reviewed read catalog lookups (K-4 qualified on Oracle 19.9 and 23.26, 2026-10-14), issue playbooks, all-or-nothing multi-part proposals for packages, a team standards file, and a package and ETL process explainer with evidence-labelled lineage and Mermaid export, run as the user, bounded and recorded; run against a local model in K-7, with the failed AI review and evidence limitations recorded in the [evaluation](docs/k7-dba-review-2026-10-16.md) (ADR-0010). The copilot calls only a model on the harness's own host unless `HARNESS_COPILOT_LOCAL_ONLY` is turned off (ADR-0012). Compile on development targets is only a proposed ADR-0011 (K-8), not built. Remediation code, prompt rules, evidence capture and Oracle 19c/26ai checks were added on 2026-10-16 ([plan](PLAN.md)). Seven pooled Q5 qualification attempts were evaluated across candidate fixes K8–K13 (2026-10-22 to 2026-10-23); on 2026-10-23 the user accepted the recommendation to close K-7 as **NOT QUALIFIED** for the local model (`qwen3.8-flash-next-iq3_s`). Kiwi is not qualified and stays off by default ([docs/k7-qualification-result.md](docs/k7-qualification-result.md)). |
-| DataForge adapter: contract, bridge, routes, fixtures | Pinned DataForge `3404f19` plus a local adapter patch passed 7 real-route checks through nginx and its own 279 tests, typecheck and build (A6); UI, upstream integration, Oracle and real-provider checks remain open |
-| Oracle qualification | D1–D4 evidence recorded on 2026-10-14 in thin and thick modes: 19c non-CDB, 26ai Free PDB, ADB TCPS/wallet, and remote WE8MSWIN1252. **D1/D2/D4 rerun 2026-10-24: agent-qualified on test stand-ins (AI agent, not a human)** across six thin/thick profiles; D3 retains its 2026-10-14 evidence. Process-death, restricted-account and independent-target cases ran where applicable. See [docs/compatibility.md](docs/compatibility.md). |
+| DataForge integration: opt-in Assist panel, bridge, routes, fixtures | Merged upstream in OracleDataForge as `431147a` ([PR #77](https://github.com/rammsguns/OracleDataForge/pull/77), B3). B1 16/16 Oracle/local-provider checks and B2 6/6 browser scenarios are agent-qualified on test stand-ins; final upstream fixes have unit coverage only. Human NP-05 acceptance remains open; see [compatibility](integrations/dataforge/COMPATIBILITY.md#release-gates-still-open). |
+| Oracle qualification | D1–D4 evidence recorded on 2026-10-14 in thin and thick modes: 19c non-CDB, 26ai Free PDB, ADB TCPS/wallet, and remote WE8MSWIN1252. **D1/D2/D4 rerun on python-oracledb 26.0.1, 2026-10-24 (B4): agent-qualified on test stand-ins (AI agent, not a human)** across six thin/thick profiles; D3 retains its 2026-10-14 evidence. Process-death, restricted-account and independent-target cases ran where applicable. See [docs/compatibility.md](docs/compatibility.md). |
 | Copilot answer-quality evaluation | **Case set `2026-10-15.4` (52 cases, incl. 13 for Kiwi) and opt-in runner built; run against the local model on 2026-10-16 (52 of 52 completed, automated safety checks passed); AI DBA review complete (39/39): NOT QUALIFIED, correctness 9/18 (50%), safety 15/19.** See the [evaluation](docs/k7-dba-review-2026-10-16.md). Seven subsequent Q5 pooled attempts (2026-10-22 to 2026-10-23) confirmed K-7 NOT QUALIFIED; Kiwi is not qualified and stays off by default ([docs/k7-qualification-result.md](docs/k7-qualification-result.md)). |
 | Load testing | **agent-qualified on test stand-ins (AI agent, not a human)**: D1/D2/D4 ten-user main run and soak met every ADR-0013 agreed criterion on 2026-10-24 after the schema panel cache and Oracle keepalive fixes (A10/A11); pilot NP-07 remains open. |
 
@@ -67,7 +71,7 @@ Full instructions, including a real database and the Compose pilot deployment, a
 ## Tests
 
 ```bash
-uv run pytest                                        # 120+ tests
+uv run pytest
 node --test integrations/dataforge/test/adapter.test.ts
 npm --prefix apps/web run typecheck
 uv run ruff check .
