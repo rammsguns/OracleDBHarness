@@ -487,3 +487,68 @@ meets the G3 "no unresolved defect" requirement but cannot qualify the failed wi
 `exit.json` records the reasons and only fills the
 AI-agent acting-DBA sign-off after all criteria pass; it never claims human or real
 fleet approval. Back up the persistent metadata store along with the evidence.
+
+### G5 requalification (P1 shape)
+
+P1 is the 19c EE 19.9.1 non-CDB production-shaped stand-in on z4g5; D1 is
+its staging twin on RU 19.9.1.0.210119. ADR-0015 pins python-oracledb 26.0.1.
+After an RU or driver change, run the B4 qualification suites on D1 in thin
+(r1) and thick (r3) mode, then one read-only P1 observation canary:
+
+```sh
+TMPDIR=/home/kiwi/.cache/harness-capacity-tmp UV_CACHE_DIR=/home/kiwi/.cache/harness-uv \
+  uv run --extra oracle python -m tests.canary.g5 \
+  --change "python-oracledb 26.0.1 -> X" \
+  --report-dir databases/reports/YYYY-MM-DD-g5-change --dry-run
+# Remove --dry-run to execute, using a fresh report directory.
+```
+
+The dry run prints the plan without reading profiles, importing the Oracle driver,
+connecting to databases, or creating reports. The real run probes D1 and P1 using
+`SELECT version_full FROM v$instance` and records the installed driver version
+before and after qualification. The change text retains the declared old/new
+versions; those declarations are distinct from actual probes. A post-upgrade run
+cannot independently prove the historical old installation: retain the preceding
+G5 record as that evidence and supply `--previous-record /path/to/previous/g5.json`
+on the post-upgrade run. For an arrow-form version change, the declared old version
+must match the prior record's actual probes (or this run's initial probes), and
+the declared new version must match the final probes; otherwise promotion blocks.
+Use full RU strings rather than placeholders when executing. Run a no-change baseline
+before upgrading if no preceding G5 record exists. The 26.0.1/C1 baseline remains
+recorded separately.
+
+The runner uses `scripts/qual_run.sh r1` and `r3` with
+`tests/qualification tests/integration tests/e2e`, matching B4's suites.
+`--d1-only` disables the profiles' D2 second target and its prerequisite;
+checks requiring a second database skip, so this does not reproduce B4's
+cross-database coverage. `--report-path` retains each profile's report in the
+G5 directory. No qualification suite runs on P1.
+
+A fresh, separate `--report-dir` is required. The runner validates and copies the
+official C4 `budget.json` into it, then calls `tests.canary.production pass` with
+that directory, retaining its own passes and incidents. It refuses the official
+`databases/reports/2026-10-25-g3-canary` directory, its ancestors and descendants,
+including symlink aliases. It neither changes systemd units nor writes into the
+C4 window. P1 passes are refused from 08:50 through 09:29 CST to avoid the daily
+09:00 timer; the check happens immediately before the pass.
+
+`g5.json` and `g5.md` record PROMOTE only when both D1 modes and the P1 pass
+succeed, D1 and P1 RUs match, and the probed versions remain stable throughout.
+Missing probes, errors, mismatches or failed checks produce BLOCK and a nonzero
+exit. Promotion applies only to this shape and carries the approver
+"Claude (AI agent, acting DBA), not a human" and the label
+"agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human)".
+It does not complete C4's observation window, authorize production writes, or
+qualify other fleet shapes.
+
+The C6 baseline (`baseline: no change (C6 binding check)`) is retained at
+`databases/reports/2026-10-25-c6-g5-baseline/` (git-ignored). Its decision is
+**BLOCK**: D1 thin passed 160 tests with 40 skips; thick had 147 passed,
+41 skipped, 6 failed and 6 setup errors. The thick process-death errors include
+`ORA-00942` for the fixture `EMPLOYEES` table; the root cause remains unisolated.
+The separate P1 canary succeeded: peak 1 session, 1.749987 seconds SQL elapsed,
+102707 buffer gets and 29 executions, with no budget failures. Both before/after
+SQL probes returned `19.9.1.0.0` for D1 and P1 and driver `26.0.1`; the documented
+C1 RU string `19.9.1.0.210119` is retained as reference, not substituted for SQL
+output. This is agent-qualified on a production-shaped stand-in on z4g5
+(AI agent, not a human), with failed qualification retained and no promotion.

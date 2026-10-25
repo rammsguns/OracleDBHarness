@@ -11,6 +11,8 @@
 # Without pytest args the three suites the switch in tests/oracle_config.py covers are
 # run. The report goes to databases/reports/<date>-<profile>.md unless the profile sets
 # HARNESS_QUAL_REPORT.
+# Live targets share exclusive DSN-derived locks across worktrees. Set
+# HARNESS_DB_LOCK_TIMEOUT_SECONDS to override the default two-hour wait.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -41,6 +43,24 @@ if [[ -z "${HARNESS_QUAL_ORACLE_DSN:-}" ]]; then
   exit 2
 fi
 
+# G5 can isolate the staging twin and retain evidence outside historical reports.
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --report-path) export HARNESS_QUAL_REPORT="$2"; shift 2 ;;
+    --d1-only)
+      if [[ "$profile" != r1 && "$profile" != r3 ]]; then
+        echo "--d1-only requires r1 or r3" >&2; exit 2
+      fi
+      if [[ "$HARNESS_QUAL_ORACLE_DSN" != localhost:1522/ORCL || "${HARNESS_QUAL_ADMIN_DSN:-}" != localhost:1522/ORCL ]]; then
+        echo "D1 DSN differs; refusing qualification" >&2; exit 2
+      fi
+      while IFS= read -r name; do unset "$name"; done < <(compgen -v | grep '^HARNESS_QUAL_SECOND_' || true)
+      export HARNESS_QUAL_REQUIRE="${HARNESS_QUAL_REQUIRE//second_target,/}"
+      shift ;;
+    *) break ;;
+  esac
+done
+
 mkdir -p "$REPO/databases/reports"
 export HARNESS_QUAL_REPORT="${HARNESS_QUAL_REPORT:-$REPO/databases/reports/$(date +%F)-$profile.md}"
 
@@ -53,4 +73,11 @@ echo "requires: ${HARNESS_QUAL_REQUIRE:-<none>}"
 echo "report:   $HARNESS_QUAL_REPORT"
 
 cd "$REPO"
-exec uv run --extra oracle pytest "$@"
+# Shared across worktrees through the databases directory; acquire every target
+# before any fixture setup, retaining the locks until pytest exits.
+exec uv run --extra oracle python -m tests.database_locks \
+  --description "qualification profile=$profile repo=$REPO" \
+  --dsn "$HARNESS_QUAL_ORACLE_DSN" \
+  --dsn "${HARNESS_QUAL_ADMIN_DSN:-}" \
+  --dsn "${HARNESS_QUAL_SECOND_DSN:-}" \
+  -- uv run --extra oracle pytest "$@"
