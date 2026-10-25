@@ -412,3 +412,78 @@ A8 prepared the observation-only [fleet-discovery runbook](fleet-discovery.md) a
 tool, tried only on D1/D2/D4 by AI agent (acting DBA), not a human. P5 remains
 blocked (no production access): no production fleet facts have been recorded.
 A DBA must run and review the discovery on production before that gate can close.
+
+### G3 production canary (P1 stand-in)
+
+The persistent P1 runner is `uv run python -m tests.canary.production`. Its evidence
+label is **agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human)**.
+P1 is a non-CDB Oracle 19c instance (service PRODCDB, RU 19.9.1.0.210119).
+It uses only P1 (`localhost:1523/PRODCDB`), HARNESS_RO reads of SHOPAPP, three rotating
+AI-agent DBA principals, and an acting-DBA connection for cost sampling and the lock drill.
+Local dev authentication is a recorded deviation from deployed OIDC/TLS. Text explain
+is checked as an audited policy refusal because it writes PLAN_TABLE rows.
+The acting DBA approved enforcing cost ceilings on `v$sql.parsing_user_id` for
+HARNESS_RO: the SHOPAPP default schema changes parsing-schema identity, which made
+schema-only trial counters undercount harness SQL. The SHOPAPP workload (parsing user
+SHOPAPP) and acting DBA (SYSTEM) are excluded. Parsing-schema counters remain a
+secondary recorded figure; their zero deltas do not imply zero harness SQL cost.
+This scope and its reason are written in the budget before the official first pass.
+Pre-start C2 evidence is retained under `databases/reports/2026-10-24-c2-trial/`;
+the fresh `2026-10-25-g3-canary/` budget starts a separate official window with the
+first timer pass. Its pre-start drill evidence retains the original timestamp.
+
+Run from the repository with `TMPDIR=$HOME/.cache/harness-capacity-tmp` and
+`UV_CACHE_DIR=$HOME/.cache/harness-uv`; create TMPDIR first. Docker bind mounts must
+use a path under HOME, since Docker cannot see the shell's private /tmp.
+The provisioner must supply `databases/qual/p1.env` and
+`databases/secrets/p1_harness_ro.pw`. Budget creation is exclusive and must precede
+all other commands (including deployment):
+
+```sh
+uv run python -m tests.canary.production budget --report-dir databases/reports/2026-10-25-g3-canary
+uv run python -m tests.canary.production deploy --state-dir databases/canary/p1
+uv run python -m tests.canary.production drill
+uv run python -m tests.canary.production pass
+uv run python -m tests.canary.production evaluate --min-days 14
+```
+
+All commands accept `--report-dir` and `--state-dir`; use the same absolute directories
+throughout. Defaults match the example. Deployment retains `harness-canary-pg` and
+its named volume `harness-canary-pgdata`, the API PID/port (default 8640), and secret
+files restricted to mode 0600 under the state directory. `stop` stops the API and
+store without deleting evidence or the volume; `deploy` reuses them.
+`stop --api-only` stops only the PID-file API process and leaves the store running.
+
+`deploy --install-units` renders the templates in `deploy/canary/` into
+`~/.config/systemd/user/` and reloads units without enabling them. The coordinator
+must transition the manually launched API with these commands, using the same state
+and report directories as deployment:
+
+```sh
+uv run python -m tests.canary.production deploy --install-units --state-dir databases/canary/p1 --report-dir databases/reports/2026-10-25-g3-canary
+uv run python -m tests.canary.production stop --api-only --state-dir databases/canary/p1 --report-dir databases/reports/2026-10-25-g3-canary
+systemctl --user enable --now harness-canary-api.service
+systemctl --user enable --now harness-canary-pass.timer
+```
+
+The API unit runs `docker start harness-canary-pg` before launching the API, including
+on subsequent service restarts. The daily timer fires at
+09:00 local time with `Persistent=true`; the evaluator counts distinct UTC calendar
+days, detects any gap since the first pass, and never counts two same-day passes as
+two days. Keep the checkout, virtual environment, state directory and store available
+for the full canary. The runner serializes deployment, pass and drill operations.
+
+Failed passes retain JSON/Markdown evidence and an incident; they leave the deployment
+running. The drill restores the account and target in `finally` and verifies OPEN
+status and an audited read. The acting DBA must investigate incidents and explicitly
+write `resolutions/<incident-stem>.json` with `incident` equal to that stem,
+`resolved_by` equal to `Claude (AI agent, acting DBA)`, an ISO `at` timestamp and a
+nonempty `note` explaining verification. Resolution never removes failed-pass evidence
+or excuses any failed canary pass, including a budget breach. Every pass must succeed
+within budget: a failed pass restarts the 14-day window under a fresh report directory
+with a newly recorded budget, retaining the old evidence. Update the installed units
+to use that fresh report directory before restarting the timer. Resolving an incident
+meets the G3 "no unresolved defect" requirement but cannot qualify the failed window.
+`exit.json` records the reasons and only fills the
+AI-agent acting-DBA sign-off after all criteria pass; it never claims human or real
+fleet approval. Back up the persistent metadata store along with the evidence.

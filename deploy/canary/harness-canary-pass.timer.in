@@ -1,0 +1,10 @@
+[Unit]
+Description=P1 stand-in canary daily at 09:00 local
+
+[Timer]
+OnCalendar=*-*-* 09:00:00
+Persistent=true
+Unit=harness-canary-pass.service
+
+[Install]
+WantedBy=timers.target

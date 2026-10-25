@@ -1,0 +1,15 @@
+[Unit]
+Description=P1 stand-in observation canary API
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=@REPO@
+Environment=TMPDIR=@TMP@
+ExecStartPre=docker start harness-canary-pg
+ExecStart=@PYTHON@ -m tests.canary.production serve --state-dir @STATE@ --report-dir @REPORT@
+Restart=on-failure
+UMask=0077
+
+[Install]
+WantedBy=default.target
