@@ -2658,6 +2658,10 @@ Write-dependent workflows run only on D1/D2/D4.
   unresolved incidents and provisional evaluator reasons, with optional attributed
   `reviews/<UTC date>.json` records. Default review never writes official evidence;
   final `evaluate` output is unchanged and ignores reviews. C4 remains unticked.
+- [x] **C4b Unattended post-pass snapshot — agent-built (AI agent, not a human).**
+  Added an ExecStopPost offline snapshot in `reviews/<UTC date>.auto.json`, including
+  failed passes, with no-reviewer attribution and same-day replacement. These
+  UNATTESTED records do not replace acting-DBA review or affect evaluation; C4 stays unticked.
 - [ ] **C5 G4 first production shape.** After C4 exits clean, record "19c single-instance
   CDB/PDB (docker, z4g5)" as the one qualified production shape, observation only. Do not
   expand to other shapes.

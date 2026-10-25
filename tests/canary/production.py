@@ -928,12 +928,20 @@ def review(directory: Path, today: date | None = None) -> dict[str, Any]:
     }
 
 
-def record_review(directory: Path, result: dict[str, Any], force: bool = False) -> None:
-    path = directory / "reviews" / f"{datetime.now(UTC).date().isoformat()}.json"
+def record_review(
+    directory: Path, result: dict[str, Any], force: bool = False, unattended: bool = False
+) -> None:
+    suffix = ".auto.json" if unattended else ".json"
+    path = directory / "reviews" / f"{datetime.now(UTC).date().isoformat()}{suffix}"
+    reviewer = (
+        "unattended timer snapshot (no reviewer; acting-DBA review pending)"
+        if unattended
+        else "Claude (AI agent, acting DBA), not a human"
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w" if force else "x") as output:
+    with path.open("w" if force or unattended else "x") as output:
         json.dump(
-            {**result, "reviewed_by": "Claude (AI agent, acting DBA), not a human", "label": LABEL},
+            {**result, "reviewed_by": reviewer, "label": LABEL},
             output,
             indent=2,
         )
@@ -956,9 +964,12 @@ def main() -> int:
         if name == "review":
             sub.add_argument("--record", action="store_true")
             sub.add_argument("--force", action="store_true")
+            sub.add_argument("--unattended", action="store_true")
         if name == "evaluate":
             sub.add_argument("--min-days", type=int, default=14)
     args = parser.parse_args()
+    if args.subcommand == "review" and args.unattended and not args.record:
+        parser.error("--unattended requires --record")
 
     def interrupted(_signal: int, _frame: Any) -> None:
         raise RehearsalFailure("Canary interrupted; restoration required for an active drill")
@@ -975,9 +986,9 @@ def main() -> int:
         if args.subcommand == "review":
             result = review(args.report_dir)
             if args.record:
-                record_review(args.report_dir, result, args.force)
+                record_review(args.report_dir, result, args.force, args.unattended)
             print(json.dumps(result, indent=2))
-            return 0 if result["pass"] else 1
+            return 0 if args.unattended or result["pass"] else 1
         budget = read_budget(args.report_dir)
         if args.subcommand == "evaluate":
             if args.min_days < 1:

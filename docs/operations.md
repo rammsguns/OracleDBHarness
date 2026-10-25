@@ -498,6 +498,14 @@ so far; the 14-day minimum is deferred before the first pass and while the windo
 is running. Use
 `review --record` to retain `reviews/<UTC date>.json` with the acting DBA attribution;
 an existing review requires `--force`. Reviews do not count toward evaluation.
+The daily service also runs `review --record --unattended` in `ExecStopPost`, even
+when a pass fails, retaining an UNATTESTED `reviews/<UTC date>.auto.json` snapshot.
+Same-day snapshots are replaced and explicitly state that no reviewer participated;
+this is NOT an acting-DBA review and does not replace the manual review above.
+Unattended snapshots print the review JSON and exit 0 even when it reports failures;
+incidents retain those failures. Evaluation ignores these snapshots too.
+To enable this in existing units, Claude must re-render them with
+`deploy --install-units`, then run `systemctl --user daemon-reload`.
 Run `evaluate` only for the final exit decision; C4 remains in progress.
 
 ### G5 requalification (P1 shape)
