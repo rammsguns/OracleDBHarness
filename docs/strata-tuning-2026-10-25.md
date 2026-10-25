@@ -206,37 +206,135 @@ the binary went unanswered; mandatory quality rollback superseded that optional
 decision. This study does **not** measure engine 0.1.50, nor establish that a server
 code change caused the observed failures: stochastic variation and the unchanged
 binary remain relevant limits. No tuning sweep was performed.
-Performance and sampling sweeps and a frozen-candidate Q5 attempt remain future work.
+At the D0/D1 rollback checkpoint, performance/sampling sweeps and a frozen-candidate
+Q5 attempt remained future work. The completed D2 performance sweep follows below;
+sampling/quality and frozen-candidate work remain pending.
 
 ## D2 performance sweep
 
 **diagnostic tuning, NOT qualification evidence (AI agent, not a human)**
 
-D2 checkpoint: source remains v0.2.4.1 and engine remains 0.1.46. The original
-config was copied to `~/llm-rig/strata/backups/tune-20261025/d2/original.json`.
-Results and trial tooling are retained in
-`~/llm-rig/strata/benchmarks/tune-20261025/d2/`. Both baseline suites used the
-existing server, default three runs per test, with no concurrent requests.
+Completed 20 candidate configurations on v0.2.4.1 / engine 0.1.46, reusing the
+checkpoint's original default and long baselines. **No candidate passed the
+retention rule; the original configuration is retained, with no accepted gain
+(0% configuration gain) and an empty args diff.** This is a bounded local search,
+not proof that the original is globally fastest or that output quality is unchanged.
+D3 quality trials remain outstanding.
 
-| Config | Agent decode tok/s | Agent TTFT s | Chat decode tok/s | Chat TTFT s | 4K prefill tok/s | 4K TTFT s | 16K prefill tok/s | 16K TTFT s | Outcome |
+### Method and scope
+
+The coordinator resolved the checkpoint question: floating-point rounding changes
+from drafting depth/confidence, CPU/GPU expert placement, cache sizing, adaptation,
+and prefill grouping are in scope. The weights/quantisation, model/pack, sampling,
+reasoning budget (2048), KV precision (`int8`), max context (131072), and target
+verification/acceptance rule remained unchanged. All intermediate JSON backups
+were checked against these invariants. No model files, databases, systemd, Docker,
+P1/canary, evaluation scoring/rubrics/cases/bars, main commits, or pushes were touched.
+
+Read the installed engine's `--help`, local `docs/DETAILS.md` (KV placement,
+rounding, calibration), `docs/MULTI_GPU.md` (prefill and layer placement), and
+argument parsing in `src/program/generate.cpp` before testing the corresponding
+knobs. `--spec` uses verify windows of at least two tokens; 2–6 were tested around
+4. Confidence probabilities 0.5–0.9 and PCIe shares 0.1–0.3 are inside [0,1].
+Prefill alternatives are positive token chunk sizes; expert-cache is an explicit
+slot count. Adaptation interval and swap count are nonnegative integers; decay
+multiplies routing counts and the tested 0.90 is inside (0,1). Layer split is the
+first layer of the later GPU, so 24/26 are valid interior points of 48 layers.
+No lossy quantisation or acceptance-rule alternative was introduced.
+
+Coordinate descent changed one knob from the retained incumbent per trial. Each
+candidate was backed up, written to the engine JSON, cold-restarted using
+`restart_strata.md` Method 3, and required `/health` status `ok`, `loaded=true`.
+Each then ran `bench.sh --url http://127.0.0.1:8080 --out <trial>` with its default
+three runs per test, with no concurrent requests. An agent primary improvement
+of **>2%** in decode or TTFT was required, with **no >2% regression** in the other
+primary or secondary decode, prefill, and TTFT medians. Throughput gain is
+`candidate/incumbent - 1`; TTFT gain is `incumbent/candidate - 1`. Including all
+TTFT measurements makes the secondary guard conservative. Two consecutive
+non-improving values ended each explored direction; other directions were bounded
+by the 20-candidate cap. Every candidate failed the gate, so all comparisons use
+the original incumbent and no cumulative changes were retained.
+
+KV residency stayed at 32768: initial free VRAM was only 429/303 MiB, below the
+coordinator's approximately 1 GiB-per-GPU threshold for increasing it. The sweep
+recorded roughly 171–363 MiB free in observed samples; no OOM, load failure,
+failed request, or skipped benchmark occurred. Sustained-load temperatures rose
+from the high 60s into the high 80s/low 90s Celsius. There was no randomized or
+interleaved control, so thermal drift, changing generated text, and ordinary
+run-to-run variation limit attribution; small differences are not durable gains.
+
+Results, raw medians, decision percentages, health checks, GPU snapshots and trial
+scripts: `~/llm-rig/strata/benchmarks/tune-20261025/d2/`. Every tested JSON and the
+original/final snapshots: `~/llm-rig/strata/backups/tune-20261025/d2/`.
+`summary.json` records each candidate and decision; each candidate label below is its result
+directory and config-backup stem. Engine startup logs are retained for the later
+trials; earlier trials retain benchmark/server logs, health and GPU snapshots.
+
+### All configurations (medians)
+
+All candidate rows change only the named setting from original. Baseline long
+and final long rows come from separate `--long` runs; other rows use default.
+
+| Label / change | Agent tok/s | Agent TTFT s | Chat tok/s | Chat TTFT s | 4K prefill tok/s | 4K TTFT s | 16K prefill tok/s | 16K TTFT s | Decision |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| Original, default | 80.9 | 2.695 | 76.6 | 0.385 | 1328.2 | 3.051 | 1998.9 | 8.094 | No failed requests |
-| Original, long | 79.5 | 2.671 | 81.2 | 0.396 | 1292.1 | 3.141 | 1953.6 | 8.279 | No failed requests |
+| baseline | 80.9 | 2.695 | 76.6 | 0.385 | 1328.2 | 3.051 | 1998.9 | 8.094 | Retained original |
+| baseline-long | 79.5 | 2.671 | 81.2 | 0.396 | 1292.1 | 3.141 | 1953.6 | 8.279 | Checkpoint long |
+| `spec3`: `--spec 3` | 80.8 | 2.704 | 78.6 | 0.409 | 1317.3 | 3.076 | 1985.6 | 8.12 | Reject |
+| `spec_2`: `--spec 2` | 70.9 | 2.735 | 72.8 | 0.422 | 1291.3 | 3.137 | 1947.3 | 8.279 | Reject |
+| `spec_5`: `--spec 5` | 76.8 | 2.753 | 73.0 | 0.386 | 1300.2 | 3.117 | 1957.2 | 8.238 | Reject |
+| `spec_6`: `--spec 6` | 74.5 | 2.718 | 78.6 | 0.377 | 1300.0 | 3.117 | 1963.8 | 8.209 | Reject |
+| `spec_min_p_0p6`: `--spec-min-p 0.6` | 83.8 | 2.723 | 76.8 | 0.39 | 1294.6 | 3.129 | 1947.2 | 8.281 | Reject |
+| `spec_min_p_0p5`: `--spec-min-p 0.5` | 76.8 | 2.72 | 79.7 | 0.393 | 1295.7 | 3.127 | 1953.0 | 8.259 | Reject |
+| `spec_min_p_0p8`: `--spec-min-p 0.8` | 80.8 | 2.725 | 76.0 | 0.388 | 1293.4 | 3.132 | 1944.0 | 8.294 | Reject |
+| `spec_min_p_0p9`: `--spec-min-p 0.9` | 80.4 | 2.729 | 76.3 | 0.392 | 1293.4 | 3.132 | 1948.4 | 8.296 | Reject |
+| `pcie_frac_0p1`: `--pcie-frac 0.1` | 80.1 | 2.727 | 79.6 | 0.39 | 1294.8 | 3.129 | 1942.9 | 8.298 | Reject |
+| `pcie_frac_0p3`: `--pcie-frac 0.3` | 78.5 | 2.727 | 77.8 | 0.395 | 1292.8 | 3.134 | 1945.0 | 8.289 | Reject |
+| `prefill_4096`: `--prefill 4096` | 79.5 | 2.726 | 79.9 | 0.39 | 1293.1 | 3.133 | 2114.8 | 7.626 | Reject |
+| `prefill_2048`: `--prefill 2048` | 85.5 | 2.963 | 77.2 | 0.392 | 1369.5 | 2.96 | 1697.1 | 9.495 | Reject |
+| `expert_cache_9000`: `--expert-cache 9000` | 79.7 | 2.725 | 75.1 | 0.387 | 1291.2 | 3.138 | 1945.7 | 8.286 | Reject |
+| `adapt_every_2`: `--adapt-every 2` | 83.1 | 2.756 | 79.1 | 0.388 | 1290.0 | 3.141 | 1942.4 | 8.3 | Reject |
+| `adapt_every_4`: `--adapt-every 4` | 78.5 | 2.727 | 76.6 | 0.388 | 1292.9 | 3.134 | 1952.3 | 8.261 | Reject |
+| `adapt_swaps_160`: `--adapt-swaps 160` | 77.8 | 2.732 | 75.2 | 0.393 | 1293.7 | 3.132 | 1951.0 | 8.264 | Reject |
+| `adapt_swaps_240`: `--adapt-swaps 240` | 80.0 | 2.723 | 76.1 | 0.382 | 1292.7 | 3.134 | 1946.5 | 8.283 | Reject |
+| `adapt_decay_0p9`: `--adapt-decay 0.9` | 81.1 | 2.726 | 77.2 | 0.399 | 1292.4 | 3.135 | 1946.2 | 8.289 | Reject |
+| `layer_split_24`: `layer_split 24` | 82.6 | 2.73 | 75.1 | 0.39 | 1294.4 | 3.13 | 1927.3 | 8.364 | Reject |
+| `layer_split_26`: `layer_split 26` | 84.8 | 2.727 | 76.2 | 0.389 | 1290.3 | 3.14 | 1934.8 | 8.332 | Reject |
+| final-long (original) | 80.9 | 2.723 | 80.8 | 0.387 | 1298.0 | 3.121 | 1953.9 | 8.27 | Final confirmation |
 
-The long suite measured 32K prefill at 2298.3 tok/s and TTFT at 14.005 seconds.
-The unchanged original also passed three short API sanity calls: 17 + 25 gave 42,
-the index explanation described faster lookup, and the Python square function
-returned `number ** 2`. Responses are saved in `baseline-sanity.json`.
+Confidence 0.60 raised agent decode from 80.9 to 83.8 tok/s (+3.6%), but 4K/16K
+prefill regressed by >2%. Prefill 2048 raised agent decode to 85.5 tok/s (+5.7%),
+but agent TTFT rose to 2.963 s and 16K prefill fell to 1697.1 tok/s. Adaptation
+interval 2 raised agent decode to 83.1 tok/s (+2.7%), but agent TTFT and prefill
+failed the guard. Manual split 24 raised decode to 82.6 tok/s (+2.1%), but prefill
+failed the guard. Manual split 26 raised decode to 84.8 tok/s (+4.8%), but
+prefill also failed the guard. Prefill 4096 improved 16K prefill to 2114.8 tok/s (+5.8%) without
+an agent primary improvement. These isolated gains were not accepted.
 
-**Scope question pending; no candidate tested yet.** The installed binary's help
-and local engine `docs/DETAILS.md` were read before changing any args. DETAILS
-lines 99–114 explicitly document that changing drafting, CPU/GPU expert placement,
-and cache state changes floating-point rounding and can change generated tokens.
-That affects `--spec`, `--spec-min-p`, `--pcie-frac`, expert-cache sizing, adaptation,
-and prefill grouping. KV residency preserves attention values (lines 79–83), but
-larger allocations reduce expert slots and can indirectly change CPU/GPU placement.
-The starting GPU free memory was 429/303 MiB; no increased KV allocation was tried.
-A blocking Orca question asks whether documented rounding differences are allowed
-under the task's no-model-math-change constraint. No answer has arrived at this
-checkpoint. No winner or speedup is claimed; args diff versus original is empty,
-and the original configuration remains running. D2 is not complete.
+The explicit cache request 9000 was fitted by the engine to the available
+allocation (startup log: 5913 primary-stage and 4597 secondary-stage slots), so it
+must not be interpreted as 9000 additional resident experts. Auto layer placement
+selected split 25 in the observed startups; manual 24 and 26 were both rejected.
+
+### Retained configuration and final checks
+
+```text
+--expert-cache auto --prefill auto --spec 4 --spec-min-p 0.70
+--kv-resident 32768 --pcie-frac 0.20
+--adapt-every 1 --adapt-swaps 80 --adapt-decay 0.97
+layer_split: auto
+```
+
+Args diff versus original: **empty**. The complete JSON was restored byte for byte
+from `d2/original.json`; all remaining engine/model/sampling settings are unchanged.
+The existing baselines were reused for selection; the additional final long run
+is a post-sweep confirmation of the restored configuration, not a new baseline.
+
+Final long 32K prefill: **2287.1 tok/s**, TTFT **14.092 s**.
+Final long had no failed or skipped requests. Three fresh short API calls returned
+coherent answers for arithmetic (42), a database-index explanation, and a Python
+square function; full responses are in `final-sanity.json`. These are smoke checks,
+not quality or qualification evidence. Final `/health` is `ok`, `loaded=true`,
+model `qwen3.8-flash-next-iq3_s`, context 131072, and the original config is running.
+Engine SHA-256 still matches the D0/D1 original
+`e54498e95ee5974c5a2b92b430aa867861baf884d217e7761dd68e2d905a1e2e`.
+D2 is complete; no performance change is recommended. D3 remains pending.
