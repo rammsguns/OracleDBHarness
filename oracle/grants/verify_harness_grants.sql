@@ -1,27 +1,35 @@
 -- Read-only grant check. Connect as the account used by a target, then run this file.
 SET PAGESIZE 100 LINESIZE 180
-PROMPT Harness roles (MISSING rows require DBA review)
+PROMPT Harness roles (MISSING rows require DBA review; developer/maintenance are optional)
+-- SESSION_ROLES includes enabled roles inherited through another role.
 SELECT expected.role_name,
-       CASE WHEN actual.granted_role IS NULL THEN 'MISSING' ELSE 'PRESENT' END status
-FROM (SELECT 'HARNESS_METADATA_ROLE' role_name FROM dual UNION ALL
-      SELECT 'HARNESS_DIAGNOSTICS_ROLE' FROM dual UNION ALL
-      SELECT 'HARNESS_RUNBOOK_ROLE' FROM dual) expected
-LEFT JOIN user_role_privs actual ON actual.granted_role = expected.role_name
+       CASE WHEN actual.role IS NOT NULL THEN 'PRESENT'
+            WHEN expected.required = 'N' THEN 'NOT GRANTED (optional)'
+            ELSE 'MISSING' END status
+FROM (SELECT 'HARNESS_DIAGNOSTICS_ROLE' role_name, 'Y' required FROM dual UNION ALL
+      SELECT 'HARNESS_DEVELOPER_ROLE', 'N' FROM dual UNION ALL
+      SELECT 'HARNESS_MAINTENANCE_ROLE', 'N' FROM dual) expected
+LEFT JOIN session_roles actual ON actual.role = expected.role_name
 ORDER BY expected.role_name;
 
-PROMPT Diagnostic object grants visible to this account
-SELECT expected.owner, expected.object_name,
-       CASE WHEN p.table_name IS NULL THEN 'MISSING' ELSE 'VISIBLE' END status
-FROM (SELECT 'SYS' owner, 'V_$SESSION' object_name FROM dual UNION ALL
-      SELECT 'SYS', 'V_$LOCK' FROM dual UNION ALL
-      SELECT 'SYS', 'V_$SQL' FROM dual UNION ALL
-      SELECT 'SYS', 'V_$SQL_PLAN' FROM dual UNION ALL
-      SELECT 'SYS', 'DBA_TABLESPACES' FROM dual UNION ALL
-      SELECT 'SYS', 'DBA_TABLESPACE_USAGE_METRICS' FROM dual UNION ALL
-      SELECT 'SYS', 'DBMS_XPLAN' FROM dual) expected
-LEFT JOIN (SELECT DISTINCT table_schema, table_name FROM all_tab_privs
+PROMPT Object grants visible to this account (maintenance-only grants are optional)
+SELECT expected.owner, expected.object_name, expected.privilege,
+       CASE WHEN p.table_name IS NOT NULL THEN 'VISIBLE'
+            WHEN expected.required = 'N' THEN 'NOT GRANTED (optional)'
+            ELSE 'MISSING' END status
+FROM (SELECT 'SYS' owner, 'V_$SESSION' object_name, 'SELECT' privilege,
+             'Y' required FROM dual UNION ALL
+      SELECT 'SYS', 'V_$SQL', 'SELECT', 'Y' FROM dual UNION ALL
+      SELECT 'SYS', 'V_$SQL_PLAN', 'SELECT', 'Y' FROM dual UNION ALL
+      SELECT 'SYS', 'DBA_TABLESPACES', 'SELECT', 'Y' FROM dual UNION ALL
+      SELECT 'SYS', 'DBA_TABLESPACE_USAGE_METRICS', 'SELECT', 'Y' FROM dual UNION ALL
+      SELECT 'SYS', 'DBA_SCHEDULER_JOBS', 'SELECT', 'Y' FROM dual UNION ALL
+      SELECT 'SYS', 'DBA_SCHEDULER_JOB_RUN_DETAILS', 'SELECT', 'Y' FROM dual UNION ALL
+      SELECT 'SYS', 'DBMS_STATS', 'EXECUTE', 'N' FROM dual) expected
+LEFT JOIN (SELECT DISTINCT table_schema, table_name, privilege FROM all_tab_privs
            WHERE privilege IN ('SELECT', 'EXECUTE')) p
   ON p.table_schema = expected.owner AND p.table_name = expected.object_name
+ AND p.privilege = expected.privilege
 ORDER BY expected.object_name;
 
 PROMPT Session privileges and quotas
