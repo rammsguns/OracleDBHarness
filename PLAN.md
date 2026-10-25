@@ -27,9 +27,11 @@ and qualify Kiwi separately for development targets. The MVP workflows and local
 qualification tooling exist. Oracle D1–D4 qualification is recorded for 2026-10-14
 in [compatibility](docs/compatibility.md) (python-oracledb 4.0.2, thin and thick).
 The current pin is `26.0.1` (B4 / ADR-0015), agent-qualified on D1/D2/D4 test stand-ins;
-D3 retains its 4.0.2 evidence. A11 and B4 capacity main/soak met the agreed ADR-0013
+BF1 also requalified D3 on 26.0.1 (thin and thick: 167 passed / 33 skipped each).
+A11 and B4 capacity main/soak met the agreed ADR-0013
 thresholds ([capacity](docs/capacity.md)). DataForge is opt-in and merged upstream
-(B3, `431147a`), with B1 16/16 route/backend checks and B2 6/6 browser scenarios.
+(B3, `431147a`), with BF2 live re-runs passing B1 17/17 route/backend checks
+and B2 7/7 browser scenarios.
 Human pilot acceptance, pilot OIDC and production gates remain open.
 
 K-7 remains **NOT QUALIFIED**. State as of 2026-10-22, verified against the tree:
@@ -2495,6 +2497,19 @@ Results are agent-rehearsed or agent-qualified on test stand-ins only. No produc
 access is used, no fleet facts are invented, no named human sign-off is claimed, and
 section 6 stays deferred.
 
+### Section B follow-ups — 2026-10-25
+
+- [x] **BF1 D3 requalification.** PR #94: D3 requalified on python-oracledb
+  26.0.1; thin and thick each passed 167 tests / 33 skipped. One failure caused
+  by interference on D1 passed on an isolated re-run. See
+  [D3 evidence](docs/compatibility.md#d3-requalification-on-2601-2026-10-25-bf1).
+- [x] **BF2 final upstream DataForge live re-run.** PR #93: DataForge at
+  `431147a`, B1 17/17 and B2 7/7 passed, including the final review fixes. See
+  [integration evidence](integrations/dataforge/COMPATIBILITY.md#2026-10-25-utc-bf2--final-upstream-head-live-re-run).
+
+Both follow-ups are agent-qualified on test stand-ins (AI agent, not a human);
+human pilot acceptance and real fleet qualification remain open.
+
 - [x] **B4 G5 driver-upgrade rehearsal.** In a separate worktree, move python-oracledb
   from 4.0.2 to 26.0.1. Then:
   - re-run A3's six qualification profiles (D1, D2, D4; thin and thick);
@@ -2531,7 +2546,8 @@ section 6 stays deferred.
   Done 2026-10-24: [upstream PR #77](https://github.com/rammsguns/OracleDataForge/pull/77)
   merged as `431147a` after green CI and an independent agy review (changes requested,
   fixed, approved). Merged by Claude (AI agent, acting release owner, not a human). The
-  last fixes (disabled guards, SSE parsing, Assist hidden when disabled) are unit-tested only.
+  last fixes (disabled guards, SSE parsing, Assist hidden when disabled) were subsequently
+  exercised live in BF2 above.
 - [x] **B5 G3 canary rehearsal.** Register a test target (D4) under the production
   boundary (observation only, copilot and Kiwi off). Then:
   - run a compressed canary with DBA-style observation workflows on a schedule;
@@ -2640,10 +2656,21 @@ Write-dependent workflows run only on D1/D2/D4.
 - [ ] **C5 G4 first production shape.** After C4 exits clean, record "19c single-instance
   CDB/PDB (docker, z4g5)" as the one qualified production shape, observation only. Do not
   expand to other shapes.
-- [ ] **C6 G5 binding.** Bind the G5 requalification checklist to P1's shape: staging twin
+- [x] **C6 G5 binding.** Bind the G5 requalification checklist to P1's shape: staging twin
   D1, the 26.0.1 pin, and the RU recorded in C1. Any RU or driver change requalifies D1
   and re-runs one P1 canary pass before promotion.
+  Done: PR #95 merged as `1ae247f`, agy APPROVE (AI agent review, not human sign-off).
+  The first baseline was BLOCK due to cross-agent interference on D1 `HARNESS_APP`
+  (`ORA-00942` fixtures), retained as `g5-interfered-20261025T0121` in the
+  [C6 evidence directory](databases/reports/2026-10-25-c6-g5-baseline/).
+  Per-DSN `flock` locks were added; the serialized re-run returned **PROMOTE**
+  (r1, r3 and the P1 pass all exit 0), as recorded in
+  [g5.md](databases/reports/2026-10-25-c6-g5-baseline/g5.md).
+  This is agent-qualified on a production-shaped stand-in on z4g5 (AI agent,
+  not a human); no RU/driver change or real fleet qualification is claimed.
 - [ ] **C7 Review and documentation.** agy reviews each PR read-only. Reconcile
   docs/compatibility.md and the gate table, with the labelling above.
-  - C7a (grants scripts reconciled) merged as PR #91 with agy APPROVE;
+  - C7a done (grants scripts reconciled), merged as PR #91 with agy APPROVE;
     agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human).
+  - This documentation pass records C6, BF1 and BF2 and reconciles operations as
+    part of C7. C7 stays unticked until the end of C4.
