@@ -12,7 +12,8 @@ agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human).
 Agent roles are AI agent (acting DBA/application owner/reviewer), not a human.
 P1 is agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human);
 no real fleet qualification or human sign-off is claimed. G3 is in progress on P1,
-G4/G5 remain pending C4/C5/C6, and section 6 production writes remain deferred.
+G4 remains pending C4/C5; C6 has bound G5 to P1 with a baseline PROMOTE,
+and section 6 production writes remain deferred.
 
 | Gate / scope | Status | Evidence / remaining work |
 | --- | --- | --- |
@@ -21,8 +22,8 @@ G4/G5 remain pending C4/C5/C6, and section 6 production writes remain deferred.
 | NP-02 test drills | agent-qualified on test stand-ins (AI agent, not a human) | A4: PostgreSQL install/restore and earliest schema commit upgrade passed; no released baseline exists. |
 | NP-02 pilot | open (human-owned) | Operations acceptance remains. |
 | NP-04 / K-7 | not met | K-7 closure: NOT QUALIFIED, 2026-10-23; Kiwi stays off by default. |
-| NP-05 integration | agent-qualified on test stand-ins (AI agent, not a human) | A6/B1: 16/16 Oracle and real local-provider checks through nginx; B2: 6/6 browser scenarios. B3: upstream PR #77 merged as `431147a`; final review fixes are unit-tested only. |
-| NP-05 pilot | open (human-owned) | Human setup/editor acceptance, broader UI regression and live rerun of final upstream head remain; B1 setup was 10.938 s on an already-running stack. See [integration gates](../integrations/dataforge/COMPATIBILITY.md#release-gates-still-open). |
+| NP-05 integration | agent-qualified on test stand-ins (AI agent, not a human) | BF2 (PR #93): merged upstream `431147a` passed B1 17/17 Oracle and real local-provider checks through nginx and B2 7/7 browser scenarios, including final review fixes. |
+| NP-05 pilot | open (human-owned) | Human setup/editor acceptance and broader UI regression remain; BF2 completed the final upstream head live rerun; B1 setup was 10.938 s on an already-running stack. See [integration gates](../integrations/dataforge/COMPATIBILITY.md#release-gates-still-open). |
 | NP-06 stand-in | agent-qualified on test stand-ins (AI agent, not a human) | A5: deployed nginx/Keycloak browser drill, 23 passed, 2 observed. |
 | NP-06 pilot | open (human-owned) | Pilot IdP registration and deployed origin still required. |
 | NP-07 test capacity | agent-qualified on test stand-ins (AI agent, not a human) | A2 failed; A10 cache fixed latency; A11 keepalive main run and soak met every agreed criterion; B4 repeated on 26.0.1. |
@@ -32,7 +33,7 @@ G4/G5 remain pending C4/C5/C6, and section 6 production writes remain deferred.
 | G2 | open (human-owned) | A7 independent AI reviews and C-1/C-2 fixes do not replace named human security review and DBA approval. |
 | G3 | in progress on the P1 production-shaped stand-in (agent-run, window 2026-10-25 → 2026-11-07); no human sign-off, not the real fleet | agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human): C2 runner and C3 pre-start drill complete; C4 timer activated, zero official passes so far. |
 | G4 | pending C4 exit on P1 | agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human): no production expansion or fleet qualification; C5 remains open. |
-| G5 / P4 | agent-qualified on test stand-ins; G5 blocked for production (AI agent, not a human) | B4: 26.0.1 six-profile rerun and capacity main/soak; ADR-0015 moved the P4 pin. P1 C6 remains open: agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human); no fleet qualification or human promotion approval. |
+| G5 / P4 | G5 runner bound to P1 shape; baseline PROMOTE (agent-qualified on a production-shaped stand-in on z4g5, AI agent, not a human); no RU/driver change yet | C6: PR #95 merged as `1ae247f`, agy APPROVE; [operations evidence](operations.md#g5-requalification-p1-shape) links the retained interfered BLOCK and serialized PROMOTE. B4 / ADR-0015 moved the P4 pin to 26.0.1; no human sign-off or real fleet qualification. |
 | P5 | blocked (no production access) | A8 discovery tool/runbook tried only on D1/D2/D4; no production fleet facts. |
 
 ## P1 production-shaped stand-in (2026-10-24)
@@ -876,7 +877,8 @@ Python 3.11.16, matching A3, against the D1/D2/D4 test databases. The venv
 was rebuilt from Python 3.12; `py312-attempt/` is retained but is not evidence.
 Each profile ran `scripts/qual_run.sh <profile> tests/qualification tests/integration tests/e2e`.
 This is **agent-qualified on test stand-ins**, not pilot or production acceptance;
-D3 and production fleet shapes have not been requalified on 26.0.1.
+D3 was subsequently requalified on 26.0.1 in BF1 (PR #94; see below).
+Production fleet shapes remain unqualified.
 
 | Profile | Target | Mode | Passed | Skipped | Difference from A3 (passed / skipped) |
 | --- | --- | --- | --- | --- | --- |

@@ -541,14 +541,28 @@ exit. Promotion applies only to this shape and carries the approver
 It does not complete C4's observation window, authorize production writes, or
 qualify other fleet shapes.
 
-The C6 baseline (`baseline: no change (C6 binding check)`) is retained at
-`databases/reports/2026-10-25-c6-g5-baseline/` (git-ignored). Its decision is
-**BLOCK**: D1 thin passed 160 tests with 40 skips; thick had 147 passed,
-41 skipped, 6 failed and 6 setup errors. The thick process-death errors include
-`ORA-00942` for the fixture `EMPLOYEES` table; the root cause remains unisolated.
-The separate P1 canary succeeded: peak 1 session, 1.749987 seconds SQL elapsed,
-102707 buffer gets and 29 executions, with no budget failures. Both before/after
-SQL probes returned `19.9.1.0.0` for D1 and P1 and driver `26.0.1`; the documented
-C1 RU string `19.9.1.0.210119` is retained as reference, not substituted for SQL
-output. This is agent-qualified on a production-shaped stand-in on z4g5
-(AI agent, not a human), with failed qualification retained and no promotion.
+Live qualification runs, G5 version probes and P1 canary commands serialize
+access with exclusive per-DSN `flock` locks in `databases/locks/` (git-ignored).
+The qualification wrapper holds the locks until pytest exits; runners sharing
+D1 therefore wait before fixture setup rather than interfering with `HARNESS_APP`.
+The lock wait defaults to 7200 seconds and can be set with
+`HARNESS_DB_LOCK_TIMEOUT_SECONDS`.
+
+C6 (PR #95, merged as `1ae247f`, agy APPROVE by an AI agent) retains both
+baseline attempts in the git-ignored
+[C6 evidence directory](../databases/reports/2026-10-25-c6-g5-baseline/):
+
+- The [first baseline, retained as g5-interfered-20261025T0121](../databases/reports/2026-10-25-c6-g5-baseline/g5-interfered-20261025T0121.md),
+  records **BLOCK**. D1 thin passed 160 tests with 40 skips; thick had
+  147 passed, 41 skipped, 6 failed and 6 setup errors, including `ORA-00942`
+  fixture errors caused by cross-agent interference on D1 `HARNESS_APP`.
+  The separate P1 canary succeeded; the interfered BLOCK remains evidence.
+- The [serialized baseline re-run](../databases/reports/2026-10-25-c6-g5-baseline/g5.md),
+  after adding per-DSN locks, records **PROMOTE**: r1, r3 and the P1 pass
+  all exit 0. Its change is `baseline: no change (C6 binding check, re-run after lock fix)`.
+
+Both before/after SQL probes returned `19.9.1.0.0` for D1 and P1 and driver
+`26.0.1`; the documented C1 RU string `19.9.1.0.210119` remains a reference,
+not a substitute for SQL output. No RU or driver change has occurred. The
+PROMOTE is agent-qualified on a production-shaped stand-in on z4g5 (AI agent,
+not a human); it supplies no human sign-off or real fleet qualification.
