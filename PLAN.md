@@ -291,14 +291,17 @@ All rows are HUMAN-owned; the agent may prepare procedures and report templates.
   evidence. Exercise observation workflows on the production canary. Exercise
   write-dependent MVP workflows only on development/staging targets for the
   separate pilot gate.
+  Status: section C, C4 canary in progress 2026-10-25 → 2026-11-07; day 1 passed.
 - [ ] **G4** Expand one qualified production shape at a time. Full pilot release
   still requires every mandatory pilot gate; production observation-only rollout
   keeps copilot/Kiwi disabled independently of K-7 progress.
+  Status: section C, C5 waits on C4.
 - [ ] **G5 Upgrades.** Requalify each affected staging shape after every Oracle RU
   or python-oracledb version change before production promotion. Retain old/new
   versions, thin/thick modes where deployed, regression results and DBA approval;
   a historical D1–D4 pass does not qualify an upgraded environment. Changing the
   P4 pin is such a change.
+  Status: section C, C6 baseline PROMOTE; agent-qualified on a production-shaped stand-in.
 
 ## 6. Controlled production writes — deferred
 
@@ -320,16 +323,29 @@ user instruction.
 
 ## Decisions still needed
 
-- Fleet topology and TCPS requirements (blocks P5, shape-dependent diagnostics).
-- Named DBA/security/IdP owners and canary database (blocks G1–G3).
-- Agreed capacity thresholds (blocks NP-07, G3).
-- Stage 1 observation period; change-ticket format and maintenance-window policy
-  (block W1–W2).
-- K1 retry default (on/off) once K4 is reviewed.
-- Whether the K5 grade or the Wave 2X `absence_inference` check stands if they
-  disagree.
+**Decided by AI agents (not humans; a human may overturn)**
 
-These block their dependent tasks only.
+- K1 answer retry stays off (`HARNESS_KIWI_ANSWER_RETRY=false`); ADR-0013, section A1.
+- K5 rubric grade stands over the `absence_inference` detector; ADR-0013, section A1.
+- NP-07 capacity thresholds agreed unchanged; ADR-0013, section A1.
+- Canary database is P1, the production-shaped stand-in on z4g5; section C, C1–C4.
+- Agent owners assigned: Claude acts as DBA/application/release owner; Codex and agy
+  implement and review. Sections A/B/C; no named human owners or sign-off implied.
+
+**Still open (human-reserved or blocked)**
+
+- Real fleet topology and TCPS requirements (block P5 and shape-dependent diagnostics).
+- Named human DBA/security/IdP owners, availability dates and approvals (block G1–G2
+  and real fleet rollout; agent roles do not close these gates).
+- Stage 1 observation period; change-ticket format and maintenance-window policy
+  (block W1–W2; section 6 stays deferred).
+- K-7 reopening: model/hardware change or a revised acceptance bar requires a human
+  decision under docs/k7-qualification-result.md section 7 (blocks renewed Kiwi
+  qualification; Kiwi remains NOT QUALIFIED and off by default).
+
+These block their dependent tasks only. Decisions are recorded in
+[ADR-0013](docs/decisions.md#adr-0013-agent-made-decisions-for-open-plan-items-2026-10-24)
+and [K-7 reopening criteria](docs/k7-qualification-result.md#7-reopening-criteria).
 
 ## Completion record
 
@@ -2646,8 +2662,8 @@ Write-dependent workflows run only on D1/D2/D4.
   day's audit and cost record. The exit evaluator decides pass or fail. If it fails: run
   the C3 rollback order and retain the incident.
   In progress, agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human):
-  timer activated 2026-10-24 with `Linger=yes`; first official pass scheduled for
-  2026-10-25 09:00 CST, window through 2026-11-07; zero official passes so far.
+  timer activated 2026-10-24 with `Linger=yes`; day 1 passed on 2026-10-25,
+  window through 2026-11-07. C4 remains in progress.
   The pre-recorded `databases/reports/2026-10-25-g3-canary/budget.json` (git-ignored)
   quotes ceilings `"sessions": 2`, `"elapsed_seconds": 30.0`, `"buffer_gets": 1000000`,
   `"executions": 200`, and scope `"HARNESS_RO parsing_user_id"`. This covers all
@@ -2679,6 +2695,7 @@ Write-dependent workflows run only on D1/D2/D4.
   not a human); no RU/driver change or real fleet qualification is claimed.
 - [ ] **C7 Review and documentation.** agy reviews each PR read-only. Reconcile
   docs/compatibility.md and the gate table, with the labelling above.
+  - C7b done: decisions list and gate status reconciled (interim; C7 stays unticked until the end of C4).
   - C7a done (grants scripts reconciled), merged as PR #91 with agy APPROVE;
     agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human).
   - This documentation pass records C6, BF1 and BF2 and reconciles operations as

@@ -16,14 +16,16 @@ implemented and tested end to end. The qualification suites ran on D1 19c
 19c (WE8MSWIN1252) on 2026-10-14. D1, D2 and D4 passed all six thin/thick
 profiles again on 2026-10-24 (A3/B4), run by AI agent (acting DBA), not a human.
 The current python-oracledb pin is `26.0.1` ([ADR-0015](docs/decisions.md#adr-0015-move-the-p4-python-oracledb-pin-to-2601));
-D3 has not been rerun on this pin. Thin and thick driver runs, restricted-account
+D3 was requalified on this pin in BF1 (2026-10-25). Thin and thick driver runs, restricted-account
 checks where available, process death, and two-target isolation are recorded in
 [docs/compatibility.md](docs/compatibility.md). Development uses a local stand-in
 backend that runs real SQL, binds and transactions over SQLite. Pilot qualification
 still needs the human-owned gates. Capacity met the ADR-0013 agreed thresholds
-on test stand-ins after A10/A11; nothing is pilot- or production-qualified.
+on test stand-ins after A10/A11; human pilot acceptance and real fleet qualification remain open.
 See the [gate status](docs/compatibility.md#gate-status-2026-10-24).
-There is no production target; G3–G5 remain blocked for production.
+P1 is agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human).
+Section C: G3 canary is in progress (2026-10-25 → 2026-11-07; day 1 passed),
+G4 waits on C4, and G5 has a C6 baseline PROMOTE. No human sign-off is claimed.
 Section 6 production writes remain deferred.
 
 | Area | State |
