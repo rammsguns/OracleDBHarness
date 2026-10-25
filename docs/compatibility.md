@@ -7,9 +7,12 @@ claim. Where something has not been tested, it says so.
 
 Recorded against [PLAN.md section A](../PLAN.md#a-agent-stand-ins-for-human-owned-work--2026-10-24)
 and [section B](../PLAN.md#b-agent-stand-ins-second-round--2026-10-24).
+The P1 update follows [section C](../PLAN.md#c-production-stand-in-on-z4g5--2026-10-24),
+agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human).
 Agent roles are AI agent (acting DBA/application owner/reviewer), not a human.
-Nothing is pilot- or production-qualified. There is no production target; G3–G5
-remain blocked for production. Section 6 production writes remain deferred.
+P1 is agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human);
+no real fleet qualification or human sign-off is claimed. G3 is in progress on P1,
+G4/G5 remain pending C4/C5/C6, and section 6 production writes remain deferred.
 
 | Gate / scope | Status | Evidence / remaining work |
 | --- | --- | --- |
@@ -27,10 +30,50 @@ remain blocked for production. Section 6 production writes remain deferred.
 | NP-08 reconciliation | agent-qualified on test stand-ins (AI agent, not a human) | A9/B6: documentation reconciled with sections A and B; no human acceptance implied. |
 | G1 | open (human-owned) | Agent role assignment does not supply named human owners and dates. |
 | G2 | open (human-owned) | A7 independent AI reviews and C-1/C-2 fixes do not replace named human security review and DBA approval. |
-| G3 | blocked (no production target) | B5 agent-rehearsed on D4: 6/6 compressed canary passes within budget. B7 agent-rehearsed disable → lock → restore using the audited target endpoint; connection-test authorization fixed. No production canary or human sign-off. |
-| G4 | blocked (no production target) | No production expansion. |
-| G5 / P4 | agent-qualified on test stand-ins; G5 blocked for production (AI agent, not a human) | B4: 26.0.1 six-profile rerun and capacity main/soak; ADR-0015 moved the P4 pin. No production target, fleet qualification or human promotion approval. |
+| G3 | in progress on the P1 production-shaped stand-in (agent-run, window 2026-10-25 → 2026-11-07); no human sign-off, not the real fleet | agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human): C2 runner and C3 pre-start drill complete; C4 timer activated, zero official passes so far. |
+| G4 | pending C4 exit on P1 | agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human): no production expansion or fleet qualification; C5 remains open. |
+| G5 / P4 | agent-qualified on test stand-ins; G5 blocked for production (AI agent, not a human) | B4: 26.0.1 six-profile rerun and capacity main/soak; ADR-0015 moved the P4 pin. P1 C6 remains open: agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human); no fleet qualification or human promotion approval. |
 | P5 | blocked (no production access) | A8 discovery tool/runbook tried only on D1/D2/D4; no production fleet facts. |
+
+## P1 production-shaped stand-in (2026-10-24)
+
+**agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human).**
+This label applies to every statement in this record. P1 is `oracle19c-prod`, Docker
+on z4g5: Oracle 19c EE 19.9.1, RU 19.9.1.0.210119, non-CDB (the image ignored
+`ORACLE_PDB`), AL32UTF8, single instance, no TCPS, service `PRODCDB`, port 1523.
+The SGA was reduced from 37G to 3G for the 8 GiB container; `DISABLE_OOB=ON`
+avoids the docker-proxy out-of-band connection hang. SHOPAPP runs a synthetic
+scheduler OLTP workload. `HARNESS_RO` is read-only: INSERT and CREATE returned
+`ORA-01031`; grant verification saw all seven objects without warnings. C7a
+reconciled the grants scripts in PR #91 with agy APPROVE. C1 evidence is in
+`databases/reports/2026-10-24-c1-p1-provision/` (git-ignored).
+
+C2 merged as PR #90 (`4234460`), agy APPROVE; four low findings were fixed in
+`e26a737` and the CI test fix in `08b955d`. Revised trial verification recorded
+two successful principals, all 12 workflow outcomes each, and no budget breach.
+Claude, acting DBA, approved cost enforcement over all `HARNESS_RO`
+`parsing_user_id` cursors: `defaultSchema=SHOPAPP` makes parsing-schema counters
+undercount, so they remain secondary. SHOPAPP workload and SYSTEM acting-DBA
+queries are excluded. Trial evidence, including the retained cost-scope incident,
+is in `databases/reports/2026-10-24-c2-trial/` (git-ignored).
+
+C3's pre-start drill disabled the target and observed refusal of observations and
+the connection test, locked the account and observed direct `ORA-28000` plus a
+refused harness read, then restored in `finally`: account `OPEN`, target enabled,
+and a successful audited observation (`success=true`, `restored=true`). Evidence:
+`databases/reports/2026-10-25-g3-canary/drills/20261025T000227.884354Z.json` (git-ignored).
+
+C4 is in progress: timer activated 2026-10-24, `Linger=yes`, first official pass
+2026-10-25 09:00 CST, window through 2026-11-07, zero official passes so far.
+The budget recorded before official passes in
+`databases/reports/2026-10-25-g3-canary/budget.json` (git-ignored) specifies
+`"sessions": 2`, `"elapsed_seconds": 30.0`, `"buffer_gets": 1000000`,
+`"executions": 200`, scope `"HARNESS_RO parsing_user_id"`. Session samples have
+250 ms pauses plus query latency and can miss brief peaks. Trial passes do not
+count toward the official window. Local dev authentication replaces deployed
+OIDC/TLS; successful probe audit events are unavailable, while observation and
+refusal workflows require fresh audit evidence. This is agent qualification on
+P1 only, with no human sign-off or real fleet qualification.
 
 ## What has been tested
 

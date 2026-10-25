@@ -2602,7 +2602,7 @@ Write-dependent workflows run only on D1/D2/D4.
   - SHOPAPP runs a scheduler OLTP workload. HARNESS_RO is read-only (ORA-01031 on INSERT and CREATE).
   - verify_harness_grants.sql shows all 7 objects visible and no warnings. It flags HARNESS_METADATA_ROLE and HARNESS_RUNBOOK_ROLE as missing; harness_roles.sql never defines them, so the two scripts disagree. That is fixed in C7.
   - Evidence: databases/reports/2026-10-24-c1-p1-provision/ (git-ignored).
-- [ ] **C2 G3 canary runner.** Generalize the B5 rehearsal into a production canary
+- [x] **C2 G3 canary runner.** Generalize the B5 rehearsal into a production canary
   runner for P1:
   - it records the cost budget before the first pass;
   - it uses three AI-agent DBA principals;
@@ -2611,12 +2611,32 @@ Write-dependent workflows run only on D1/D2/D4.
     probe;
   - incidents are retained;
   - an exit evaluator applies the G3 exit criteria to the retained passes.
-- [ ] **C3 G3 failure-gate drill on P1.** Before day 1: disable the target, revoke the
+  Done, agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human):
+  PR #90 merged as `4234460` with agy APPROVE; four low findings fixed in `e26a737`,
+  and the CI test fix in `08b955d`. Claude (AI agent, acting DBA) approved enforced
+  `HARNESS_RO` parsing-user cost scope: `defaultSchema=SHOPAPP` makes parsing-schema
+  counters undercount harness SQL, so those counters are secondary only. Trial evidence:
+  `databases/reports/2026-10-24-c2-trial/` (git-ignored); pre-start trials are not official passes.
+- [x] **C3 G3 failure-gate drill on P1.** Before day 1: disable the target, revoke the
   grants or lock the account, verify access is refused, restore, and retain the evidence.
-- [ ] **C4 G3 two-week canary.** A systemd user timer runs one canary pass a day for 14
+  Done, agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human):
+  the disabled target refused observations and the connection test; locking `HARNESS_RO`
+  refused direct login with `ORA-28000`, and the harness read remained refused.
+  Finally, restoration left the account `OPEN`, the target enabled, and an audited
+  observation successful (`success=true`, `restored=true`). Evidence:
+  `databases/reports/2026-10-25-g3-canary/drills/20261025T000227.884354Z.json` (git-ignored).
+- [ ] **C4 G3 two-week canary — in progress.** A systemd user timer runs one canary pass a day for 14
   days, starting 2026-10-25 and ending 2026-11-07. Claude, as acting DBA, reviews each
   day's audit and cost record. The exit evaluator decides pass or fail. If it fails: run
   the C3 rollback order and retain the incident.
+  In progress, agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human):
+  timer activated 2026-10-24 with `Linger=yes`; first official pass scheduled for
+  2026-10-25 09:00 CST, window through 2026-11-07; zero official passes so far.
+  The pre-recorded `databases/reports/2026-10-25-g3-canary/budget.json` (git-ignored)
+  quotes ceilings `"sessions": 2`, `"elapsed_seconds": 30.0`, `"buffer_gets": 1000000`,
+  `"executions": 200`, and scope `"HARNESS_RO parsing_user_id"`. This covers all
+  `v$sql` cursors parsed by `HARNESS_RO`, excluding SHOPAPP workload and acting-DBA
+  SYSTEM queries; session sampling every 250 ms plus query latency can miss brief peaks.
 - [ ] **C5 G4 first production shape.** After C4 exits clean, record "19c single-instance
   CDB/PDB (docker, z4g5)" as the one qualified production shape, observation only. Do not
   expand to other shapes.
@@ -2625,3 +2645,5 @@ Write-dependent workflows run only on D1/D2/D4.
   and re-runs one P1 canary pass before promotion.
 - [ ] **C7 Review and documentation.** agy reviews each PR read-only. Reconcile
   docs/compatibility.md and the gate table, with the labelling above.
+  - C7a (grants scripts reconciled) merged as PR #91 with agy APPROVE;
+    agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human).
