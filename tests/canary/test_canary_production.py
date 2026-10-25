@@ -8,6 +8,7 @@ import pytest
 
 from tests.canary.production import (
     BUDGET,
+    BUDGET_SCOPE,
     LABEL,
     RehearsalFailure,
     evaluate,
@@ -30,6 +31,7 @@ def seed(directory: Path, offsets=range(14)) -> None:
                 "label": LABEL,
                 "success": True,
                 "cost": dict(BUDGET),
+                "budget_scope": BUDGET_SCOPE,
             },
         )
     write_json(
@@ -234,3 +236,45 @@ def test_deploy_reuses_persistent_store_and_api(tmp_path, monkeypatch):
     assert manifest["targets"][0]["environment"] == "production"
     assert not manifest["targets"][0]["worksheetsEnabled"]
     assert "offline-test-password" not in (state / "manifest.json").read_text()
+
+
+def test_parsing_user_cost_is_enforced_even_when_schema_cost_is_zero(tmp_path, monkeypatch):
+    from tests.canary import production
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    class Deployment:
+        pid = "p1"
+
+        def workflow(self, method, path, *args, **kwargs):
+            return {"body": {"identity": {"version": "19.9"}, "connected": True}, "path": path}
+
+    snapshots = iter(
+        [
+            {"sessions": 1, "counters": {"user": [0, 0, 0]}, "schema_counters": {}},
+            {"sessions": 1, "counters": {"user": [1000000, 100, 201]}, "schema_counters": {}},
+        ]
+    )
+    monkeypatch.setattr(production, "connect", lambda: Connection())
+    monkeypatch.setattr(production, "snapshot", lambda db: next(snapshots))
+    report = {}
+    with pytest.raises(RehearsalFailure, match="budget exceeded"):
+        production.run_pass(Deployment(), report, BUDGET, tmp_path)
+    assert report["cost"]["executions"] == 201
+    assert report["parsing_schema_cost"]["executions"] == 0
+    assert report["budget_scope"] == BUDGET_SCOPE
+    assert report["budget_failures"] == ["executions"]
+
+
+def test_evaluator_rejects_imported_schema_only_pass(tmp_path):
+    seed(tmp_path)
+    path = tmp_path / "passes/pass-0.json"
+    record = json.loads(path.read_text())
+    record.pop("budget_scope")
+    write_json(path, record)
+    assert any("budget scope" in reason for reason in evaluate(tmp_path)["reasons"])

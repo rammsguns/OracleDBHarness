@@ -38,12 +38,17 @@ ADMIN = "g3-admin"
 DSN = "localhost:1523/PRODCDB"
 CONTAINER = "harness-canary-pg"
 VOLUME = "harness-canary-pgdata"
+BUDGET_SCOPE = "HARNESS_RO parsing_user_id"
 JUSTIFICATION = (
     "B5 measured peaks across six D4 passes: 1 session, 1.3 seconds SQL elapsed, "
     "105000 buffer gets and 16 executions (PLAN.md B5). Ceilings of 2 sessions, "
     "30 seconds, 1000000 buffer gets and 200 executions leave connection-turnover "
     "and P1 workload headroom while bounding one sequential read-only observer. "
-    "Measured over all HARNESS_RO parsing-schema cursors; acting-DBA queries excluded. "
+    "Enforced scope: all v$sql cursors whose parsing_user_id is the HARNESS_RO user_id. "
+    "Claude (AI agent, acting DBA) approved this correction after pre-start trial: "
+    "defaultSchema SHOPAPP changes parsing_schema_name, so schema-only counters miss harness SQL. "
+    "SHOPAPP workload and acting-DBA SYSTEM queries are excluded by parsing user. "
+    "HARNESS_RO parsing-schema cost is retained as a secondary recorded figure only. "
     "Sessions sampled every 250 ms plus query latency; brief peaks may escape sampling."
 )
 
@@ -66,6 +71,7 @@ def record_budget(directory: Path) -> None:
             {
                 "label": LABEL,
                 "ceilings": BUDGET,
+                "scope": BUDGET_SCOPE,
                 "justification": JUSTIFICATION,
                 "at": datetime.now(UTC).isoformat(),
                 "recorded_by": "recorded by Claude (AI agent, acting DBA), not a human",
@@ -80,7 +86,8 @@ def read_budget(directory: Path) -> dict[str, float]:
     record = json.loads((directory / "budget.json").read_text())
     budget = record["ceilings"]
     if (
-        record.get("label") != LABEL
+        record.get("scope") != BUDGET_SCOPE
+        or record.get("label") != LABEL
         or set(budget) != set(BUDGET)
         or compare_budget(budget, BUDGET)
         or not record.get("justification")
@@ -448,11 +455,19 @@ def snapshot(db: Any) -> dict[str, Any]:
     with db.cursor() as cursor:
         cursor.execute("SELECT COUNT(*) FROM v$session WHERE username = 'HARNESS_RO'")
         sessions = cursor.fetchone()[0]
-        cursor.execute(
-            "SELECT sql_id, child_number, child_address, first_load_time, elapsed_time, buffer_gets, executions FROM v$sql WHERE parsing_schema_name = 'HARNESS_RO'"
+
+        def counters(predicate: str) -> dict[str, list[float]]:
+            cursor.execute(
+                "SELECT sql_id, child_number, child_address, first_load_time, elapsed_time, buffer_gets, executions FROM v$sql WHERE "
+                + predicate
+            )
+            return {f"{r[0]}:{r[1]}:{r[2]}:{r[3]}": [float(v or 0) for v in r[4:]] for r in cursor}
+
+        user_counters = counters(
+            "parsing_user_id = (SELECT user_id FROM dba_users WHERE username = 'HARNESS_RO')"
         )
-        counters = {f"{r[0]}:{r[1]}:{r[2]}:{r[3]}": [float(v or 0) for v in r[4:]] for r in cursor}
-    return {"sessions": sessions, "counters": counters}
+        schema_counters = counters("parsing_schema_name = 'HARNESS_RO'")
+    return {"sessions": sessions, "counters": user_counters, "schema_counters": schema_counters}
 
 
 def measure_cost(
@@ -484,10 +499,11 @@ def run_pass(
         principal=principal,
         deviations=[
             "Local dev auth, not deployed OIDC/TLS",
-            "HARNESS_RO parsing-schema counters exclude SQL parsed under defaultSchema SHOPAPP; zero deltas do not imply zero harness SQL cost",
+            "Acting DBA approved parsing-user cost enforcement; parsing-schema counters are secondary only",
             "Successful identity probe has no audit event in the existing API; all observation and refusal workflows require fresh audits",
         ],
         cost_scope=JUSTIFICATION,
+        budget_scope=BUDGET_SCOPE,
         requests=[],
     )
     with connect() as db:
@@ -584,7 +600,21 @@ def run_pass(
             sampler.join(timeout=10)
         if sampler.is_alive() or errors:
             raise RehearsalFailure("Session sampling incomplete")
-        cost = measure_cost(before, snapshot(db), samples)
+        after = snapshot(db)
+        cost = measure_cost(before, after, samples)
+        try:
+            schema_cost = measure_cost(
+                {"sessions": before["sessions"], "counters": before["schema_counters"]},
+                {"sessions": after["sessions"], "counters": after["schema_counters"]},
+                samples,
+            )
+            report["parsing_schema_cost"] = schema_cost
+        except RehearsalFailure:
+            # The secondary figure must never override the enforced user-scope gate.
+            report["parsing_schema_cost"] = None
+            report["parsing_schema_note"] = (
+                "Secondary schema counters aged/reset; primary parsing-user measurement remains enforced"
+            )
         report.update(
             cost=cost,
             session_samples=len(samples) + 2,
@@ -727,6 +757,8 @@ def evaluate(directory: Path, min_days: int = 14) -> dict[str, Any]:
             if at.tzinfo is None:
                 raise ValueError("Missing timezone")
             days.add(at.astimezone(UTC).date())
+            if record.get("budget_scope") != BUDGET_SCOPE:
+                reasons.append(f"Incorrect enforced budget scope: {path.stem}")
             if record.get("label") != LABEL:
                 reasons.append(f"Missing required label: {path.stem}")
             if (

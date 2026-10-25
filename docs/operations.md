@@ -422,9 +422,15 @@ It uses only P1 (`localhost:1523/PRODCDB`), HARNESS_RO reads of SHOPAPP, three r
 AI-agent DBA principals, and an acting-DBA connection for cost sampling and the lock drill.
 Local dev authentication is a recorded deviation from deployed OIDC/TLS. Text explain
 is checked as an audited policy refusal because it writes PLAN_TABLE rows.
-The requested HARNESS_RO parsing-schema cost scope excludes SQL parsed under the
-SHOPAPP default schema; zero counters must not be read as zero harness SQL cost.
-This coverage limitation is recorded as a deviation for acting-DBA review.
+The acting DBA approved enforcing cost ceilings on `v$sql.parsing_user_id` for
+HARNESS_RO: the SHOPAPP default schema changes parsing-schema identity, which made
+schema-only trial counters undercount harness SQL. The SHOPAPP workload (parsing user
+SHOPAPP) and acting DBA (SYSTEM) are excluded. Parsing-schema counters remain a
+secondary recorded figure; their zero deltas do not imply zero harness SQL cost.
+This scope and its reason are written in the budget before the official first pass.
+Pre-start C2 evidence is retained under `databases/reports/2026-10-24-c2-trial/`;
+the fresh `2026-10-25-g3-canary/` budget starts a separate official window with the
+first timer pass. Its pre-start drill evidence retains the original timestamp.
 
 Run from the repository with `TMPDIR=$HOME/.cache/harness-capacity-tmp` and
 `UV_CACHE_DIR=$HOME/.cache/harness-uv`; create TMPDIR first. Docker bind mounts must
