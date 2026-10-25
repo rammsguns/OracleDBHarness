@@ -16,7 +16,7 @@ G4/G5 remain pending C4/C5/C6, and section 6 production writes remain deferred.
 
 | Gate / scope | Status | Evidence / remaining work |
 | --- | --- | --- |
-| NP-01/03 test rerun | agent-qualified on test stand-ins (AI agent, not a human) | A3 and B4: six D1/D2/D4 profiles, now on 26.0.1; D3 retains 2026-10-14 evidence on 4.0.2. |
+| NP-01/03 test rerun | agent-qualified on test stand-ins (AI agent, not a human) | A3 and B4: six D1/D2/D4 profiles, now on 26.0.1; D3 requalified on 26.0.1 in BF1 (2026-10-25), with the initial D1 fixture interference and isolated rerun recorded below. |
 | NP-01/03 pilot | open (human-owned) | Production-shaped staging and named DBA approval remain. |
 | NP-02 test drills | agent-qualified on test stand-ins (AI agent, not a human) | A4: PostgreSQL install/restore and earliest schema commit upgrade passed; no released baseline exists. |
 | NP-02 pilot | open (human-owned) | Operations acceptance remains. |
@@ -87,7 +87,7 @@ P1 only, with no human sign-off or real fleet qualification.
 | **Oracle Database** | **Oracle AI Database 26ai Free 23.26.3.0.0, PDB `FREEPDB1` in a CDB, AL32UTF8** | The same three suites in thin and thick modes, recorded runs on 2026-10-14 (Linux), including the PDB container identity, the restricted account, the K-4 catalog and process death; rerun in both modes on 2026-10-24 (A3) |
 | **Oracle Database** | **19c Enterprise Edition 19.9.1.0.0, non-CDB, WE8MSWIN1252, on a remote host** | The whole test suite in thin mode, one recorded run on 2026-10-14 (Linux client, database across a real network), including the K-4 catalog and process death. Provisioned without `SYS`; the `SYS` grants were added later the same day, and the restricted account is now claimed. See "The D4 run, 2026-10-14" |
 | **Oracle Database** | **Autonomous Database 26ai (Always Free) 23.26.4.1.0, a PDB, AL32UTF8, over TCPS with its wallet** | The same three suites in thin mode and in thick mode with Instant Client 21.4, recorded runs on 2026-10-14 (Linux client, Oracle Cloud), with D1 as the second target, the admin account for the kills, the K-4 catalog and process death. A shared database, so no restricted or lab account. See "The D3 run, 2026-10-14" and "Thick mode over TCPS, and VECTOR binds, 2026-10-14" |
-| python-oracledb | 26.0.1, thin and thick modes, Oracle Instant Client 21.4.0.0.0 for thick | B4: D1/D2/D4 six-profile rerun and capacity main/soak, agent-qualified on test stand-ins; D3 not rerun. See [driver upgrade](#driver-upgrade-qualification-2026-10-24-b4-g5--p4). |
+| python-oracledb | 26.0.1, thin and thick modes, Oracle Instant Client 21.4.0.0.0 for thick | B4: D1/D2/D4 six-profile rerun and capacity main/soak, agent-qualified on test stand-ins; BF1 requalified D3 in both modes on 2026-10-25 (see [D3 requalification](#d3-requalification-on-2601-2026-10-25-bf1)). See [driver upgrade](#driver-upgrade-qualification-2026-10-24-b4-g5--p4). |
 | python-oracledb | 4.0.2, thin mode (historical) | The 2026-10-14 runs above and A3 |
 | python-oracledb | 4.0.2, thick mode, Oracle Instant Client 21.4.0.0.0 (historical) | The same three suites against the 19.9 non-CDB, the 23.26 Free PDB, D4 (19.9, `WE8MSWIN1252`, remote) and D3 (Autonomous Database 23.26.4.1.0 over TCPS), recorded runs on 2026-10-14 (Linux). Against 23.26 this client predates `BOOLEAN` and `VECTOR`; see "Thick mode against 23.26, 2026-10-14" |
 | Copilot provider | Fixture and local model providers | Copilot test suite; B1 exercised the real local model through DataForge/nginx on test stand-ins. See [integration evidence](../integrations/dataforge/COMPATIBILITY.md#2026-10-24-oracle-and-real-local-provider-b1b1bb1c-agent-stand-ins). |
@@ -1983,3 +1983,111 @@ followed the G3 rollback order as written:
 
 Timeline 22:41:25–22:41:35 UTC. Local evidence: `databases/reports/2026-10-24-b7-drill/`.
 The B5 deviations of dev auth and compressed passes still apply; G3 stays blocked.
+
+## D3 requalification on 26.0.1, 2026-10-25 (BF1)
+
+**agent-qualified on test stand-ins (AI agent, not a human).** Codex acted as the
+DBA's qualification agent on branch `plan/BF1-d3-requal`, harness build `4eddf09`.
+This follows section B / B4 and ADR-0015; it does not qualify a pilot or production
+fleet or supply human approval.
+
+Target: D3 Autonomous Database 26ai Always Free, version `23.26.4.1.0`, a PDB,
+`AL32UTF8`, over TCPS with its encrypted wallet, schema `HARNESS_APP`; D1 was used
+only as the second target. PDB/database name: `<D3 PDB name, redacted>`; database
+identifiers: `<D3 DBID, redacted>`, `<D3 CON_DBID, redacted>`. Platform:
+`Linux-7.0.0-38-generic-x86_64-with-glibc2.43`, Python `3.11.16`, python-oracledb
+`26.0.1`; thick mode used Oracle Instant Client `21.4.0.0.0`.
+Both profiles required `HARNESS_QUAL_REQUIRE=admin,second_target`.
+
+Environment preparation and the R5 suite commands were:
+
+```sh
+export TMPDIR=/home/kiwi/.cache/harness-capacity-tmp
+export UV_CACHE_DIR=/home/kiwi/.cache/harness-uv
+uv sync --python 3.11.16 --all-extras
+.venv/bin/python -V
+.venv/bin/python -c 'import oracledb; print(oracledb.__version__)'
+scripts/qual_run.sh r5-d3 tests/qualification tests/integration tests/e2e -ra
+scripts/qual_run.sh r5-d3-thick tests/qualification tests/integration tests/e2e -ra
+```
+
+The first sync attempt without the cache overrides encountered permission denied
+on the default uv cache; the command above succeeded. Version checks printed
+`Python 3.11.16` and `26.0.1`. Before either suite, each profile's
+`HARNESS_QUAL_ADMIN_*` credentials were checked with exactly one successful
+connect/close, using `tests.oracle_config.load().admin_spec()` and
+`create_backend("oracledb", driver_mode=config.driver_mode,
+lib_dir=config.client_lib_dir or None)`. There was no stale credential or account
+lock and no repeated login probe.
+
+Long jobs ran sequentially by profile, with stdin detached:
+
+```sh
+setsid nohup bash databases/reports/2026-10-25-bf1-d3/run-batch.sh \
+  > databases/reports/2026-10-25-bf1-d3/batch.log 2>&1 < /dev/null & disown
+setsid nohup bash databases/reports/2026-10-25-bf1-d3/run-thick-rerun.sh \
+  > databases/reports/2026-10-25-bf1-d3/rerun-batch.log 2>&1 < /dev/null & disown
+```
+ Scripts, logs, exit statuses and copied reports
+are retained under `databases/reports/2026-10-25-bf1-d3/` (untracked, not committed).
+The report defaults used the host's local date, `2026-10-24`; those reports were
+copied into this UTC-dated evidence directory. The suites and prerequisites match
+the successful R5 records of 2026-10-14; today's suite collects 200 tests versus
+180 then.
+
+| Profile / attempt | Passed | Skipped | Failed | Elapsed | R5 baseline on 4.0.2 |
+| --- | --- | --- | --- | --- | --- |
+| `r5-d3`, thin | 167 | 33 | 0 | 425.78 s | 160 passed / 20 skipped, 262 s |
+| `r5-d3-thick`, initial, overlapping D1 fixtures | 166 | 33 | 1 | 488.95 s | 159 passed / 21 skipped, 320 s |
+| `r5-d3-thick`, isolated full rerun | 167 | 33 | 0 | 486.99 s | 159 passed / 21 skipped, 320 s |
+
+The thin result is +7 passed / +13 skipped against R5. Both initial runs skipped
+25 `stand_in_only`, four PostgreSQL, two restricted-account, one lab-workload and
+one commit-window check. R5 had 13 `stand_in_only` skips: twelve additional such
+skips account for most of the difference. The thin commit-window kill did not land
+inside the window this time (R5 thin reached it); R5 thick also skipped that check.
+No restricted or lab account was provisioned on shared D3.
+
+**Interference and investigation.** The initial thick run failed
+`tests/integration/test_targets_and_access.py::test_two_targets_do_not_mix_identity_or_state`:
+a SELECT on D1, the second target, returned a null `resultSet` and the test raised
+`TypeError`; the D3/D1 identity comparison had passed. Its fixture timestamp was
+2026-10-25 01:34 UTC (2026-10-24 19:34 CST). The coordinator reported that C6 and
+BF2 were concurrently running live suites against the same D1 `HARNESS_APP`
+fixtures between approximately 19:20 and 19:45 CST, and instructed that failures
+involving those fixtures be treated as cross-run interference and the affected
+profile be rerun once after contention ended. That is the environmental cause
+recorded here; the original traceback did not retain the underlying execution
+error, so it does not establish a specific Oracle error code.
+
+A focused diagnostic at 02:32 UTC passed (1 passed in 32.85 s), with successful
+SELECTs and independent D3/D1 values. The whole thick profile was then rerun once,
+with no other agent touching D1, using the same suites and an untracked diagnostic
+plugin that only captured execution responses for the affected test:
+
+```sh
+export PYTHONPATH="$PWD/databases/reports/2026-10-25-bf1-d3"
+scripts/qual_run.sh r5-d3-thick \
+  tests/integration/test_targets_and_access.py::test_two_targets_do_not_mix_identity_or_state \
+  -p bf1_diagnostic -s -ra
+scripts/qual_run.sh r5-d3-thick \
+  tests/qualification tests/integration tests/e2e -p bf1_diagnostic -s -ra
+```
+
+The isolated thick result is +8 passed / +12 skipped against R5, with the same
+33 skip reasons as today's thin run. The affected two-target test passed both
+in the focused diagnostic and the full rerun. All six process-death tests passed
+in both successful full profiles: dead sessions and locks were cleaned up,
+uncommitted writes rolled back, and the two COMMIT cases were independently
+reconciled. The timing-dependent connection-loss commit-window skip is separate
+from those passing process-death COMMIT cases.
+
+No stopped ADB, wallet-expiry or authentication failure was observed. After
+removing the known D1 fixture interference, no driver regression was observed in
+these suites; this is limited to the recorded test stand-ins and retains the
+commit-window coverage gap. Evidence includes `admin-thin.log`, `admin-thick.log`,
+`r5-d3.log`, `r5-d3-thick.log`, `diagnostic.log`,
+`r5-d3-thick-rerun.log`, suite exit-status files and the copied qualification and
+process-death reports in the evidence directory above. Initial failure evidence
+is retained; no code, profile, credential, D2/D4/P1 configuration or systemd canary
+unit was changed.
