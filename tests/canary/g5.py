@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 from tests.canary import production
 from tests.canary.rehearsal import load_admin_settings
+from tests.database_locks import database_locks
 
 REPO = Path(__file__).resolve().parents[2]
 OFFICIAL = REPO / "databases/reports/2026-10-25-g3-canary"
@@ -55,9 +56,12 @@ def probe() -> dict[str, str]:
         password = settings.get("HARNESS_QUAL_ADMIN_PASSWORD")
         if password is None:
             password = Path(settings["HARNESS_QUAL_ADMIN_PASSWORD_FILE"]).read_text().strip()
-        with oracledb.connect(
-            user=settings["HARNESS_QUAL_ADMIN_USER"], password=password, dsn=expected
-        ) as db:
+        with (
+            database_locks([expected], f"G5 {target} version probe"),
+            oracledb.connect(
+                user=settings["HARNESS_QUAL_ADMIN_USER"], password=password, dsn=expected
+            ) as db,
+        ):
             with db.cursor() as cursor:
                 cursor.execute("SELECT version_full FROM v$instance")
                 versions[target] = str(cursor.fetchone()[0])
@@ -148,8 +152,10 @@ def run(change: str, directory: Path, dry_run: bool = False, previous: Path | No
             )
         )
         return 0
-    # A fresh directory prevents stale passes from being mistaken for this run's evidence.
-    directory.mkdir(parents=True, exist_ok=False)
+    # Only explicitly archived interference evidence may coexist with a fresh run.
+    directory.mkdir(parents=True, exist_ok=True)
+    if any(not path.name.startswith("g5-interfered-") for path in directory.iterdir()):
+        raise ValueError("Report directory contains evidence from another run")
     record: dict[str, Any] = {
         "label": LABEL,
         "approver": APPROVER,

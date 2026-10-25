@@ -28,6 +28,7 @@ from tests.canary.rehearsal import (
     load_admin_settings,
     observation_errors,
 )
+from tests.database_locks import database_locks
 
 LABEL = "agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human)"
 REPO = Path(__file__).resolve().parents[2]
@@ -859,7 +860,8 @@ def main() -> int:
             elif args.subcommand == "stop":
                 stop(args.state_dir, api_only=args.api_only)
             else:
-                return execute(args, budget)
+                with database_locks([DSN], f"P1 canary {args.subcommand}"):
+                    return execute(args, budget)
         print(LABEL)
         return 0
     except Exception as exc:

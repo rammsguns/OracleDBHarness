@@ -55,7 +55,14 @@ def test_dry_run_has_no_side_effects(tmp_path, monkeypatch, capsys):
         assert plan["commands"][profile][-3:] == g5.SUITES
 
 
-def test_probe_uses_lazy_fake_driver_and_read_only_sql(monkeypatch):
+def test_probe_uses_lazy_fake_driver_and_read_only_sql(monkeypatch, tmp_path):
+    from tests.database_locks import database_locks
+
+    monkeypatch.setattr(
+        g5,
+        "database_locks",
+        lambda dsns, description: database_locks(dsns, description, repository=tmp_path),
+    )
     connection = MagicMock()
     cursor = connection.__enter__.return_value.cursor.return_value.__enter__.return_value
     cursor.fetchone.return_value = [VERSIONS["D1"]]

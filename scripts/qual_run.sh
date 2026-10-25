@@ -11,6 +11,8 @@
 # Without pytest args the three suites the switch in tests/oracle_config.py covers are
 # run. The report goes to databases/reports/<date>-<profile>.md unless the profile sets
 # HARNESS_QUAL_REPORT.
+# Live targets share exclusive DSN-derived locks across worktrees. Set
+# HARNESS_DB_LOCK_TIMEOUT_SECONDS to override the default two-hour wait.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -71,4 +73,11 @@ echo "requires: ${HARNESS_QUAL_REQUIRE:-<none>}"
 echo "report:   $HARNESS_QUAL_REPORT"
 
 cd "$REPO"
-exec uv run --extra oracle pytest "$@"
+# Shared across worktrees through the databases directory; acquire every target
+# before any fixture setup, retaining the locks until pytest exits.
+exec uv run --extra oracle python -m tests.database_locks \
+  --description "qualification profile=$profile repo=$REPO" \
+  --dsn "$HARNESS_QUAL_ORACLE_DSN" \
+  --dsn "${HARNESS_QUAL_ADMIN_DSN:-}" \
+  --dsn "${HARNESS_QUAL_SECOND_DSN:-}" \
+  -- uv run --extra oracle pytest "$@"
