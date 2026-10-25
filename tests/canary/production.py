@@ -184,7 +184,8 @@ def render_units(repository: Path, state: Path, report: Path) -> dict[str, str]:
         return '"' + str(path).replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%") + '"'
 
     substitutions = {
-        "@REPO@": quote(repository),
+        # WorkingDirectory takes the whole raw value; unlike ExecStart it does not unquote.
+        "@REPO@": str(repository).replace("%", "%%"),
         "@PYTHON@": quote(repository / ".venv/bin/python"),
         "@STATE@": quote(state),
         "@REPORT@": quote(report),

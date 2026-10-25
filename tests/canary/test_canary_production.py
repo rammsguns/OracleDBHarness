@@ -158,7 +158,9 @@ def test_units_have_paths_and_no_secrets(tmp_path):
     for body in units.values():
         assert "PASSWORD" not in body
         assert "@" not in body
-    assert 'WorkingDirectory="' in units["harness-canary-api.service"]
+    assert (
+        f"WorkingDirectory={tmp_path / 'repo with spaces'}" in units["harness-canary-api.service"]
+    )
     assert "09:00:00" in units["harness-canary-pass.timer"]
     assert "Persistent=true" in units["harness-canary-pass.timer"]
     assert "--report-dir" in units["harness-canary-pass.service"]
