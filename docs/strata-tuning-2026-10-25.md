@@ -207,3 +207,36 @@ decision. This study does **not** measure engine 0.1.50, nor establish that a se
 code change caused the observed failures: stochastic variation and the unchanged
 binary remain relevant limits. No tuning sweep was performed.
 Performance and sampling sweeps and a frozen-candidate Q5 attempt remain future work.
+
+## D2 performance sweep
+
+**diagnostic tuning, NOT qualification evidence (AI agent, not a human)**
+
+D2 checkpoint: source remains v0.2.4.1 and engine remains 0.1.46. The original
+config was copied to `~/llm-rig/strata/backups/tune-20261025/d2/original.json`.
+Results and trial tooling are retained in
+`~/llm-rig/strata/benchmarks/tune-20261025/d2/`. Both baseline suites used the
+existing server, default three runs per test, with no concurrent requests.
+
+| Config | Agent decode tok/s | Agent TTFT s | Chat decode tok/s | Chat TTFT s | 4K prefill tok/s | 4K TTFT s | 16K prefill tok/s | 16K TTFT s | Outcome |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Original, default | 80.9 | 2.695 | 76.6 | 0.385 | 1328.2 | 3.051 | 1998.9 | 8.094 | No failed requests |
+| Original, long | 79.5 | 2.671 | 81.2 | 0.396 | 1292.1 | 3.141 | 1953.6 | 8.279 | No failed requests |
+
+The long suite measured 32K prefill at 2298.3 tok/s and TTFT at 14.005 seconds.
+The unchanged original also passed three short API sanity calls: 17 + 25 gave 42,
+the index explanation described faster lookup, and the Python square function
+returned `number ** 2`. Responses are saved in `baseline-sanity.json`.
+
+**Scope question pending; no candidate tested yet.** The installed binary's help
+and local engine `docs/DETAILS.md` were read before changing any args. DETAILS
+lines 99–114 explicitly document that changing drafting, CPU/GPU expert placement,
+and cache state changes floating-point rounding and can change generated tokens.
+That affects `--spec`, `--spec-min-p`, `--pcie-frac`, expert-cache sizing, adaptation,
+and prefill grouping. KV residency preserves attention values (lines 79–83), but
+larger allocations reduce expert slots and can indirectly change CPU/GPU placement.
+The starting GPU free memory was 429/303 MiB; no increased KV allocation was tried.
+A blocking Orca question asks whether documented rounding differences are allowed
+under the task's no-model-math-change constraint. No answer has arrived at this
+checkpoint. No winner or speedup is claimed; args diff versus original is empty,
+and the original configuration remains running. D2 is not complete.

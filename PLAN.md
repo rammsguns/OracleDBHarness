@@ -2734,8 +2734,10 @@ hold the existing per-DSN lock; this focused smoke used the fake backend only.
   original engine 0.1.46 checksum verified, original config/settings restored,
   `/health` OK and loaded with unchanged model. Engine 0.1.50 was offered by the
   signed feed but not installed; these numbers do not measure it.
-- [ ] **D2 Performance sweep.** Compare one engine setting at a time with paired
-  speed diagnostics; determine the candidate binary explicitly before resuming.
+- [ ] **D2 Performance sweep — BLOCKED on scope clarification.** v0.2.4.1 / engine
+  0.1.46 original default and long diagnostics plus three sanity calls completed;
+  no args changed. Proposed knobs have documented rounding effects; coordinator
+  question pending. See the D2 checkpoint in `docs/strata-tuning-2026-10-25.md`.
 - [ ] **D3 Sampling/quality sweep.** Keep model, case set, rubrics and budgets fixed;
   compare quality and latency without treating automated passes as DBA review.
 - [ ] **D4 Frozen-candidate Q5 pooled attempt.** Freeze the selected candidate and
