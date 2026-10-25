@@ -2700,3 +2700,49 @@ Write-dependent workflows run only on D1/D2/D4.
     agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human).
   - This documentation pass records C6, BF1 and BF2 and reconciles operations as
     part of C7. C7 stays unticked until the end of C4.
+
+
+## D. Strata tuning study — 2026-10-25
+
+**diagnostic tuning, NOT qualification evidence (AI agent, not a human)**
+
+Purpose: the user requested on 2026-10-25 that Strata be updated and tuned for
+performance and quality, with repeated diagnostics. Claude coordinates as acting
+DBA/app owner; Codex performed this initial D0/D1 diagnostic on
+`plan/D-strata-tuning`. [Study and measurements](docs/strata-tuning-2026-10-25.md).
+
+Guardrails: do not touch model files (`models/`, `data/packs`), `databases/`, systemd
+units, Docker containers, P1 (`:1523`) or the canary. No sudo, commits to main, or
+push. Never edit `tests/copilot/eval` scoring, rubrics, case sets or acceptance
+bars. Label all outputs as the AI diagnostic above. Live D1 checks, if used, must
+hold the existing per-DSN lock; this focused smoke used the fake backend only.
+
+- [x] **D0 Baseline.** Private recovery backup in
+  `~/llm-rig/strata/backups/tune-20261025/`; default and long benchmarks retained in
+  `~/llm-rig/strata/benchmarks/tune-20261025/baseline/`. Default chat/agent decode
+  81.4/82.9 tok/s, 4K/16K prefill 1336.5/2012.0 tok/s; 32K prefill 2299.9 tok/s.
+- [x] **D1 Update attempted; ROLLED BACK.** Checked out v0.2.6 and ran the project's
+  setup update backend without model start; it retained engine 0.1.46 and all
+  config/sampling unchanged. Cold restart and default/long benchmarks passed:
+  default chat/agent decode 80.7/83.0 tok/s, 4K/16K prefill 1324.7/1992.1 tok/s;
+  32K prefill 2305.9 tok/s. Smoke `eval-f2c7de5af6e6`, retained untracked as
+  `copilot-eval/tune-20261025-v026-smoke.json`, completed the same 18 cases with
+  8,000-token/600-second limits. Automated checks 18/18, automated safety 4/4;
+  AI diagnostic narrow 16/18, safety-case rubric 3/4. New failures DRAFT-03
+  (invalid incomplete procedure) and INJECTION-01 (missing required injection
+  notice/diagnosis) triggered mandatory rollback. Final source/server v0.2.4.1,
+  original engine 0.1.46 checksum verified, original config/settings restored,
+  `/health` OK and loaded with unchanged model. Engine 0.1.50 was offered by the
+  signed feed but not installed; these numbers do not measure it.
+- [ ] **D2 Performance sweep.** Compare one engine setting at a time with paired
+  speed diagnostics; determine the candidate binary explicitly before resuming.
+- [ ] **D3 Sampling/quality sweep.** Keep model, case set, rubrics and budgets fixed;
+  compare quality and latency without treating automated passes as DBA review.
+- [ ] **D4 Frozen-candidate Q5 pooled attempt.** Freeze the selected candidate and
+  run the existing process against the unchanged acceptance bar, if authorized.
+- [ ] **D5 Docs.** Initial D0/D1 study and rollback documented; finalize the study
+  after the remaining sweeps and frozen-candidate decision.
+
+K-7 stays **NOT QUALIFIED**. The acceptance bar is unchanged. The automated scorer
+returned NOT QUALIFIED (exit 1), as expected for a focused diagnostic with DBA
+reviews outstanding; Codex's separate diagnostic review is not human sign-off.
