@@ -31,7 +31,7 @@ and section 6 production writes remain deferred.
 | NP-08 reconciliation | agent-qualified on test stand-ins (AI agent, not a human) | A9/B6: documentation reconciled with sections A and B; no human acceptance implied. |
 | G1 | open (human-owned) | Agent role assignment does not supply named human owners and dates. |
 | G2 | open (human-owned) | A7 independent AI reviews and C-1/C-2 fixes do not replace named human security review and DBA approval. |
-| G3 | in progress on the P1 production-shaped stand-in (agent-run, window 2026-10-25 → 2026-11-07); no human sign-off, not the real fleet | agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human): C2 runner and C3 pre-start drill complete; C4 timer activated, zero official passes so far. |
+| G3 | in progress on the P1 production-shaped stand-in (agent-run, window 2026-10-25 → 2026-11-07); no human sign-off, not the real fleet | agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human): C2 runner and C3 pre-start drill complete; C4 timer activated; day 1 passed on 2026-10-25. |
 | G4 | pending C4 exit on P1 | agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human): no production expansion or fleet qualification; C5 remains open. |
 | G5 / P4 | G5 runner bound to P1 shape; baseline PROMOTE (agent-qualified on a production-shaped stand-in on z4g5, AI agent, not a human); no RU/driver change yet | C6: PR #95 merged as `1ae247f`, agy APPROVE; [operations evidence](operations.md#g5-requalification-p1-shape) links the retained interfered BLOCK and serialized PROMOTE. B4 / ADR-0015 moved the P4 pin to 26.0.1; no human sign-off or real fleet qualification. |
 | P5 | blocked (no production access) | A8 discovery tool/runbook tried only on D1/D2/D4; no production fleet facts. |
@@ -64,8 +64,8 @@ refused harness read, then restored in `finally`: account `OPEN`, target enabled
 and a successful audited observation (`success=true`, `restored=true`). Evidence:
 `databases/reports/2026-10-25-g3-canary/drills/20261025T000227.884354Z.json` (git-ignored).
 
-C4 is in progress: timer activated 2026-10-24, `Linger=yes`, first official pass
-2026-10-25 09:00 CST, window through 2026-11-07, zero official passes so far.
+C4 is in progress: timer activated 2026-10-24, `Linger=yes`; day 1 passed on
+2026-10-25, window through 2026-11-07.
 The budget recorded before official passes in
 `databases/reports/2026-10-25-g3-canary/budget.json` (git-ignored) specifies
 `"sessions": 2`, `"elapsed_seconds": 30.0`, `"buffer_gets": 1000000`,
@@ -1863,9 +1863,9 @@ Observed Oracle behaviour:
 
 **agent-rehearsed on a test stand-in (AI agent, not a human).** This rehearsal
 uses D4, the remote Oracle 19c test stand-in, under Claude's dispatch as acting
-DBA and release owner; Codex built and ran the tool. **G3 stays blocked: there
-is no production target or production canary.** PLAN.md B5 remains for Claude to
-review and mark.
+DBA and release owner; Codex built and ran the tool. At the time, no production
+target or canary existed. Section C now records G3 in progress on P1:
+agent-qualified on a production-shaped stand-in on z4g5 (AI agent, not a human).
 
 The tool is `uv run python -m tests.canary.rehearsal`. It creates a disposable
 PostgreSQL store and local HTTP API with environment `production`, copilot and
