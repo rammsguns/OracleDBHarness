@@ -148,7 +148,6 @@ def run_oracle_integration(dataforge_dir: Path, targets: Path, workdir: Path) ->
         "proxy": "nginx:1.27-alpine",
         "notExercised": [
             "Editor/UI and confirmation dialogs",
-            "Upstream integration",
             "Production and human pilot qualification",
         ],
     }
@@ -580,6 +579,122 @@ def run_oracle_integration(dataforge_dir: Path, targets: Path, workdir: Path) ->
                     server.server_close()
 
             check("partial_provider_failure", partial_failure)
+
+            def crlf_multiline() -> str:
+                # Reframe real harness/model events before the shipped nginx proxy.
+                forwarded: list[tuple[str, dict]] = []
+
+                class Reframer(http.server.BaseHTTPRequestHandler):
+                    def do_GET(self) -> None:  # noqa: N802
+                        response = httpx.get(
+                            stack.base_url + self.path,
+                            headers={"Authorization": self.headers.get("Authorization", "")},
+                            timeout=30,
+                        )
+                        self.send_response(response.status_code)
+                        self.send_header(
+                            "Content-Type", response.headers.get("content-type", "application/json")
+                        )
+                        self.end_headers()
+                        self.wfile.write(response.content)
+
+                    def do_POST(self) -> None:  # noqa: N802
+                        body = self.rfile.read(int(self.headers.get("content-length", "0")))
+                        with httpx.stream(
+                            "POST",
+                            stack.base_url + self.path,
+                            content=body,
+                            headers={
+                                "Authorization": self.headers.get("Authorization", ""),
+                                "Content-Type": "application/json",
+                            },
+                            timeout=240,
+                        ) as response:
+                            self.send_response(response.status_code)
+                            self.send_header("Content-Type", "text/event-stream")
+                            self.end_headers()
+                            frame: list[str] = []
+                            for line in response.iter_lines():
+                                if line:
+                                    frame.append(line)
+                                    continue
+                                events = parse_sse_events("\n".join(frame) + "\n\n")
+                                frame.clear()
+                                for event, data in events:
+                                    forwarded.append((event, data))
+                                    lines = [": BF2 real-event reframing", f"event:{event}"]
+                                    lines.extend(
+                                        "data: " + part
+                                        for part in json.dumps(
+                                            data, indent=2, ensure_ascii=False
+                                        ).splitlines()
+                                    )
+                                    wire = ("\r\n".join(lines) + "\r\n\r\n").encode()
+                                    # Force a write boundary inside CRLF as well as multiline JSON.
+                                    split = wire.index(b"\r\n") + 1
+                                    self.wfile.write(wire[:split])
+                                    self.wfile.flush()
+                                    self.wfile.write(wire[split:])
+                                    self.wfile.flush()
+
+                    def log_message(self, format: str, *args: Any) -> None:
+                        pass
+
+                server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Reframer)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                config_path = stack.workdir / "nginx.conf"
+                original = config_path.read_text()
+                try:
+                    df.stop()
+                    config_path.write_text(
+                        original.replace(stack.base_url, f"http://127.0.0.1:{server.server_port}")
+                    )
+                    stack.command(["docker", "exec", stack.nginx_name, "nginx", "-s", "reload"])
+                    time.sleep(1)
+                    df.start()
+                    events, chunks = stream_assist(
+                        client,
+                        df.base_url,
+                        assist_body(question="Explain this SQL in two short sentences."),
+                    )
+                    # The adapter deliberately drops extension events outside its public protocol.
+                    supported = {
+                        "start",
+                        "delta",
+                        "proposal",
+                        "usage",
+                        "done",
+                        "error",
+                        "plan_step",
+                        "tool_call",
+                        "tool_result",
+                        "budget",
+                    }
+                    expected = [(name, data) for name, data in forwarded if name in supported]
+                    ignored = sorted({name for name, _ in forwarded if name not in supported})
+                    metadata["sseReframing"] = {
+                        "upstreamEvents": len(forwarded),
+                        "supportedEvents": len(expected),
+                        "ignoredExtensionEvents": ignored,
+                    }
+                    assert expected and events == expected, (
+                        f"Reframed events lost or changed: supported={len(expected)}, downstream={len(events)}, ignored={ignored}"
+                    )
+                    assert events[-1][0] == "done" and events[-1][1].get("outcome") == "succeeded"
+                    assert any(name == "delta" for name, _ in events) and chunks > 1
+                    return f"{len(events)} supported real harness/local-model events preserved exactly after CRLF, multiline JSON data, comments and optional field-space reframing before shipped nginx; {chunks} downstream chunks"
+                finally:
+                    df.stop()
+                    config_path.write_text(original)
+                    stack.command(["docker", "exec", stack.nginx_name, "nginx", "-s", "reload"])
+                    time.sleep(1)
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=5)
+                    df.start()
+
+            check("crlf_multiline_sse_through_nginx", crlf_multiline)
 
             def outage() -> str:
                 stack.stop_api()

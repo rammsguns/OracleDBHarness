@@ -75,7 +75,6 @@ def run_ui(dataforge_dir: Path, targets: Path, workdir: Path, screenshots: Path)
         "notExercised": [
             "Production",
             "Human pilot",
-            "Upstream integration",
             "Compile and confirmation UI",
         ],
     }
@@ -302,6 +301,38 @@ def run_ui(dataforge_dir: Path, targets: Path, workdir: Path, screenshots: Path)
                 return "Named Analyst documentation panel offers exactly explain; no worksheet privileges added"
 
             check(6, "analyst_explain_only", analyst)
+
+            def disabled() -> str:
+                nonlocal page
+                assert df is not None
+                df.stop()
+                df.harness_enabled = False
+                df.start()
+                page = context.new_page()
+                page.goto(df.base_url)
+                page.get_by_role("textbox", name="SQL editor", exact=True).wait_for()
+                page.wait_for_function(
+                    "async () => (await (await fetch('/api/ai/capabilities')).json()).enabled === false"
+                )
+                assert page.get_by_role("button", name="Assist", exact=True).count() == 0
+                assert page.get_by_role("region", name="Assist panel").count() == 0
+                disabled_analyst = browser.new_context(
+                    http_credentials={"username": analyst_email, "password": password}
+                )
+                analyst_page = disabled_analyst.new_page()
+                analyst_page.goto(df.base_url)
+                analyst_page.get_by_title(
+                    "Signed in as B2 Analyst — open account settings", exact=True
+                ).wait_for()
+                analyst_page.wait_for_function(
+                    "async () => (await (await fetch('/api/ai/capabilities')).json()).enabled === false"
+                )
+                assert analyst_page.get_by_role("region", name="Assist panel").count() == 0
+                assert analyst_page.get_by_role("button", name="Assist", exact=True).count() == 0
+                disabled_analyst.close()
+                return "Disabled integration hides worksheet Assist control and Analyst documentation Assist panel"
+
+            check(7, "disabled_assist_hidden", disabled)
             browser.close()
     except Exception as exc:  # noqa: BLE001
         checks.append(CheckResult("stack_or_run_failure", False, 0, type(exc).__name__))
@@ -344,7 +375,7 @@ def main() -> int:
     staging = REPOSITORY / "databases/reports"
     staging.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="b2-work-", dir=staging) as tmp:
-        report = run_ui(args.dataforge_dir, args.targets, Path(tmp), args.screenshots)
+        report = run_ui(args.dataforge_dir, args.targets, Path(tmp), args.screenshots.absolute())
     args.report.write_text(report.to_markdown() + "\n")
     args.report.with_suffix(".json").write_text(report.to_json() + "\n")
     print(report.summary)

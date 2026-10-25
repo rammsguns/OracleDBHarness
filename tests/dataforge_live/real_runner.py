@@ -561,11 +561,35 @@ def check_outage_and_disabled(dataforge_dir: Path, token: str) -> list[CheckResu
                 e[0] == "error" and e[1].get("code") == "integration_disabled" for e in chat_events
             )
 
+            preview = client.post(
+                f"{df_proc_disabled.base_url}/api/ai/context-preview",
+                json={
+                    "action": "explain",
+                    "connectionId": "conn-1",
+                    "selection": "SELECT 1 FROM dual",
+                    "editorId": "e1",
+                    "editorRevision": "1",
+                },
+            )
+            apply = client.post(
+                f"{df_proc_disabled.base_url}/api/ai/proposals/missing/apply-check",
+                json={
+                    "editorId": "e1",
+                    "connectionId": "conn-1",
+                    "revision": "1",
+                    "currentText": "SELECT 1 FROM dual",
+                },
+            )
+            ok_guards = (
+                preview.status_code == 403
+                and preview.json() == {"error": "integration_disabled"}
+                and apply.json() == {"canApply": False, "reasons": ["integration_disabled"]}
+            )
             dur = (time.monotonic() - start) * 1000
-            all_ok = ok_cap and ok_chat
+            all_ok = ok_cap and ok_chat and ok_guards
             detail = (
                 f"Disabled mode: capabilities enabled={cap_body.get('enabled')}, "
-                f"chat error code={chat_events[0][1].get('code') if chat_events else None}"
+                f"chat error code={chat_events[0][1].get('code') if chat_events else None}; preview/apply guards={ok_guards}"
             )
             results.append(CheckResult("disabled_mode_handling", all_ok, dur, detail))
     except Exception as exc:  # noqa: BLE001
