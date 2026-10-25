@@ -156,14 +156,12 @@ def api_arguments(port: int) -> list[str]:
 
 def api_alive(state: Path) -> bool:
     pid_file = state / "api.pid"
-    if not pid_file.exists():
-        return False
-    pid = int(pid_file.read_text())
     try:
+        pid = int(pid_file.read_text())
         # Do not signal a recycled PID belonging to an unrelated process.
         arguments = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
         return b"harness_api.app:create_app" in arguments and b"uvicorn" in arguments
-    except FileNotFoundError:
+    except (ValueError, OSError):
         return False
 
 
@@ -326,7 +324,7 @@ def deploy(args: argparse.Namespace) -> None:
         command(["systemctl", "--user", "daemon-reload"])
 
 
-def stop(state: Path) -> None:
+def stop(state: Path, *, api_only: bool = False) -> None:
     if api_alive(state):
         pid = int((state / "api.pid").read_text())
         os.kill(pid, signal.SIGTERM)
@@ -337,7 +335,8 @@ def stop(state: Path) -> None:
         else:
             raise RehearsalFailure("API did not stop; PostgreSQL left running")
     (state / "api.pid").unlink(missing_ok=True)
-    command(["docker", "stop", CONTAINER])
+    if not api_only:
+        command(["docker", "stop", CONTAINER])
 
 
 class Deployment:
@@ -826,6 +825,8 @@ def main() -> int:
             sub.add_argument("--port", type=int, default=8640)
             sub.add_argument("--pg-port", type=int, default=8641)
             sub.add_argument("--install-units", action="store_true")
+        if name == "stop":
+            sub.add_argument("--api-only", action="store_true")
         if name == "evaluate":
             sub.add_argument("--min-days", type=int, default=14)
     args = parser.parse_args()
@@ -856,7 +857,7 @@ def main() -> int:
             if args.subcommand == "deploy":
                 deploy(args)
             elif args.subcommand == "stop":
-                stop(args.state_dir)
+                stop(args.state_dir, api_only=args.api_only)
             else:
                 return execute(args, budget)
         print(LABEL)

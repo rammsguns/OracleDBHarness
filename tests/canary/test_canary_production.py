@@ -161,6 +161,7 @@ def test_units_have_paths_and_no_secrets(tmp_path):
     assert (
         f"WorkingDirectory={tmp_path / 'repo with spaces'}" in units["harness-canary-api.service"]
     )
+    assert "ExecStartPre=docker start harness-canary-pg" in units["harness-canary-api.service"]
     assert "09:00:00" in units["harness-canary-pass.timer"]
     assert "Persistent=true" in units["harness-canary-pass.timer"]
     assert "--report-dir" in units["harness-canary-pass.service"]
@@ -280,3 +281,123 @@ def test_evaluator_rejects_imported_schema_only_pass(tmp_path):
     record.pop("budget_scope")
     write_json(path, record)
     assert any("budget scope" in reason for reason in evaluate(tmp_path)["reasons"])
+
+
+@pytest.mark.parametrize("contents", ["", "\n", "not-a-pid"])
+def test_api_alive_rejects_malformed_pid(tmp_path, contents):
+    from tests.canary import production
+
+    (tmp_path / "api.pid").write_text(contents)
+    assert not production.api_alive(tmp_path)
+
+
+@pytest.mark.parametrize("operation", ["read_text", "read_bytes"])
+@pytest.mark.parametrize("error", [PermissionError, ProcessLookupError, OSError])
+def test_api_alive_handles_io_errors(tmp_path, monkeypatch, operation, error):
+    from tests.canary import production
+
+    (tmp_path / "api.pid").write_text("12345")
+
+    def fail(*args, **kwargs):
+        raise error("offline test")
+
+    monkeypatch.setattr(Path, operation, fail)
+    assert not production.api_alive(tmp_path)
+
+
+@pytest.mark.parametrize("api_only", [False, True])
+def test_stop_preserves_store_only_when_requested(tmp_path, monkeypatch, api_only):
+    from tests.canary import production
+
+    (tmp_path / "api.pid").write_text("12345")
+    alive = iter([True, False])
+    signals = []
+    commands = []
+    monkeypatch.setattr(production, "api_alive", lambda state: next(alive))
+    monkeypatch.setattr(production.os, "kill", lambda pid, sig: signals.append((pid, sig)))
+    monkeypatch.setattr(production, "command", lambda args: commands.append(args))
+    production.stop(tmp_path, api_only=api_only)
+    assert signals == [(12345, production.signal.SIGTERM)]
+    assert not (tmp_path / "api.pid").exists()
+    assert commands == ([] if api_only else [["docker", "stop", production.CONTAINER]])
+
+
+def test_stop_cli_forwards_api_only(tmp_path, monkeypatch):
+    from tests.canary import production
+
+    record_budget(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        production.sys,
+        "argv",
+        [
+            "canary",
+            "stop",
+            "--api-only",
+            "--state-dir",
+            str(tmp_path),
+            "--report-dir",
+            str(tmp_path),
+        ],
+    )
+    monkeypatch.setattr(production.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(production, "stop", lambda state, **kwargs: calls.append((state, kwargs)))
+    assert production.main() == 0
+    assert calls == [(tmp_path, {"api_only": True})]
+
+
+def test_drill_restores_account_and_target_after_assertion_failure(monkeypatch):
+    from tests.canary import production
+
+    statements = []
+    toggles = []
+    observations = []
+    locked = False
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def cursor(self):
+            return self
+
+        def execute(self, sql):
+            nonlocal locked
+            statements.append(sql)
+            if sql.endswith(" ACCOUNT LOCK"):
+                locked = True
+            elif sql.endswith(" ACCOUNT UNLOCK"):
+                locked = False
+
+        def fetchone(self):
+            return ("LOCKED" if locked else "OPEN",)
+
+        def close(self):
+            pass
+
+    class Deployment:
+        pid = "p1"
+        profile = {"enabled": True}
+
+        def request(self, method, path, **kwargs):
+            toggles.append(path.rsplit("/", 1)[-1])
+            return type("Response", (), {"raise_for_status": lambda self: None})()
+
+        def workflow(self, method, path, principal, **kwargs):
+            observations.append(kwargs)
+
+    # A successful login while locked triggers a drill assertion after ACCOUNT LOCK.
+    monkeypatch.setattr(production, "connect", lambda *args: Connection())
+    report = {}
+    with pytest.raises(RehearsalFailure, match="Locked account accepted login"):
+        production.drill(Deployment(), report)
+    assert "ALTER USER HARNESS_RO ACCOUNT LOCK" in statements
+    assert "ALTER USER HARNESS_RO ACCOUNT UNLOCK" in statements
+    assert not locked
+    assert toggles == ["disable", "enable"]
+    assert observations[-1] == {}
+    assert report["account_status"] == "OPEN"
+    assert report["restored"] is True

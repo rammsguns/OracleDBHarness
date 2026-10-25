@@ -452,11 +452,22 @@ throughout. Defaults match the example. Deployment retains `harness-canary-pg` a
 its named volume `harness-canary-pgdata`, the API PID/port (default 8640), and secret
 files restricted to mode 0600 under the state directory. `stop` stops the API and
 store without deleting evidence or the volume; `deploy` reuses them.
+`stop --api-only` stops only the PID-file API process and leaves the store running.
 
 `deploy --install-units` renders the templates in `deploy/canary/` into
 `~/.config/systemd/user/` and reloads units without enabling them. The coordinator
-must stop the manually launched API before starting the user API service, then enable
-`harness-canary-api.service` and `harness-canary-pass.timer`. The daily timer fires at
+must transition the manually launched API with these commands, using the same state
+and report directories as deployment:
+
+```sh
+uv run python -m tests.canary.production deploy --install-units --state-dir databases/canary/p1 --report-dir databases/reports/2026-10-25-g3-canary
+uv run python -m tests.canary.production stop --api-only --state-dir databases/canary/p1 --report-dir databases/reports/2026-10-25-g3-canary
+systemctl --user enable --now harness-canary-api.service
+systemctl --user enable --now harness-canary-pass.timer
+```
+
+The API unit runs `docker start harness-canary-pg` before launching the API, including
+on subsequent service restarts. The daily timer fires at
 09:00 local time with `Persistent=true`; the evaluator counts distinct UTC calendar
 days, detects any gap since the first pass, and never counts two same-day passes as
 two days. Keep the checkout, virtual environment, state directory and store available
@@ -468,6 +479,11 @@ status and an audited read. The acting DBA must investigate incidents and explic
 write `resolutions/<incident-stem>.json` with `incident` equal to that stem,
 `resolved_by` equal to `Claude (AI agent, acting DBA)`, an ISO `at` timestamp and a
 nonempty `note` explaining verification. Resolution never removes failed-pass evidence
-or excuses a budget breach. `exit.json` records the reasons and only fills the
+or excuses any failed canary pass, including a budget breach. Every pass must succeed
+within budget: a failed pass restarts the 14-day window under a fresh report directory
+with a newly recorded budget, retaining the old evidence. Update the installed units
+to use that fresh report directory before restarting the timer. Resolving an incident
+meets the G3 "no unresolved defect" requirement but cannot qualify the failed window.
+`exit.json` records the reasons and only fills the
 AI-agent acting-DBA sign-off after all criteria pass; it never claims human or real
 fleet approval. Back up the persistent metadata store along with the evidence.
