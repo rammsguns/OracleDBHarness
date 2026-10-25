@@ -53,9 +53,10 @@ uv run python scripts/bootstrap_targets.py --manifest databases/targets.json --p
 
 Run `oracle/grants/verify_harness_grants.sql` as each Oracle account before onboarding,
 for example `sqlplus /nolog` followed by a credential-safe `CONNECT` method and
-`@oracle/grants/verify_harness_grants.sql`. It only reads `USER_ROLE_PRIVS`,
-`SESSION_PRIVS`, `ALL_TAB_PRIVS`, and `USER_TS_QUOTAS`; review missing diagnostic
-grants and elevated-privilege warnings with a DBA. Never place a password in a
+`@oracle/grants/verify_harness_grants.sql`. It only reads `SESSION_ROLES`, `USER_ROLE_PRIVS`,
+`SESSION_PRIVS`, `ALL_TAB_PRIVS`, and `USER_TS_QUOTAS`. Developer and maintenance
+roles and maintenance-only object grants are optional for read-only accounts; review
+`MISSING` diagnostic grants and elevated-privilege warnings with a DBA. Never place a password in a
 shell command line.
 
 The manifest names D1, D2, D3, D4 and read-only lab profiles. D3 uses a wallet and
