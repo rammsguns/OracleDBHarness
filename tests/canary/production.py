@@ -846,12 +846,16 @@ def review(directory: Path, today: date | None = None) -> dict[str, Any]:
     days = {at.date() for at, _, _ in dated}
     first = min(days) if days else None
     through = today if today in days else today - timedelta(days=1)
-    expected = max(0, (through - first).days + 1) if first else 0
-    missing = [
-        (first + timedelta(days=offset)).isoformat()
-        for offset in range(expected)
-        if first + timedelta(days=offset) not in days
-    ]
+    if first is None:
+        expected = 0
+        missing = []
+    else:
+        expected = max(0, (through - first).days + 1)
+        missing = [
+            (first + timedelta(days=offset)).isoformat()
+            for offset in range(expected)
+            if first + timedelta(days=offset) not in days
+        ]
     latest = None
     request_failures = []
     for _, stem, record in dated:
