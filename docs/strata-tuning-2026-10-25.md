@@ -385,6 +385,10 @@ The private mapping is outside the repository at
 `~/llm-rig/strata/benchmarks/tune-20261025/d3/blind-map.json`.
 Grading is a separate blind step and remains outstanding.
 
+Blind2 packets in `copilot-eval/tune-20261025-d3-blind2/D01.json` through `D14.json` freshly shuffle all twelve variants and two latest historical base trials for the same blind grader.
+They retain the original packet fields and ordered 18 cases, with prior grades and identifying dates/times removed; B01–B12 remain unchanged.
+Script verification found no forbidden configuration/run strings or timestamps; this remains diagnostic tuning, NOT qualification evidence (AI agent, not a human).
+
 Variant config backups are in `~/llm-rig/strata/backups/tune-20261025/d3/`;
 startup/health checks, runner/scorer logs, scripts and summary are in
 `~/llm-rig/strata/benchmarks/tune-20261025/d3/`. The complete original config
