@@ -488,6 +488,18 @@ meets the G3 "no unresolved defect" requirement but cannot qualify the failed wi
 AI-agent acting-DBA sign-off after all criteria pass; it never claims human or real
 fleet approval. Back up the persistent metadata store along with the evidence.
 
+Daily review: Claude (AI agent, acting DBA), not a human, runs
+`uv run python -m tests.canary.production review --report-dir databases/reports/2026-10-25-g3-canary`
+after each daily pass. This offline command reports UTC coverage through today,
+missing days, cost ceilings and remaining headroom, request anomalies, unresolved
+incidents, and provisional exit reasons without changing evidence or `exit.json`.
+The existing identity `/test` audit exemption is preserved. Exit 0 means no failures
+so far; the 14-day minimum is deferred before the first pass and while the window
+is running. Use
+`review --record` to retain `reviews/<UTC date>.json` with the acting DBA attribution;
+an existing review requires `--force`. Reviews do not count toward evaluation.
+Run `evaluate` only for the final exit decision; C4 remains in progress.
+
 ### G5 requalification (P1 shape)
 
 P1 is the 19c EE 19.9.1 non-CDB production-shaped stand-in on z4g5; D1 is

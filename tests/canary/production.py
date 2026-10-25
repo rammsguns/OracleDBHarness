@@ -14,7 +14,7 @@ import sys
 import threading
 import time
 from contextlib import contextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +35,12 @@ REPO = Path(__file__).resolve().parents[2]
 DEFAULT_REPORT = REPO / "databases/reports/2026-10-25-g3-canary"
 DEFAULT_STATE = REPO / "databases/canary/p1"
 PRINCIPALS = ["g3-dba-1", "g3-dba-2", "g3-dba-3"]
+EXPECTED_REFUSALS = {
+    "/tuning/explain": "policy_refused",
+    "/worksheets": "policy_refused",
+    "/runbooks/runbook.gather_table_stats/run": "policy_refused",
+    "/copilot/requests": "policy_refused",
+}
 ADMIN = "g3-admin"
 DSN = "localhost:1523/PRODCDB"
 CONTAINER = "harness-canary-pg"
@@ -539,9 +545,9 @@ def run_pass(
                 "POST",
                 "/tuning/explain",
                 {"profileId": pid, "statement": "SELECT 1 FROM dual"},
-                "policy_refused",
+                EXPECTED_REFUSALS["/tuning/explain"],
             ),
-            ("POST", "/worksheets", {"profileId": pid}, "policy_refused"),
+            ("POST", "/worksheets", {"profileId": pid}, EXPECTED_REFUSALS["/worksheets"]),
             (
                 "POST",
                 "/runbooks/runbook.gather_table_stats/run",
@@ -550,7 +556,7 @@ def run_pass(
                     "parameters": {"owner": "SHOPAPP", "table_name": "ORDERS"},
                     "confirm": True,
                 },
-                "policy_refused",
+                EXPECTED_REFUSALS["/runbooks/runbook.gather_table_stats/run"],
             ),
             *[
                 (
@@ -563,7 +569,7 @@ def run_pass(
                         "userMessage": "Canary refusal check",
                         "subject": "SHOPAPP.ORDERS",
                     },
-                    "policy_refused",
+                    EXPECTED_REFUSALS["/copilot/requests"],
                 )
                 for action in ("explain", "kiwi.explain_object")
             ],
@@ -815,10 +821,129 @@ def evaluate(directory: Path, min_days: int = 14) -> dict[str, Any]:
     }
 
 
+def evaluate_and_record(directory: Path, min_days: int = 14) -> dict[str, Any]:
+    """Write exit evidence only when explicitly evaluating the completed window."""
+    result = evaluate(directory, min_days)
+    write_json(directory / "exit.json", result)
+    return result
+
+
+def review(directory: Path, today: date | None = None) -> dict[str, Any]:
+    """Summarize local evidence without connections, locks, or mutations."""
+    today = today or datetime.now(UTC).date()
+    budget = read_budget(directory)
+    provisional = evaluate(directory)
+    dated = []
+    for path in sorted((directory / "passes").glob("*.json")):
+        try:
+            record = json.loads(path.read_text())
+            at = datetime.fromisoformat(record["at"])
+            if at.tzinfo is None:
+                continue
+            dated.append((at.astimezone(UTC), path.stem, record))
+        except (ValueError, KeyError, TypeError, AttributeError):
+            continue  # evaluate supplies the invalid-evidence failure
+    days = {at.date() for at, _, _ in dated}
+    first = min(days) if days else None
+    through = today if today in days else today - timedelta(days=1)
+    if first is None:
+        expected = 0
+        missing = []
+    else:
+        expected = max(0, (through - first).days + 1)
+        missing = [
+            (first + timedelta(days=offset)).isoformat()
+            for offset in range(expected)
+            if first + timedelta(days=offset) not in days
+        ]
+    latest = None
+    request_failures = []
+    for _, stem, record in dated:
+        for request in record.get("requests", []):
+            if (
+                (
+                    (
+                        EXPECTED_REFUSALS.get(request.get("path"))
+                        or request.get("expected_refusal")
+                        or request.get("refusal")
+                    )
+                    and request.get("outcome") != "refused"
+                )
+                or (
+                    request.get("audit_checked") is False
+                    and not request.get("path", "").endswith("/test")
+                )
+                or request.get("audit_missing") is True
+            ):
+                request_failures.append({"pass": stem, "request": request})
+    if dated:
+        at, stem, record = max(dated, key=lambda item: (item[0], item[1]))
+        latest = {"file": stem, "at": record["at"], "success": record.get("success")}
+        if "principal" in record:
+            latest["principal"] = record["principal"]
+        latest["cost"] = {
+            metric: {
+                "value": record.get("cost", {}).get(metric),
+                "ceiling": ceiling,
+                "remaining_headroom_percent": (
+                    100 * (ceiling - record["cost"][metric]) / ceiling
+                    if metric in record.get("cost", {}) and ceiling
+                    else None
+                ),
+            }
+            for metric, ceiling in budget.items()
+        }
+        for field in ("budget_failures",):
+            if field in record:
+                latest[field] = record[field]
+        if "requests" in record:
+            latest["request_failures"] = [
+                item["request"] for item in request_failures if item["pass"] == stem
+            ]
+    failures = [
+        reason
+        for reason in provisional["reasons"]
+        if not (reason.startswith("Need 14 daily passes;") and (first is None or expected < 14))
+    ]
+    if missing:
+        failures.append("Missing daily passes: " + ", ".join(missing))
+    if request_failures:
+        failures.append("Request refusal or audit failures in pass evidence")
+    return {
+        "label": LABEL,
+        "window_start": first.isoformat() if first else None,
+        "days_covered": len(days),
+        "days_expected_so_far": expected,
+        "missing_days": missing,
+        "latest_pass": latest,
+        "unresolved_incidents": [
+            reason.removeprefix("Unresolved incident: ")
+            for reason in provisional["reasons"]
+            if reason.startswith("Unresolved incident: ")
+        ],
+        "request_failures": request_failures,
+        "provisional_result": provisional,
+        "failures_so_far": failures,
+        "pass": not failures,
+    }
+
+
+def record_review(directory: Path, result: dict[str, Any], force: bool = False) -> None:
+    path = directory / "reviews" / f"{datetime.now(UTC).date().isoformat()}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w" if force else "x") as output:
+        json.dump(
+            {**result, "reviewed_by": "Claude (AI agent, acting DBA), not a human", "label": LABEL},
+            output,
+            indent=2,
+        )
+        output.write("\n")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
-    for name in ("deploy", "stop", "budget", "pass", "drill", "evaluate", "serve"):
+    for name in ("deploy", "stop", "budget", "pass", "drill", "evaluate", "review", "serve"):
         sub = subparsers.add_parser(name)
         sub.add_argument("--report-dir", type=Path, default=DEFAULT_REPORT)
         sub.add_argument("--state-dir", type=Path, default=DEFAULT_STATE)
@@ -828,6 +953,9 @@ def main() -> int:
             sub.add_argument("--install-units", action="store_true")
         if name == "stop":
             sub.add_argument("--api-only", action="store_true")
+        if name == "review":
+            sub.add_argument("--record", action="store_true")
+            sub.add_argument("--force", action="store_true")
         if name == "evaluate":
             sub.add_argument("--min-days", type=int, default=14)
     args = parser.parse_args()
@@ -844,12 +972,17 @@ def main() -> int:
             record_budget(args.report_dir)
             print(LABEL)
             return 0
+        if args.subcommand == "review":
+            result = review(args.report_dir)
+            if args.record:
+                record_review(args.report_dir, result, args.force)
+            print(json.dumps(result, indent=2))
+            return 0 if result["pass"] else 1
         budget = read_budget(args.report_dir)
         if args.subcommand == "evaluate":
             if args.min_days < 1:
                 raise RehearsalFailure("min-days must be positive")
-            result = evaluate(args.report_dir, args.min_days)
-            write_json(args.report_dir / "exit.json", result)
+            result = evaluate_and_record(args.report_dir, args.min_days)
             print(json.dumps(result, indent=2))
             return 0 if result["pass"] else 1
         if args.subcommand == "serve":

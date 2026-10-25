@@ -407,3 +407,151 @@ def test_drill_restores_account_and_target_after_assertion_failure(monkeypatch):
     assert observations[-1] == {}
     assert report["account_status"] == "OPEN"
     assert report["restored"] is True
+
+
+def test_review_clean_single_pass_is_offline(tmp_path, monkeypatch):
+    from tests.canary import production
+
+    seed(tmp_path, [0])
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("review attempted online operation or write")
+
+    for name in ("connect", "Deployment", "state_lock", "database_locks", "write_json"):
+        monkeypatch.setattr(production, name, forbidden)
+    result = production.review(tmp_path, datetime(2026, 10, 25).date())
+    assert result["pass"]
+    assert result["window_start"] == "2026-10-25"
+    assert result["days_covered"] == result["days_expected_so_far"] == 1
+    assert result["missing_days"] == []
+    assert result["latest_pass"]["cost"]["sessions"] == {
+        "value": 2,
+        "ceiling": 2,
+        "remaining_headroom_percent": 0,
+    }
+    assert result["provisional_result"]["reasons"] == [
+        "Need 14 daily passes; have 1 distinct UTC days"
+    ]
+    assert not (tmp_path / "exit.json").exists()
+
+
+@pytest.mark.parametrize("problem", ["budget", "gap", "incident", "request"])
+def test_review_failures_so_far(tmp_path, problem):
+    from tests.canary.production import review
+
+    seed(tmp_path, [0])
+    path = tmp_path / "passes/pass-0.json"
+    record = json.loads(path.read_text())
+    if problem == "budget":
+        record["cost"]["sessions"] = 3
+    elif problem == "incident":
+        write_json(tmp_path / "incidents/open.json", {"failure": "offline fixture"})
+    elif problem == "request":
+        record["requests"] = [
+            {"expected_refusal": "policy_refused", "outcome": "succeeded"},
+            {"path": "/objects", "audit_checked": False},
+            {"path": "/targets/p1/test", "audit_checked": False},
+        ]
+    write_json(path, record)
+    today = datetime(2026, 10, 27 if problem == "gap" else 25).date()
+    result = review(tmp_path, today)
+    assert not result["pass"]
+    if problem == "gap":
+        assert result["missing_days"] == ["2026-10-26"]
+    if problem == "incident":
+        assert result["unresolved_incidents"] == ["open"]
+    if problem == "request":
+        assert len(result["latest_pass"]["request_failures"]) == 2
+    assert not (tmp_path / "exit.json").exists()
+
+
+def test_review_cli_record_and_evaluate_compatibility(tmp_path, monkeypatch, capsys):
+    from tests.canary import production
+
+    seed(tmp_path, [0])
+    result = production.review(tmp_path)
+    monkeypatch.setattr(production, "review", lambda directory: result)
+    argv = ["canary", "review", "--report-dir", str(tmp_path), "--record"]
+    monkeypatch.setattr(production.sys, "argv", argv)
+    expected_code = 0 if result["pass"] else 1
+    assert production.main() == expected_code
+    capsys.readouterr()
+    path = tmp_path / "reviews" / f"{datetime.now(UTC).date()}.json"
+    original = path.read_bytes()
+    assert json.loads(original)["reviewed_by"] == "Claude (AI agent, acting DBA), not a human"
+    assert production.main() == 1
+    assert path.read_bytes() == original
+    monkeypatch.setattr(production.sys, "argv", [*argv, "--force"])
+    assert production.main() == expected_code
+    assert not (tmp_path / "exit.json").exists()
+    capsys.readouterr()
+    evaluated = production.evaluate(tmp_path)
+    monkeypatch.setattr(production, "evaluate", lambda directory, min_days=14: evaluated)
+    monkeypatch.setattr(
+        production.sys, "argv", ["canary", "evaluate", "--report-dir", str(tmp_path)]
+    )
+    assert production.main() == 1
+    assert capsys.readouterr().out == json.dumps(evaluated, indent=2) + "\n"
+    assert (tmp_path / "exit.json").read_text() == json.dumps(evaluated, indent=2) + "\n"
+    assert evaluated["reasons"] == ["Need 14 daily passes; have 1 distinct UTC days"]
+
+
+def test_review_before_first_pass_and_at_window_end(tmp_path):
+    from tests.canary.production import review
+
+    seed(tmp_path, [])
+    empty = review(tmp_path, datetime(2026, 10, 25).date())
+    assert empty["pass"]
+    assert empty["window_start"] is None
+    seed(tmp_path / "started", [0])
+    final = review(tmp_path / "started", datetime(2026, 11, 8).date())
+    assert not final["pass"]
+    assert any(reason.startswith("Need 14") for reason in final["failures_so_far"])
+
+
+def test_review_before_todays_pass(tmp_path):
+    from tests.canary.production import review
+
+    seed(tmp_path, [0])
+    result = review(tmp_path, datetime(2026, 10, 26, 8, tzinfo=UTC).date())
+    assert result["pass"]
+    assert result["days_expected_so_far"] == 1
+    assert result["missing_days"] == []
+
+
+@pytest.mark.parametrize("failed_index", [None, 0, 1, 2, 3, 4])
+def test_review_real_shaped_refusal_records(tmp_path, failed_index):
+    from tests.canary.production import review
+
+    seed(tmp_path, [0])
+    path = tmp_path / "passes/pass-0.json"
+    record = json.loads(path.read_text())
+    paths = [
+        "/tuning/explain",
+        "/worksheets",
+        "/runbooks/runbook.gather_table_stats/run",
+        "/copilot/requests",
+        "/copilot/requests",
+    ]
+    record["requests"] = [
+        {
+            "path": path,
+            "status": 200 if index == failed_index else 403,
+            "outcome": "succeeded" if index == failed_index else "refused",
+            "audit_checked": True,
+        }
+        for index, path in enumerate(paths)
+    ]
+    record["requests"].append(
+        {"path": "/targets/p1/test", "status": 200, "outcome": "succeeded", "audit_checked": False}
+    )
+    write_json(path, record)
+    result = review(tmp_path, datetime(2026, 10, 25).date())
+    if failed_index is None:
+        assert result["pass"]
+        assert result["request_failures"] == []
+    else:
+        assert not result["pass"]
+        assert result["request_failures"] == [
+            {"pass": "pass-0", "request": record["requests"][failed_index]}
+        ]
