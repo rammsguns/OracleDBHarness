@@ -453,7 +453,7 @@ def test_review_failures_so_far(tmp_path, problem):
             {"path": "/targets/p1/test", "audit_checked": False},
         ]
     write_json(path, record)
-    today = datetime(2026, 10, 26 if problem == "gap" else 25).date()
+    today = datetime(2026, 10, 27 if problem == "gap" else 25).date()
     result = review(tmp_path, today)
     assert not result["pass"]
     if problem == "gap":
@@ -504,6 +504,54 @@ def test_review_before_first_pass_and_at_window_end(tmp_path):
     assert empty["pass"]
     assert empty["window_start"] is None
     seed(tmp_path / "started", [0])
-    final = review(tmp_path / "started", datetime(2026, 11, 7).date())
+    final = review(tmp_path / "started", datetime(2026, 11, 8).date())
     assert not final["pass"]
     assert any(reason.startswith("Need 14") for reason in final["failures_so_far"])
+
+
+def test_review_before_todays_pass(tmp_path):
+    from tests.canary.production import review
+
+    seed(tmp_path, [0])
+    result = review(tmp_path, datetime(2026, 10, 26, 8, tzinfo=UTC).date())
+    assert result["pass"]
+    assert result["days_expected_so_far"] == 1
+    assert result["missing_days"] == []
+
+
+@pytest.mark.parametrize("failed_index", [None, 0, 1, 2, 3, 4])
+def test_review_real_shaped_refusal_records(tmp_path, failed_index):
+    from tests.canary.production import review
+
+    seed(tmp_path, [0])
+    path = tmp_path / "passes/pass-0.json"
+    record = json.loads(path.read_text())
+    paths = [
+        "/tuning/explain",
+        "/worksheets",
+        "/runbooks/runbook.gather_table_stats/run",
+        "/copilot/requests",
+        "/copilot/requests",
+    ]
+    record["requests"] = [
+        {
+            "path": path,
+            "status": 200 if index == failed_index else 403,
+            "outcome": "succeeded" if index == failed_index else "refused",
+            "audit_checked": True,
+        }
+        for index, path in enumerate(paths)
+    ]
+    record["requests"].append(
+        {"path": "/targets/p1/test", "status": 200, "outcome": "succeeded", "audit_checked": False}
+    )
+    write_json(path, record)
+    result = review(tmp_path, datetime(2026, 10, 25).date())
+    if failed_index is None:
+        assert result["pass"]
+        assert result["request_failures"] == []
+    else:
+        assert not result["pass"]
+        assert result["request_failures"] == [
+            {"pass": "pass-0", "request": record["requests"][failed_index]}
+        ]

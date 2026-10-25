@@ -35,6 +35,12 @@ REPO = Path(__file__).resolve().parents[2]
 DEFAULT_REPORT = REPO / "databases/reports/2026-10-25-g3-canary"
 DEFAULT_STATE = REPO / "databases/canary/p1"
 PRINCIPALS = ["g3-dba-1", "g3-dba-2", "g3-dba-3"]
+EXPECTED_REFUSALS = {
+    "/tuning/explain": "policy_refused",
+    "/worksheets": "policy_refused",
+    "/runbooks/runbook.gather_table_stats/run": "policy_refused",
+    "/copilot/requests": "policy_refused",
+}
 ADMIN = "g3-admin"
 DSN = "localhost:1523/PRODCDB"
 CONTAINER = "harness-canary-pg"
@@ -539,9 +545,9 @@ def run_pass(
                 "POST",
                 "/tuning/explain",
                 {"profileId": pid, "statement": "SELECT 1 FROM dual"},
-                "policy_refused",
+                EXPECTED_REFUSALS["/tuning/explain"],
             ),
-            ("POST", "/worksheets", {"profileId": pid}, "policy_refused"),
+            ("POST", "/worksheets", {"profileId": pid}, EXPECTED_REFUSALS["/worksheets"]),
             (
                 "POST",
                 "/runbooks/runbook.gather_table_stats/run",
@@ -550,7 +556,7 @@ def run_pass(
                     "parameters": {"owner": "SHOPAPP", "table_name": "ORDERS"},
                     "confirm": True,
                 },
-                "policy_refused",
+                EXPECTED_REFUSALS["/runbooks/runbook.gather_table_stats/run"],
             ),
             *[
                 (
@@ -563,7 +569,7 @@ def run_pass(
                         "userMessage": "Canary refusal check",
                         "subject": "SHOPAPP.ORDERS",
                     },
-                    "policy_refused",
+                    EXPECTED_REFUSALS["/copilot/requests"],
                 )
                 for action in ("explain", "kiwi.explain_object")
             ],
@@ -839,7 +845,8 @@ def review(directory: Path, today: date | None = None) -> dict[str, Any]:
             continue  # evaluate supplies the invalid-evidence failure
     days = {at.date() for at, _, _ in dated}
     first = min(days) if days else None
-    expected = max(0, (today - first).days + 1) if first else 0
+    through = today if today in days else today - timedelta(days=1)
+    expected = max(0, (through - first).days + 1) if first else 0
     missing = [
         (first + timedelta(days=offset)).isoformat()
         for offset in range(expected)
@@ -851,7 +858,11 @@ def review(directory: Path, today: date | None = None) -> dict[str, Any]:
         for request in record.get("requests", []):
             if (
                 (
-                    (request.get("expected_refusal") or request.get("refusal"))
+                    (
+                        EXPECTED_REFUSALS.get(request.get("path"))
+                        or request.get("expected_refusal")
+                        or request.get("refusal")
+                    )
                     and request.get("outcome") != "refused"
                 )
                 or (
