@@ -1,8 +1,10 @@
 """Offline evidence gates for the persistent production-shaped canary."""
 
 import json
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -349,6 +351,10 @@ def test_stop_cli_forwards_api_only(tmp_path, monkeypatch):
 def test_drill_restores_account_and_target_after_assertion_failure(monkeypatch):
     from tests.canary import production
 
+    class DatabaseError(Exception):
+        pass
+
+    monkeypatch.setitem(sys.modules, "oracledb", SimpleNamespace(DatabaseError=DatabaseError))
     statements = []
     toggles = []
     observations = []
