@@ -41,6 +41,24 @@ if [[ -z "${HARNESS_QUAL_ORACLE_DSN:-}" ]]; then
   exit 2
 fi
 
+# G5 can isolate the staging twin and retain evidence outside historical reports.
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --report-path) export HARNESS_QUAL_REPORT="$2"; shift 2 ;;
+    --d1-only)
+      if [[ "$profile" != r1 && "$profile" != r3 ]]; then
+        echo "--d1-only requires r1 or r3" >&2; exit 2
+      fi
+      if [[ "$HARNESS_QUAL_ORACLE_DSN" != localhost:1522/ORCL || "${HARNESS_QUAL_ADMIN_DSN:-}" != localhost:1522/ORCL ]]; then
+        echo "D1 DSN differs; refusing qualification" >&2; exit 2
+      fi
+      while IFS= read -r name; do unset "$name"; done < <(compgen -v | grep '^HARNESS_QUAL_SECOND_' || true)
+      export HARNESS_QUAL_REQUIRE="${HARNESS_QUAL_REQUIRE//second_target,/}"
+      shift ;;
+    *) break ;;
+  esac
+done
+
 mkdir -p "$REPO/databases/reports"
 export HARNESS_QUAL_REPORT="${HARNESS_QUAL_REPORT:-$REPO/databases/reports/$(date +%F)-$profile.md}"
 
