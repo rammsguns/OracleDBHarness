@@ -8,4 +8,5 @@ Type=oneshot
 WorkingDirectory=@REPO@
 Environment=TMPDIR=@TMP@
 ExecStart=@PYTHON@ -m tests.canary.production pass --state-dir @STATE@ --report-dir @REPORT@
+ExecStopPost=@PYTHON@ -m tests.canary.production review --state-dir @STATE@ --report-dir @REPORT@ --record --unattended
 UMask=0077

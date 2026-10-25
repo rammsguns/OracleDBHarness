@@ -151,7 +151,9 @@ def test_budget_breach_retains_pass_and_incident(tmp_path, monkeypatch):
 
 
 def test_units_have_paths_and_no_secrets(tmp_path):
-    units = render_units(tmp_path / "repo with spaces", tmp_path / "state", tmp_path / "reports")
+    units = render_units(
+        tmp_path / "repo with spaces", tmp_path / "state with spaces", tmp_path / "reports with spaces"
+    )
     assert set(units) == {
         "harness-canary-api.service",
         "harness-canary-pass.service",
@@ -166,7 +168,13 @@ def test_units_have_paths_and_no_secrets(tmp_path):
     assert "ExecStartPre=docker start harness-canary-pg" in units["harness-canary-api.service"]
     assert "09:00:00" in units["harness-canary-pass.timer"]
     assert "Persistent=true" in units["harness-canary-pass.timer"]
-    assert "--report-dir" in units["harness-canary-pass.service"]
+    assert (
+        f'ExecStopPost="{tmp_path / "repo with spaces/.venv/bin/python"}"'
+        ' -m tests.canary.production review'
+        f' --state-dir "{tmp_path / "state with spaces"}"'
+        f' --report-dir "{tmp_path / "reports with spaces"}" --record --unattended\n'
+        in units["harness-canary-pass.service"]
+    )
 
 
 def test_deploy_reuses_persistent_store_and_api(tmp_path, monkeypatch):
@@ -494,6 +502,48 @@ def test_review_cli_record_and_evaluate_compatibility(tmp_path, monkeypatch, cap
     assert capsys.readouterr().out == json.dumps(evaluated, indent=2) + "\n"
     assert (tmp_path / "exit.json").read_text() == json.dumps(evaluated, indent=2) + "\n"
     assert evaluated["reasons"] == ["Need 14 daily passes; have 1 distinct UTC days"]
+
+
+@pytest.mark.parametrize("passed", [True, False])
+def test_review_cli_unattended_snapshot(tmp_path, monkeypatch, capsys, passed):
+    from tests.canary import production
+
+    seed(tmp_path, [0])
+    evaluated = production.evaluate(tmp_path)
+    evaluated.pop("at")
+    result = {**production.review(tmp_path), "pass": passed}
+    monkeypatch.setattr(production, "review", lambda directory: result)
+    monkeypatch.setattr(
+        production.sys,
+        "argv",
+        ["canary", "review", "--report-dir", str(tmp_path), "--record", "--unattended"],
+    )
+    assert production.main() == 0
+    assert json.loads(capsys.readouterr().out) == result
+    path = tmp_path / "reviews" / f"{datetime.now(UTC).date()}.auto.json"
+    recorded = json.loads(path.read_text())
+    assert recorded["label"] == LABEL
+    assert recorded["reviewed_by"] == (
+        "unattended timer snapshot (no reviewer; acting-DBA review pending)"
+    )
+    assert not path.with_name(f"{datetime.now(UTC).date()}.json").exists()
+    path.write_text("stale snapshot")
+    assert production.main() == 0
+    assert json.loads(path.read_text()) == recorded
+    assert json.loads(capsys.readouterr().out) == result
+    assert {k: v for k, v in production.evaluate(tmp_path).items() if k != "at"} == evaluated
+    path.write_text("invalid auto review must also be ignored")
+    assert {k: v for k, v in production.evaluate(tmp_path).items() if k != "at"} == evaluated
+
+
+def test_review_cli_unattended_requires_record(monkeypatch, capsys):
+    from tests.canary import production
+
+    monkeypatch.setattr(production.sys, "argv", ["canary", "review", "--unattended"])
+    with pytest.raises(SystemExit) as exc:
+        production.main()
+    assert exc.value.code == 2
+    assert "--unattended requires --record" in capsys.readouterr().err
 
 
 def test_review_before_first_pass_and_at_window_end(tmp_path):
