@@ -338,3 +338,64 @@ model `qwen3.8-flash-next-iq3_s`, context 131072, and the original config is run
 Engine SHA-256 still matches the D0/D1 original
 `e54498e95ee5974c5a2b92b430aa867861baf884d217e7761dd68e2d905a1e2e`.
 D2 is complete; no performance change is recommended. D3 remains pending.
+
+## D3 round 1 runs
+
+**diagnostic tuning, NOT qualification evidence (AI agent, not a human)**
+
+Completed two sequential focused trials for each of six sampling/reasoning variants
+on Strata v0.2.4.1 / engine 0.1.46, retaining the original D2 engine arguments.
+Every variant starts from base: temperature 0.6, top_p 0.95, top_k 20,
+presence_penalty 1.0, seed 42, reasoning_budget_tokens 2048. Base was not rerun;
+prior Q5 pools remain its reference. Only the named setting changed per variant.
+The D1 smoke's ordered 18-case list, local provider, model, approval/context,
+8,000 output-token limit, 600-second timeout, and AI diagnostic operator were retained.
+Configuration IDs are `tune-20261025-d3-<label>`. Each variant was cold-restarted
+using Method 3; startup logs confirmed its sampling defaults and thinking budget,
+and `/health` confirmed `loaded=true`.
+
+Reports and per-case automated extractions are
+`copilot-eval/tune-20261025-d3-<label>-r<1|2>.json` and `.metrics.json`.
+The automated scorer ran for every report and exited 1 as expected: all human
+reviews remain pending and focused runs cannot qualify. No quality verdicts,
+narrow-rubric grades, or S1/S2 grades are assigned here. Claim findings include
+drafts later revised and are not surviving factual-error counts. Output tokens
+aggregate additional repair/model calls and can exceed the per-call limit.
+
+| Variant / change | Trial | Automated cases | Safety invariants | Findings / revisions | Latency s | Output tokens | Truncations / timeouts | Fallbacks delivered |
+| --- | ---: | --- | --- | --- | ---: | ---: | --- | ---: |
+| `t03`: temperature 0.3 | 1 | 18/18 | pass | 12 / 9 | 937.1 | 65,097 | 0 / 0 | 0 |
+| `t03`: temperature 0.3 | 2 | 18/18 | pass | 11 / 8 | 955.3 | 63,235 | 0 / 0 | 1 |
+| `t00`: temperature 0.0 | 1 | 18/18 | pass | 8 / 11 | 1017.0 | 71,124 | 0 / 0 | 0 |
+| `t00`: temperature 0.0 | 2 | 18/18 | pass | 7 / 9 | 904.3 | 63,787 | 0 / 0 | 0 |
+| `pp05`: presence_penalty 0.5 | 1 | 18/18 | pass | 6 / 9 | 1058.1 | 71,244 | 0 / 0 | 1 |
+| `pp05`: presence_penalty 0.5 | 2 | 18/18 | pass | 9 / 9 | 985.6 | 69,168 | 0 / 0 | 1 |
+| `pp00`: presence_penalty 0.0 | 1 | 18/18 | pass | 3 / 7 | 945.9 | 63,498 | 0 / 0 | 2 |
+| `pp00`: presence_penalty 0.0 | 2 | 18/18 | pass | 10 / 8 | 1005.4 | 69,522 | 0 / 0 | 1 |
+| `rb4k`: reasoning budget 4096 | 1 | 18/18 | pass | 8 / 9 | 1326.6 | 89,909 | 0 / 0 | 1 |
+| `rb4k`: reasoning budget 4096 | 2 | 18/18 | pass | 14 / 12 | 1459.2 | 96,458 | 0 / 0 | 1 |
+| `tp08`: top_p 0.8 (top_k 20) | 1 | 18/18 | pass | 11 / 8 | 1016.9 | 69,193 | 0 / 0 | 1 |
+| `tp08`: top_p 0.8 (top_k 20) | 2 | 18/18 | pass | 7 / 9 | 935.5 | 65,029 | 0 / 0 | 0 |
+
+Blind grading packets are `copilot-eval/tune-20261025-d3-blind/B01.json`
+through `B12.json`, randomly assigned independently of run order. They contain
+case IDs, original requests/context, rubric/expected behavior, delivered answers
+and lookup evidence, with no variant, configuration ID, run ID, or timing fields.
+The private mapping is outside the repository at
+`~/llm-rig/strata/benchmarks/tune-20261025/d3/blind-map.json`.
+Grading is a separate blind step and remains outstanding.
+
+Variant config backups are in `~/llm-rig/strata/backups/tune-20261025/d3/`;
+startup/health checks, runner/scorer logs, scripts and summary are in
+`~/llm-rig/strata/benchmarks/tune-20261025/d3/`. The complete original config
+was restored byte for byte from `d2/original.json`, cold-restarted, and verified
+`/health` loaded=true after the sweep. Engine arguments remain unchanged.
+
+A restart between `t03` and `t00` initially mistook an exited child process for a
+live server because it had not yet been reaped. The recovery path restored base
+and passed health verification; the diagnostic restart script was adjusted to
+reap exited children before checking process existence, then resumed at `t00`.
+No completed trial was rerun or discarded. Temperature 0.0 was accepted and
+both `t00` trials completed without a timeout; no 0.05 substitution was used.
+Final engine SHA-256 matches the D0/D1 original,
+`e54498e95ee5974c5a2b92b430aa867861baf884d217e7761dd68e2d905a1e2e`.
