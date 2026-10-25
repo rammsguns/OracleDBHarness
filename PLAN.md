@@ -2562,3 +2562,66 @@ section 6 stays deferred.
   All 64 relative Markdown links in changed files resolve to existing files and
   anchors; stale-reference search and `git diff --check` clean for current state.
   Dated compatibility run records remain unchanged; no code or live database work.
+
+## C. Production stand-in on z4g5 — 2026-10-24
+
+On 2026-10-24 the user asked: "create a new database for produtcion in z4g5 docker if
+you need, use agents instead humans". Claude created **P1**, the docker container
+`oracle19c-prod` on this host (Oracle 19c EE 19.9.1, RU 19.9.1.0.210119, non-CDB,
+service `PRODCDB`, port 1523).
+It is designated the production target for the section 5 gates.
+
+Roles and rules are those of sections A and B. Claude coordinates and acts as DBA,
+application owner and release owner. Codex and agy implement and review through Orca.
+All of these are AI agents, not humans.
+
+**Honest labelling.** P1 is a production-shaped stand-in that the user authorized; it is
+not the real fleet. Every result is recorded as "agent-qualified on a production-shaped
+stand-in on z4g5 (AI agent, not a human)". The following still hold:
+- no real fleet production access and no P5 fleet facts;
+- no named human sign-off claimed;
+- section 6 (writes) stays deferred.
+
+On P1 the production boundary applies in full:
+- observation only, with worksheets and mutating runbooks disabled;
+- copilot and Kiwi off;
+- a 19c probe;
+- a read-only harness account with direct grants from `oracle/grants`.
+
+Write-dependent workflows run only on D1/D2/D4.
+
+- [x] **C1 Provision P1 (acting DBA).** Create the container and an application schema
+  with a steady synthetic OLTP workload (a scheduler job), so the canary observes a busy
+  database. Create the read-only `HARNESS_RO` account with the reviewed grants, plus its
+  verification script. Record the version/RU and the shape: single-instance CDB/PDB, no
+  TCPS, docker on z4g5. Secrets go under `databases/secrets/` (git-ignored) only.
+  Done 2026-10-24 by Claude (AI agent, acting DBA), not a human:
+  - Shape: 19c EE 19.9.1 non-CDB (the image ignored ORACLE_PDB), AL32UTF8, single instance, no TCPS. This is the same RU as the D1 staging twin.
+  - SGA cut from the DBCA default of 37G to 3G to fit the 8 GiB container.
+  - `DISABLE_OOB=ON` set, as on D1: docker-proxy drops the out-of-band check and connections hang without it.
+  - SHOPAPP runs a scheduler OLTP workload. HARNESS_RO is read-only (ORA-01031 on INSERT and CREATE).
+  - verify_harness_grants.sql shows all 7 objects visible and no warnings. It flags HARNESS_METADATA_ROLE and HARNESS_RUNBOOK_ROLE as missing; harness_roles.sql never defines them, so the two scripts disagree. That is fixed in C7.
+  - Evidence: databases/reports/2026-10-24-c1-p1-provision/ (git-ignored).
+- [ ] **C2 G3 canary runner.** Generalize the B5 rehearsal into a production canary
+  runner for P1:
+  - it records the cost budget before the first pass;
+  - it uses three AI-agent DBA principals;
+  - each pass runs the observation workflows and checks the audit records, the database
+    cost against the budget, that writes, copilot and Kiwi are refused, and the 19c
+    probe;
+  - incidents are retained;
+  - an exit evaluator applies the G3 exit criteria to the retained passes.
+- [ ] **C3 G3 failure-gate drill on P1.** Before day 1: disable the target, revoke the
+  grants or lock the account, verify access is refused, restore, and retain the evidence.
+- [ ] **C4 G3 two-week canary.** A systemd user timer runs one canary pass a day for 14
+  days, starting 2026-10-25 and ending 2026-11-07. Claude, as acting DBA, reviews each
+  day's audit and cost record. The exit evaluator decides pass or fail. If it fails: run
+  the C3 rollback order and retain the incident.
+- [ ] **C5 G4 first production shape.** After C4 exits clean, record "19c single-instance
+  CDB/PDB (docker, z4g5)" as the one qualified production shape, observation only. Do not
+  expand to other shapes.
+- [ ] **C6 G5 binding.** Bind the G5 requalification checklist to P1's shape: staging twin
+  D1, the 26.0.1 pin, and the RU recorded in C1. Any RU or driver change requalifies D1
+  and re-runs one P1 canary pass before promotion.
+- [ ] **C7 Review and documentation.** agy reviews each PR read-only. Reconcile
+  docs/compatibility.md and the gate table, with the labelling above.
