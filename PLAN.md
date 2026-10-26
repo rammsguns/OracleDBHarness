@@ -2735,13 +2735,40 @@ hold the existing per-DSN lock; this focused smoke used the fake backend only.
   `/health` OK and loaded with unchanged model. Engine 0.1.50 was offered by the
   signed feed but not installed; these numbers do not measure it.
 - [x] **D2 Performance sweep.** 20 diagnostic candidates on v0.2.4.1 / engine 0.1.46; none passed the >2% gain / <=2% regression gate; original retained (0% accepted gain), final long + three API sanity calls passed, health OK; see `docs/strata-tuning-2026-10-25.md`.
-- [ ] **D3 Sampling/quality sweep.** Keep model, case set, rubrics and budgets fixed;
-  compare quality and latency without treating automated passes as DBA review.
-- [ ] **D4 Frozen-candidate Q5 pooled attempt.** Freeze the selected candidate and
-  run the existing process against the unchanged acceptance bar, if authorized.
+- [x] **D3 Sampling/quality sweep.** Two blind AI-graded rounds selected temperature 0.3 alone (4/4 clean trials); combinations added no observed benefit. Other sampling and budget unchanged. AI graders, small n and reuse of the same 18 cases limit this diagnostic; selection bias is explicit in the [study](docs/strata-tuning-2026-10-25.md#d3-round-2-grades-and-decision).
+- [ ] **D4 Frozen-candidate Q5 pooled attempt — IN PROGRESS.** User reopened tuning/retest on 2026-10-25; freeze temperature 0.3 alone and run pooled attempt 8 with unchanged acceptance bar. Three sequential trials and serialized D1 checks; per-trial agy reviews and pooled scoring remain separate. See Q5 pooled attempt 8 below.
 - [ ] **D5 Docs.** Initial D0/D1 study and rollback documented; finalize the study
   after the remaining sweeps and frozen-candidate decision.
 
 K-7 stays **NOT QUALIFIED**. The acceptance bar is unchanged. The automated scorer
 returned NOT QUALIFIED (exit 1), as expected for a focused diagnostic with DBA
 reviews outstanding; Codex's separate diagnostic review is not human sign-off.
+
+### Q5 — Pooled attempt 8 — tuned sampling — 2026-10-26 — IN PROGRESS
+
+Reopened at the user's 2026-10-25 request to tune and retest; the acceptance bar is
+unchanged (54/54 narrow, 0 S1, ≤3 S2 pooled, no repeated case; existing safety and D1
+gates retained). K-7 remains NOT QUALIFIED pending the existing review process.
+
+Candidate harness code: current `main` at `32049e1870cf38d1e6d032b10dfc84bd8213fbd2`;
+the tuning branch differs only in documentation and retained diagnostic artifacts.
+Configuration `tune-20261025-t03`: temperature 0.3 alone; top_p 0.95, top_k 20,
+presence_penalty 1.0, seed 42, reasoning budget 2048 unchanged. Frozen configuration
+backup: `~/llm-rig/strata/backups/tune-20261025/d4-candidate.json`; only temperature
+differs semantically from `d2/original.json`. Strata v0.2.4.1 / engine 0.1.46 and
+model `qwen3.8-flash-next-iq3_s` are unchanged. Candidate is the live Strata config.
+
+Operator: **Codex (AI agent)**. Same ordered 18-case inventory, rubric
+`k7-rubric-2026-10-22.1`, local-provider zero-cost budget, 8,000 max output tokens,
+600-second request timeout, approved context and `HARNESS_KIWI_ANSWER_RETRY=false`
+as prior pooled attempts. Three sequential trials use `--trial-sequence` 1–3 and
+`--previous-run-id` links. No review grades or pool scoring in this run step.
+
+**diagnostic tuning, NOT qualification evidence (AI agent, not a human)**:
+The candidate was tuned on the same 18 cases, so selection bias applies; these
+focused reports retain the diagnostic labels used in previous pooled attempts.
+Independent per-trial agy review (AI agent, not a human) is outstanding.
+
+Trial run IDs/report paths and serialized D1 code-check outcome will be appended
+when execution completes. Startup log and loaded `/health` verification are retained
+in `~/llm-rig/strata/benchmarks/tune-20261025/d4/candidate/`.
