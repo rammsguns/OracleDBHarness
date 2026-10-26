@@ -1,0 +1,52 @@
+{
+  "configurationId": "r1-20261026-t03",
+  "planE3ConfigurationAlias": "R1-strata0241-engine0146-t03",
+  "candidateMainCommit": "b14dde3a90cee9734c89c1ba4e880b6ecce3ab0b",
+  "runnerCommit": "b14dde3a90cee9734c89c1ba4e880b6ecce3ab0b",
+  "branch": "plan/E3-r1-runs",
+  "trackedTreeCleanBeforeRuns": true,
+  "historicalUntrackedArtifactsLeftUntouched": 138,
+  "strataSourceCommit": "c33fa7ba6d0d5b104983736b50c4e1d61f207b1b",
+  "strataTag": "v0.2.4.1",
+  "engineBuild": {
+    "version": "0.1.46",
+    "source": "f-021-rel a7bdbfdabc9a",
+    "archs": [
+      75,
+      86,
+      89,
+      120
+    ],
+    "ptx": true,
+    "cuda": "13.0",
+    "portable": true,
+    "vision": "cuda13.0"
+  },
+  "engineBinarySha256": "e54498e95ee5974c5a2b92b430aa867861baf884d217e7761dd68e2d905a1e2e",
+  "engineConfigSha256": "b4c77cdea9c80a213f494867409de0f227d3372b778cd57f6db0fe0042bd54fc",
+  "frozenBackup": "/home/kiwi/llm-rig/strata/backups/tune-20261025/d4-candidate.json",
+  "byteEqualFrozenConfig": true,
+  "sampling": {
+    "temperature": 0.3,
+    "top_p": 0.95,
+    "top_k": 20,
+    "presence_penalty": 1.0,
+    "seed": 42
+  },
+  "reasoningBudgetTokens": 2048,
+  "startupSampling": "[strata] sampling defaults from the config: temperature=0.3, top_p=0.95, top_k=20, presence_penalty=1.0, seed=42",
+  "startupBudget": "[strata] thinking budget: 2048 tokens (reasoning_budget_tokens; a request can set its own)",
+  "health": {
+    "status": "ok",
+    "max_context": 131072,
+    "model": "qwen3.8-flash-next-iq3_s",
+    "images": false,
+    "api_key": true,
+    "image_generation": false,
+    "loaded": true,
+    "service": "strata"
+  },
+  "operator": "Codex (AI agent)",
+  "approval": "Human owner qualification reset R1 and holdout validation, 2026-10-26",
+  "review": "pending; no grades or pool scoring authorized in this execution task"
+}

@@ -317,3 +317,50 @@ def test_an_application_error_the_proposal_does_not_raise_fails(run) -> None:
         "NEQ: raised -20002 ORA-20002: another error (required deliberate: FAILED"
         in (result["log"])
     )
+
+
+def test_standalone_editor_units_are_compiled_without_rewriting_the_body() -> None:
+    import runpy
+
+    compiler = runpy.run_path(str(TOOL))
+    for unit_type in ("FUNCTION", "PROCEDURE"):
+        body = f"{unit_type} example IS BEGIN NULL; END;"
+        kind, unit, prepared = compiler["plan"](body)
+        assert (kind, unit) == ("unit", f"{unit_type}:EXAMPLE")
+        assert prepared == "CREATE OR REPLACE " + body
+
+
+def test_extra_fixture_runs_before_setup_marker_and_keeps_cleanup(tmp_path, monkeypatch) -> None:
+    import runpy
+
+    compiler = runpy.run_path(str(TOOL))
+    fixture = tmp_path / "fixture.sql"
+    fixture.write_text("CREATE TABLE additional_fixture (id NUMBER);\n")
+    monkeypatch.setenv("K7P_FIXTURE_SQL", str(fixture))
+    sql = compiler["script"]([], "system-password", "account-password", "service")
+    assert sql.index(fixture.read_text()) < sql.index("PROMPT K7P-SETUP-DONE")
+    assert "WHENEVER SQLERROR EXIT FAILURE" in sql[: sql.index(fixture.read_text())]
+    assert "CREATE TABLE employees" in sql
+    cleanup = compiler["cleanup_script"]("password", "service", True)
+    assert "DROP USER K7P_APP CASCADE" in cleanup
+
+
+def test_opt_in_answer_sql_coverage_checks_blocks_without_hiding_skips(monkeypatch) -> None:
+    import runpy
+
+    compiler = runpy.run_path(str(TOOL))
+    report = {
+        "cases": [
+            {
+                "id": "H-DRAFT",
+                "proposal": None,
+                "answer": "```sql\nSELECT 1 FROM dual;\n```\n```sql\nALTER TABLE t DROP COLUMN c;\n```",
+            }
+        ]
+    }
+    assert compiler["coverage"](report)[0][1].startswith("unchecked:")
+    monkeypatch.setenv("K7P_CHECK_ANSWER_SQL", "1")
+    rows = compiler["coverage"](report)
+    assert rows[0] == ("H-DRAFT-answer-1", "parse", "", "SELECT 1 FROM dual")
+    assert rows[1][0] == "H-DRAFT-answer-2"
+    assert rows[1][1].startswith("skip:ALTER")

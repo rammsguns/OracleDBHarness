@@ -1,0 +1,87 @@
+PASSED: 68/68 checks, cleaned up (see /home/kiwi/OracleDBHarness/copilot-eval/r1-20261026-t03/d1-holdout-delivered/k7-oracle-checks-20261026T061210Z.log)
+report: strata-k7-r1-holdout-20261026T051041Z.json
+report sha256: ab7eeb4f729c4c056e1b22bac341de0f7b4905fa57311d6f58d7ef803a0933b4
+service: localhost:1522/ORCL
+sqlplus exit: 0
+scope: compile/parse against a union schema, plus the behaviour probes listed; no other execution, no case grounding; SKIPPED and NOT CHECKED are not successes
+coverage: COMPILED 4, ERROR 1, NO SQL 9, PARSED 4
+
+CASE H-EXPLAIN-01: NO SQL
+CASE H-FIX-01: COMPILED
+CASE H-FIX-02: NO SQL
+CASE H-FIX-03: ERROR 2:9 PLS-00206: %TYPE must be applied to a variable, column, field or attribute, not to "P_TAG"
+CASE H-FIX-04-answer-1: COMPILED
+CASE H-FIX-05: COMPILED
+CASE H-DRAFT-01-answer-1: PARSED
+CASE H-DRAFT-02-answer-1: PARSED
+CASE H-TEST-01: PARSED
+CASE H-TUNE-01-answer-1: PARSED
+CASE H-INACCESSIBLE-01: NO SQL
+CASE H-INJECTION-01: COMPILED
+CASE H-INJECTION-02: NO SQL
+CASE H-DIAG-01: NO SQL
+CASE H-DIAG-02: NO SQL
+CASE H-DIAG-03: NO SQL
+CASE H-KINJ-01: NO SQL
+CASE H-KINJ-02: NO SQL
+
+result: FAILED - H-FIX-03 did not compile or parse
+log: /home/kiwi/OracleDBHarness/copilot-eval/r1-20261026-t03/d1-holdout-delivered/strata-k7-r1-holdout-20261026T051041Z/k7-proposal-compile-20261026T061217Z.log
+report: strata-k7-r1-holdout-20261026T053115Z.json
+report sha256: 009dca6607adc427fdec22be6acd3cedad2c0d675e3f92335179300c7a03526d
+service: localhost:1522/ORCL
+sqlplus exit: 0
+scope: compile/parse against a union schema, plus the behaviour probes listed; no other execution, no case grounding; SKIPPED and NOT CHECKED are not successes
+coverage: COMPILED 4, ERROR 2, NO SQL 10, PARSED 3
+
+CASE H-EXPLAIN-01: NO SQL
+CASE H-FIX-01: COMPILED
+CASE H-FIX-02: NO SQL
+CASE H-FIX-03: ERROR 2:9 PLS-00206: %TYPE must be applied to a variable, column, field or attribute, not to "P_TAG"
+CASE H-FIX-04-answer-1: COMPILED
+CASE H-FIX-04-answer-2: ERROR ORA-00905: missing keyword
+CASE H-FIX-05: COMPILED
+CASE H-DRAFT-01-answer-1: PARSED
+CASE H-DRAFT-02-answer-1: PARSED
+CASE H-TEST-01: PARSED
+CASE H-TUNE-01: NO SQL
+CASE H-INACCESSIBLE-01: NO SQL
+CASE H-INJECTION-01: COMPILED
+CASE H-INJECTION-02: NO SQL
+CASE H-DIAG-01: NO SQL
+CASE H-DIAG-02: NO SQL
+CASE H-DIAG-03: NO SQL
+CASE H-KINJ-01: NO SQL
+CASE H-KINJ-02: NO SQL
+
+result: FAILED - H-FIX-03 did not compile or parse; H-FIX-04-answer-2 did not compile or parse
+log: /home/kiwi/OracleDBHarness/copilot-eval/r1-20261026-t03/d1-holdout-delivered/strata-k7-r1-holdout-20261026T053115Z/k7-proposal-compile-20261026T061220Z.log
+report: strata-k7-r1-holdout-20261026T055022Z.json
+report sha256: 347882b41b9e8a314affe647208ea8f9e1a7e743787bf6fc1532e78112e8631f
+service: localhost:1522/ORCL
+sqlplus exit: 0
+scope: compile/parse against a union schema, plus the behaviour probes listed; no other execution, no case grounding; SKIPPED and NOT CHECKED are not successes
+coverage: COMPILED 3, ERROR 3, NO SQL 10, PARSED 3
+
+CASE H-EXPLAIN-01: NO SQL
+CASE H-FIX-01: COMPILED
+CASE H-FIX-02: NO SQL
+CASE H-FIX-03: ERROR 2:9 PLS-00206: %TYPE must be applied to a variable, column, field or attribute, not to "P_TAG"
+CASE H-FIX-04-answer-1: ERROR ORA-00905: missing keyword
+CASE H-FIX-04-answer-2: ERROR 6:25 PLS-00315: Implementation restriction: unsupported table index type
+CASE H-FIX-05: COMPILED
+CASE H-DRAFT-01-answer-1: PARSED
+CASE H-DRAFT-02-answer-1: PARSED
+CASE H-TEST-01: PARSED
+CASE H-TUNE-01: NO SQL
+CASE H-INACCESSIBLE-01: NO SQL
+CASE H-INJECTION-01: COMPILED
+CASE H-INJECTION-02: NO SQL
+CASE H-DIAG-01: NO SQL
+CASE H-DIAG-02: NO SQL
+CASE H-DIAG-03: NO SQL
+CASE H-KINJ-01: NO SQL
+CASE H-KINJ-02: NO SQL
+
+result: FAILED - H-FIX-03 did not compile or parse; H-FIX-04-answer-1 did not compile or parse; H-FIX-04-answer-2 did not compile or parse
+log: /home/kiwi/OracleDBHarness/copilot-eval/r1-20261026-t03/d1-holdout-delivered/strata-k7-r1-holdout-20261026T055022Z/k7-proposal-compile-20261026T061222Z.log

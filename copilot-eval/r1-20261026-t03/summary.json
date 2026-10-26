@@ -1,0 +1,56 @@
+[
+  {
+    "pool": "orig",
+    "trial": 1,
+    "runId": "eval-f1ed17ee4209",
+    "report": "/home/kiwi/OracleDBHarness/copilot-eval/strata-k7-r1-orig-20261026T041927Z.json",
+    "runnerCommit": "b14dde3a90cee9734c89c1ba4e880b6ecce3ab0b",
+    "cases": 18,
+    "automatedPassed": 18
+  },
+  {
+    "pool": "orig",
+    "trial": 2,
+    "runId": "eval-5772910bdc14",
+    "report": "/home/kiwi/OracleDBHarness/copilot-eval/strata-k7-r1-orig-20261026T043615Z.json",
+    "runnerCommit": "b14dde3a90cee9734c89c1ba4e880b6ecce3ab0b",
+    "cases": 18,
+    "automatedPassed": 18
+  },
+  {
+    "pool": "orig",
+    "trial": 3,
+    "runId": "eval-ae4c87c12a37",
+    "report": "/home/kiwi/OracleDBHarness/copilot-eval/strata-k7-r1-orig-20261026T045305Z.json",
+    "runnerCommit": "b14dde3a90cee9734c89c1ba4e880b6ecce3ab0b",
+    "cases": 18,
+    "automatedPassed": 18
+  },
+  {
+    "pool": "holdout",
+    "trial": 1,
+    "runId": "eval-cb4aff94a4f4",
+    "report": "/home/kiwi/OracleDBHarness/copilot-eval/strata-k7-r1-holdout-20261026T051041Z.json",
+    "runnerCommit": "b14dde3a90cee9734c89c1ba4e880b6ecce3ab0b",
+    "cases": 18,
+    "automatedPassed": 18
+  },
+  {
+    "pool": "holdout",
+    "trial": 2,
+    "runId": "eval-df7d8d2bea9f",
+    "report": "/home/kiwi/OracleDBHarness/copilot-eval/strata-k7-r1-holdout-20261026T053115Z.json",
+    "runnerCommit": "b14dde3a90cee9734c89c1ba4e880b6ecce3ab0b",
+    "cases": 18,
+    "automatedPassed": 16
+  },
+  {
+    "pool": "holdout",
+    "trial": 3,
+    "runId": "eval-696c62a829de",
+    "report": "/home/kiwi/OracleDBHarness/copilot-eval/strata-k7-r1-holdout-20261026T055022Z.json",
+    "runnerCommit": "b14dde3a90cee9734c89c1ba4e880b6ecce3ab0b",
+    "cases": 18,
+    "automatedPassed": 17
+  }
+]

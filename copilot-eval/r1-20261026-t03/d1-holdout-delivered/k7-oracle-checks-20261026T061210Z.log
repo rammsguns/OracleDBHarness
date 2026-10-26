@@ -1,0 +1,106 @@
+K-7 Oracle checks 20261026T061210Z
+connect: localhost:1522/ORCL  user: system
+version: Oracle Database 19c Enterprise Edition Release 19.0.0.0.0 - Production
+Version 19.9.1.0.0
+== check output
+== setup
+K7Q-PREFLIGHT-CLEAR
+K7Q-CREATED K7Q_OWNER
+K7Q-CREATED K7Q_USER
+K7Q-CREATED K7Q_READ
+PASS lock: the only session-settable lock timeout is ddl_lock_timeout -- ddl_lock_timeout
+== checks (run as K7Q_OWNER)
+PASS bulk: FETCH ... BULK COLLECT ... LIMIT compiles
+PASS bulk: SELECT ... BULK COLLECT ... LIMIT is rejected -- PL/SQL: ORA-00933: SQL command not properly ended
+PASS bulk: 0 rows, limit 3 -> every row processed -- 0 rows in 0 batch(es)
+PASS bulk: 1 rows, limit 3 -> every row processed -- 1 rows in 1 batch(es)
+PASS bulk: 3 rows, limit 3 -> every row processed -- 3 rows in 1 batch(es)
+PASS bulk: 4 rows, limit 3 -> every row processed -- 4 rows in 2 batch(es)
+PASS bulk: 9 rows, limit 3 -> every row processed -- 9 rows in 3 batch(es)
+PASS bulk: 10 rows, limit 3 -> every row processed -- 10 rows in 4 batch(es)
+PASS collection: inline TABLE OF fails with PLS-00103 -- PLS-00103: Encountered the symbol "OF" when expecting one of the following:
+
+
+PASS collection: named TABLE OF type and variable compile
+PASS bulk: FORALL around an assignment is rejected -- PLS-00103: Encountered the symbol "B" when expecting one of the following:
+
+   .
+PASS plsql: WHILE EXISTS (subquery) is rejected -- PLS-00204: function or pseudo-column 'EXISTS' may be used inside a SQL statement
+PASS plsql: RETURN (SELECT ...) is rejected -- PLS-00103: Encountered the symbol "SELECT" when expecting one of the following:
+
+PASS unit: a bare FUNCTION is rejected -- ORA-00900: invalid SQL statement
+PASS unit: CREATE OR REPLACE FUNCTION compiles
+PASS authid: after IS is rejected -- PLS-00103: Encountered the symbol "BEGIN" when expecting one of the following:
+
+
+PASS authid: before IS compiles
+PASS block: a variable after a local procedure is rejected -- ORA-06550: line 1, column 41:
+PLS-00103: Encountered the symbol "V" when expecti
+PASS block: variables before local procedures compile and run
+PASS date[midnight]: the equivalent rewrite matches the original -- original 3, rewrite 3
+PASS date[noon]: the equivalent rewrite matches the original -- original 0, rewrite 0
+PASS date[noon]: the naive TRUNC(:d) range differs from the original (why the rule exists) -- original 0, naive 3
+PASS date[null]: the equivalent rewrite matches the original -- original 0, rewrite 0
+PASS txn: ROLLBACK TO SAVEPOINT keeps the caller's earlier uncommitted row -- 1 row(s) left of 900/901
+PASS txn: a full ROLLBACK discards the caller's pending row (why the rule exists)
+PASS test: a failed check raises, drops its own row and keeps the caller's -- ORA-20001: 1 check(s) failed; rows 11
+PASS plsql: SELECT MAX(...) INTO with no matching row gives NULL, not NO_DATA_FOUND
+unexpected error: ORA-01476: divisor is equal to zero
+PASS test: an unexpected error is re-raised, drops the block's row and keeps the caller's -- ORA-01476: divisor is equal to zero; rows 11
+PASS cursor: rows deleted inside the loop are still fetched (read consistency) -- 5 of 5 rows fetched
+PASS arith: (1000+N)*1000 at N=1 -- 1001000
+PASS ranking: ROW_NUMBER with an employee_id tie-break returns exactly three
+PASS ranking: RANK returns every row tied for first (3), where ROW_NUMBER returns 1
+PASS package: spec compiles
+PASS package: a body missing the spec's function is rejected -- PLS-00323: subprogram or cursor 'F' is declared in a package specification and m
+PASS package: a complete body compiles
+PASS scheduler: DBMS_SCHEDULER.DISABLE('OWNER.JOB') disables the job
+PASS scheduler: ALTER JOB ... DISABLE is not valid syntax -- ORA-00940: invalid ALTER command
+PASS rowid: DBMS_ROWID exists
+PASS rowid: DBMS_ROW_ID does not exist
+PASS scheduler: with MAX_FAILURES NULL a failed run leaves the job enabled -- ORA-20001: destination unavailable ORA-06512: at line 1
+PASS session: DBMS_SESSION has no procedure that ends a session -- 30 entries, 0 named KILL
+PASS package: AUTHID CURRENT_USER in a specification compiles
+PASS package: the specification's AUTHID is the package's
+PASS package: a body with an AUTHID clause is rejected -- PLS-00103: Encountered the symbol "AUTHID" when expecting one of the following:
+
+PASS arith: MOD(-1, 1042) = -1, the sign of the dividend -- -1
+PASS null: col = a NULL argument matches no row, though a row IS NULL -- 0 equal, 1 IS NULL
+PASS record: INSERT with a column list and VALUES record is rejected -- PL/SQL: ORA-03001: unimplemented feature
+PASS record: INSERT ... VALUES record without a column list compiles
+PASS record: INSERT ... VALUES (record) in parentheses is rejected -- PLS-00382: expression is of wrong type
+PASS deps: a package specification for the dependency check compiles
+PASS deps: a body reading WORK_ITEMS compiles
+PASS deps: a failed compile keeps no row for the table it no longer names, and none for the unresolved name -- 0 WORK_ITEMS, 0 K7Q_NO_SUCH
+PASS fixture: the EMPLOYEE_REPORT specification compiles
+PASS fixture: the EMPLOYEE_REPORT body is invalid with ORA-00942 -- PL/SQL: ORA-00942: table or view does not exist
+PASS fixture: the invalid EMPLOYEE_REPORT body depends on its spec, DBMS_OUTPUT and STANDARD only -- K7Q_OWNER.EMPLOYEE_REPORT PACKAGE, PUBLIC.DBMS_OUTPUT SYNONYM, SYS.STANDARD PACKAGE
+PASS fixture: the EMPLOYEE_REPORT body errors are ORA-00942 at 5:39 and statement ignored at 5:5, message number 0 -- 5:39 #0 PL/SQL: ORA-00942: table or view does not exist | 5:5 #0 PL/SQL: SQL Statement ignored
+PASS fixture: FIX-01's function errors are ORA-00942 at 4:37 and statement ignored at 4:3 -- 4:37 #0 PL/SQL: ORA-00942: table or view does not exist | 4:3 #0 PL/SQL: SQL Statement ignored
+PASS count: COUNT(DISTINCT) leaves out NULL, so a NULL and a 5000 count as one value -- 2 rows, 1 distinct
+PASS lock: ALTER SESSION SET ddl_lock_timeout is accepted
+PASS lock: there is no dml_lock_timeout parameter -- ORA-02248: invalid option for ALTER SESSION
+== privileges: what a stored unit in K7Q_USER needs on K7Q_OWNER.EMPLOYEES
+PASS grant: a role grant does not let a stored procedure compile -- PL/SQL: ORA-00942: table or view does not exist
+PASS grant: AUTHID CURRENT_USER does not remove the compile-time requirement -- PL/SQL: ORA-00942: table or view does not exist
+PASS grant: a synonym grants nothing -- PL/SQL: ORA-00942: table or view does not exist
+PASS grant: the narrow direct GRANT SELECT lets the procedure compile --
+PASS resolve: a direct grant does not make an unqualified name reach another schema -- public synonyms 0, PL/SQL: ORA-00942: table or view does not exist
+PASS resolve: with the grant, a private synonym resolves the unqualified name --
+PASS compile: a column-count mismatch in static SQL is a compile error, not a handled exception -- PL/SQL: ORA-00913: too many values
+K7Q-DONE
+== cleanup: dropping K7Q_USER K7Q_OWNER K7Q_READ
+
+User dropped.
+
+
+User dropped.
+
+
+Role dropped.
+== remaining after cleanup: none
+== summary
+checks passed: 68  failed: 0  expected: 68
+sql errors: 0  sqlplus exit: 0  completed: 1
+preflight clear: yes
+result: PASSED - 68/68 checks, accounts removed
