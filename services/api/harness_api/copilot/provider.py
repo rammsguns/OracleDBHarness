@@ -751,6 +751,58 @@ def _fixture_answer(user_message: str) -> str:
                 "",
             ]
         lines.append("I have not compiled this. Compile each part yourself after applying.")
+    elif any(
+        name in lowered for name in ("first_batch", "sum_buckets", "normalize_tag", "sensor_value")
+    ):
+        # Synthetic holdout repairs for offline rehearsal only. This provider never
+        # supplies qualification evidence and does not compile the proposed text.
+        repairs = {
+            "first_batch": """FUNCTION first_batch RETURN NUMBER IS
+  TYPE batch_t IS TABLE OF NUMBER;
+  l_batch batch_t := batch_t();
+BEGIN
+  l_batch.EXTEND;
+  l_batch(1) := 17;
+  RETURN l_batch(1);
+END first_batch;""",
+            "sum_buckets": """FUNCTION sum_buckets RETURN NUMBER IS
+  TYPE bucket_t IS TABLE OF NUMBER INDEX BY PLS_INTEGER;
+  l_bucket bucket_t;
+  l_sum NUMBER := 0;
+  l_key PLS_INTEGER;
+BEGIN
+  l_bucket(2) := 7;
+  l_bucket(9) := 11;
+  l_key := l_bucket.FIRST;
+  WHILE l_key IS NOT NULL LOOP
+    l_sum := l_sum + l_bucket(l_key);
+    l_key := l_bucket.NEXT(l_key);
+  END LOOP;
+  RETURN l_sum;
+END sum_buckets;""",
+            "normalize_tag": """PROCEDURE normalize_tag(p_tag IN VARCHAR2) IS
+  l_tag VARCHAR2(32767) := UPPER(TRIM(p_tag));
+BEGIN
+  DBMS_OUTPUT.PUT_LINE(l_tag);
+END normalize_tag;""",
+            "sensor_value": """FUNCTION sensor_value RETURN NUMBER IS
+  CURSOR c IS SELECT 23 AS reading FROM dual;
+  l_value NUMBER;
+BEGIN
+  OPEN c;
+  FETCH c INTO l_value;
+  CLOSE c;
+  RETURN l_value;
+END sensor_value;""",
+        }
+        name = next(name for name in repairs if name in lowered)
+        lines += [
+            "Canned fixture repair for offline rehearsal:",
+            "```plsql",
+            repairs[name],
+            "```",
+            "I have not compiled or run this proposal.",
+        ]
     elif "ora-00942" in lowered or "table or view does not exist" in lowered:
         lines += [
             "The error is ORA-00942, raised where the unit selects from a table the "
