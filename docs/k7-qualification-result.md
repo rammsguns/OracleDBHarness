@@ -152,7 +152,9 @@ Across the seven pooled attempts and historical trials, failure patterns bifurca
 
 ## 7. Reopening Criteria
 
-K-7 is closed as **NOT QUALIFIED**. To reopen qualification in the future, one of the following is required:
+K-7 is **reopened by the human owner's 2026-10-26 instruction (configuration change + new validations); bar unchanged**. The instruction was: "fix harness fallback, reset qualify metrics, create new validations using new strata settings". [PLAN section E](../PLAN.md#e-fallback-fix-qualification-reset-holdout-validation--2026-10-26) records the R1 cycle, independent holdout validations and unchanged gates; K-7 remains **NOT QUALIFIED** pending both sets passing.
+
+The prior closure required one of the following to reopen qualification:
 
 1. **Model or Hardware Change:**
    - Deployment of a larger model or a substantially stronger quantisation that cannot fit the current 2× RTX A4000 (32 GB VRAM) hardware.
@@ -160,7 +162,7 @@ K-7 is closed as **NOT QUALIFIED**. To reopen qualification in the future, one o
 2. **Human-Revised Acceptance Bar:**
    - A formal human decision revising the acceptance bar (e.g., increasing the pooled S2 allowance or modifying the single-case concentration rule). Modifying rubrics or qualification denominators is strictly reserved to the human owner.
 
-Until such action is taken, **Kiwi remains unqualified and disabled by default (`HARNESS_KIWI_ENABLED=false`)**. Q7 remains open as Q6 and lab evidence do not exist.
+During the reopened cycle, **Kiwi remains unqualified and disabled by default (`HARNESS_KIWI_ENABLED=false`)**. Q7 remains open as Q6 and lab evidence do not exist.
 
 
 ## Addendum — 2026-10-26: tuned pool 8

@@ -573,6 +573,9 @@ def test_non_application_error_control_keeps_rendering_unchanged(number) -> None
         "**Unknown:**\n- The cause: no diagnosis was written from these results, and none "
         "is inferred here.\n\n**Remedy:** None proposed: these results have not been "
         "diagnosed. Any action on a session or a job is for the user or their DBA to decide."
+        "\n\n**Next checks:** Suggestions only; no remedy or cause is proposed."
+        "\n- Ask the user or DBA to re-run the diagnosis or read the missing lookups "
+        "to establish the next diagnostic step."
     )
 
 

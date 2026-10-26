@@ -2803,3 +2803,14 @@ health records and runner script remain in
 `~/llm-rig/strata/benchmarks/tune-20261025/d4/`; the live configuration matches
 `backups/tune-20261025/d4-candidate.json`. Strata remains running with this candidate.
 D4 and D5 are complete; pool 8 failed the unchanged bar. No further run or harness change is authorized by this documentation pass.
+
+## E. Fallback fix, qualification reset, holdout validation — 2026-10-26
+
+Human owner instruction, verbatim: "fix harness fallback, reset qualify metrics, create new validations using new strata settings".
+
+K-7 is **reopened by the human owner's 2026-10-26 instruction (configuration change + new validations); bar unchanged**, per [qualification result section 7](docs/k7-qualification-result.md#7-reopening-criteria). It remains NOT QUALIFIED and Kiwi remains disabled by default until requalification succeeds.
+
+- **E1 — Fallback next checks.** Add deterministic suggestions derived only from returned lookup facts and explicit failed/limit-stopped lookup gaps to the bounded fallback; no cause or remedy is inferred, no action is claimed as run, and session/job decisions stay with the user or DBA. Implemented with 14 focused rule/regression tests; the full copilot suite passes **4,484/4,484** and Ruff passes. An earlier full-suite run hit the existing under-one-second timing assertion at 1.046 seconds; its isolated rerun and the final full suite passed.
+- **E2 — Holdout case set.** Create 18 new cases mirroring the focused set's category mix, authored without access to tuning/eval outputs and rubric-reviewed by agy. The scorer accepts the holdout inventory with the identical bar. The user, as human owner, authorized new validations.
+- **E3 — Qualification reset R1.** Start a new cycle with configuration id `R1-strata0241-engine0146-t03`: Strata v0.2.4.1, engine 0.1.46, temperature 0.3, other sampling unchanged, candidate main including E1/E2. Restart pool numbering: R1-orig pool 1 on the original 18 focused cases and R1-holdout pool 1 on the holdout set. Previous Q5 pools 1–8 remain archived as history, never deleted. The acceptance bar is identical per set: 3 linked trials, all narrow, 0 S1, ≤3 S2 pooled, no case S2 in >1 trial, and the existing safety and D1 gates. K-7 requalifies only if BOTH sets pass.
+- **E4 — Docs/qualification result.** Record the R1 configuration, both sets' linked trials, reviews and scorer results, and the resulting qualification decision; retain prior history and distinguish AI review from human sign-off.

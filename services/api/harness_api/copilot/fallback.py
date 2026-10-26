@@ -8,7 +8,9 @@ DIAG-02, where the job's ORA-20001 was in lookup 1 and never reached the answer)
 Then the harness writes the answer from the request's lookups, in the sections a Kiwi
 diagnosis uses. It concludes nothing: Finding repeats only the error and status facts
 the lookups returned, with their numbers; every lookup is listed with its coverage; the
-cause is Unknown; no remedy is proposed. Free text a lookup returned is untrusted, so
+cause is Unknown; no remedy is proposed. Next checks suggest diagnostic follow-up
+from returned facts and explicit lookup gaps, never actions already performed.
+Free text a lookup returned is untrusted, so
 only the Oracle error messages in it are quoted (``error_messages``).
 
 Text in a returned source line or scheduler log field that reads as an instruction to
@@ -37,7 +39,7 @@ _HEADING = r"^[ \t>]*(?:#{{1,6}}[ \t]*)?[*_]*{name}[*_]*[ \t]*(?::|$)"
 _FINDING = re.compile(_HEADING.format(name=r"Findings?"), re.IGNORECASE | re.MULTILINE)
 # Where the Finding section ends: the next section, or any Markdown heading.
 _NEXT_SECTION = re.compile(
-    _HEADING.format(name=r"(?:Evidence|Unknowns?|Remedy|Next[ \t]+steps?|Findings?)")
+    _HEADING.format(name=r"(?:Evidence|Unknowns?|Remedy|Next[ \t]+(?:steps?|checks?)|Findings?)")
     + r"|^[ \t]*#{1,6}[ \t]",
     re.IGNORECASE | re.MULTILINE,
 )
@@ -98,6 +100,101 @@ _INSTRUCTION_KINDS = (
 _SOURCE_LOOKUPS = ("schema.object_source",)
 _SCHEDULER_LOOKUPS = ("dba.scheduler_",)
 _MAX_NOTICES = 4
+
+
+# Error codes select fixed suggestions; returned prose never becomes an instruction.
+_ERROR_NEXT_CHECKS = (
+    (
+        re.compile(r"\bORA-(?:00942|04043)\b"),
+        "check that the referenced table/view exists in the expected schema and that "
+        "the PL/SQL owner has the required direct grant (privileges via roles do not "
+        "apply in definer-rights PL/SQL); then consider recompiling the affected unit",
+    ),
+    (
+        re.compile(r"\bPLS-00201\s*:"),
+        "check the referenced identifier's spelling and declaration, its schema "
+        "qualification and the PL/SQL owner's required direct grants",
+    ),
+)
+
+
+def _next_checks(lookups: Sequence[LookupFacts], stopped: Sequence[str]) -> list[str]:
+    """Suggestions from successful facts and explicit gaps, never a diagnosis."""
+    checks: list[str] = []
+    for pattern, suggestion in _ERROR_NEXT_CHECKS:
+        numbers = []
+        for lookup in lookups:
+            if not lookup.succeeded:
+                continue
+            columns = [str(column).upper() for column in lookup.columns]
+            # Sanitize ORA text using the existing helper; a PLS compiler code
+            # must begin the field, so appended untrusted prose cannot select a rule.
+            messages = [
+                message
+                for row in lookup.rows
+                for column, value in zip(columns, row, strict=False)
+                if column in _ERROR_COLUMNS
+                for message in (
+                    error_messages(value)[0]
+                    + (
+                        [str(value).split(":", 1)[0] + ":"]
+                        if re.match(r"\s*PLS-00201\s*:", str(value))
+                        else []
+                    )
+                )
+            ]
+            if any(pattern.search(message) for message in messages):
+                numbers.append(lookup.sequence)
+        if numbers:
+            checks.append(f"For {_cite(numbers)}, ask the user or DBA to {suggestion}.")
+    for lookup in lookups:
+        if not lookup.succeeded:
+            checks.append(
+                f"Ask the user or DBA to retry {lookup.operation_id}"
+                f"{_parameters(lookup.parameters)}: lookup {lookup.sequence} failed, "
+                "so its result is unknown."
+            )
+            continue
+        values = [
+            dict(zip((str(c).upper() for c in lookup.columns), row, strict=False))
+            for row in lookup.rows
+        ]
+        if lookup.operation_id == "schema.object_status" and any(
+            str(row.get("STATUS", "")).upper() == "INVALID" for row in values
+        ):
+            checks.append(
+                f"For lookup {lookup.sequence}, ask the user or DBA to read "
+                "schema.object_errors for the returned INVALID object and inspect "
+                "its compiler diagnostics before considering recompilation."
+            )
+        if (
+            lookup.operation_id == "dba.blocking"
+            and any(row.get("BLOCKING_SID") is not None for row in values)
+        ) or (
+            lookup.operation_id == "dba.sessions"
+            and any(row.get("BLOCKING_SESSION") is not None for row in values)
+        ):
+            checks.append(
+                f"For lookup {lookup.sequence}, ask the user or DBA to identify "
+                "the blocking session's transaction and its intent before deciding any action."
+            )
+    application = _application_errors(lookups)
+    if application:
+        numbers = sorted({n for cites in application.values() for n in cites})
+        checks.append(
+            f"For {_cite(numbers)}, ask the user or DBA to read the raising code path "
+            "for the returned application error and inspect its RAISE_APPLICATION_ERROR "
+            "condition; the raising location is not inferred here."
+        )
+    checks.extend(
+        f"Ask the user or DBA to read {operation}, which the limit stopped, "
+        "to fill that lookup gap."
+        for operation in sorted(set(stopped))
+    )
+    return checks or [
+        "Ask the user or DBA to re-run the diagnosis or read the missing lookups "
+        "to establish the next diagnostic step."
+    ]
 
 
 def is_diagnosis(text: str) -> bool:
@@ -212,6 +309,9 @@ def render(
             "",
             "**Remedy:** None proposed: these results have not been diagnosed. Any action "
             "on a session or a job is for the user or their DBA to decide.",
+            "",
+            "**Next checks:** Suggestions only; no remedy or cause is proposed.",
+            *(f"- {check}" for check in _next_checks(ordered, stopped)),
         ]
     )
 
