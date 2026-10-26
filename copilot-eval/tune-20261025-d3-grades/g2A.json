@@ -1,0 +1,678 @@
+{
+  "grader": "agy (AI agent, not a human)",
+  "cases": [
+    "EXPLAIN-06",
+    "FIX-01",
+    "FIX-03",
+    "FIX-04",
+    "FIX-05",
+    "FIX-07",
+    "DRAFT-02",
+    "DRAFT-03",
+    "TEST-01"
+  ],
+  "grades": {
+    "E01": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Explains that the \"WHEN OTHERS\" handler \"swallows\" runtime errors, noting that after a caught DELETE failure earlier `INSERT` remains pending in the transaction, and recommends to log and \"RAISE\"."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"the unqualified name EMPLOYEE does not resolve\" in HARNESS_APP against the metadata table \"EMPLOYEES\", proposing the complete function with the corrected table name while noting it not compiled."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"LAST_NAME is not unique\", explicitly handles \"TOO_MANY_ROWS\" by raising an application error, preserves \"employees.salary%TYPE\", and calls out that the resolution is a business decision."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"VARCHAR2(10)\" is undersized for first name, space, and last name, proposing a complete function enlarging the variable to \"VARCHAR2(46)\" without suppressing errors."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses the \"missing semicolon\" at the end of the UPDATE statement as causing the compiler diagnostic on the DELETE line, and proposes the complete procedure with the semicolon added."
+      },
+      "FIX-07": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that SELECT INTO raises \"NO_DATA_FOUND\" when no row matches and proposes handling it specifically with \"WHEN NO_DATA_FOUND THEN RETURN NULL;\"."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Filters active employees using bind variable \":min_salary\" before ranking with \"ROW_NUMBER() OVER\" in an inner query filtered by \"rn <= 3\", and explains tie handling."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Uses a cursor loop with \"LIMIT 10000\" and \"EXIT WHEN l_rows.COUNT = 0\", performing FORALL insert into the archive and FORALL delete by \"ORDER_ID\" with no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Compares headcount() against an independent \"COUNT(*)\" including a nonexistent department returning 0, reports with DBMS_OUTPUT, and states the block has \"not been run\"."
+      }
+    },
+    "E02": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Explains that the \"WHEN OTHERS\" handler \"swallows\" runtime errors, noting that after a caught DELETE failure earlier `INSERT` remains pending in the transaction, and recommends to log and \"RAISE\"."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"the unqualified name EMPLOYEE does not resolve\" in HARNESS_APP against the metadata table \"EMPLOYEES\", proposing the complete function with the corrected table name while noting it preserves the predicate."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"LAST_NAME is not unique\", explicitly handles \"TOO_MANY_ROWS\" by raising an application error, preserves \"employees.salary%TYPE\", and calls out that the resolution is a business decision."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"VARCHAR2(10)\" is undersized for first name, space, and last name, proposing a complete function enlarging the variable to \"VARCHAR2(46)\" without suppressing errors."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses the \"missing semicolon\" at the end of the UPDATE statement as causing the compiler diagnostic on the DELETE line, and proposes the complete procedure with the semicolon added."
+      },
+      "FIX-07": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that SELECT INTO raises \"NO_DATA_FOUND\" when no row matches and proposes handling it specifically with \"WHEN NO_DATA_FOUND THEN RETURN NULL;\"."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Filters active employees using bind variable \":min_salary\" before ranking with \"ROW_NUMBER() OVER\" in an inner query filtered by \"rn <= 3\", and explains tie handling."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Uses a cursor loop with \"LIMIT 10000\" and \"EXIT WHEN l_rows.COUNT = 0\", performing FORALL insert into the archive and FORALL delete by \"ORDER_ID\" with no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Compares headcount() against an independent \"COUNT(*)\" including a nonexistent department returning 0, reports with DBMS_OUTPUT, and states the block has \"not been run\"."
+      }
+    },
+    "E03": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Explains that the \"WHEN OTHERS\" handler \"swallows\" runtime errors, noting that after a caught DELETE failure INSERT remains pending in the transaction, and recommends to log and \"RAISE\"."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"the unqualified name EMPLOYEE does not resolve\" in HARNESS_APP against the metadata table \"EMPLOYEES\", proposing the complete function with the corrected table name while noting it not compiled."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"LAST_NAME is not unique\", explicitly handles \"TOO_MANY_ROWS\" by raising an application error, preserves \"employees.salary%TYPE\", and calls out that the resolution is a business decision."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"VARCHAR2(10)\" is undersized for first name, space, and last name, proposing a complete function enlarging the variable to \"VARCHAR2(46)\" without suppressing errors."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses the \"missing semicolon\" at the end of the UPDATE statement as causing the compiler diagnostic on the DELETE line, and proposes the complete procedure with the semicolon added."
+      },
+      "FIX-07": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that SELECT INTO raises \"NO_DATA_FOUND\" when no row matches and proposes handling it specifically with \"WHEN NO_DATA_FOUND THEN RETURN NULL;\"."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Filters active employees using bind variable \":min_salary\" before ranking with \"ROW_NUMBER() OVER\" in an inner query filtered by \"rn <= 3\", and explains tie handling."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Uses a cursor loop with \"LIMIT 10000\" and \"EXIT WHEN l_rows.COUNT = 0\", performing FORALL insert into the archive and FORALL delete by \"ORDER_ID\" with no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Compares headcount() against an independent \"COUNT(*)\" including a nonexistent department returning 0, reports with DBMS_OUTPUT, and states the block has \"not been run\"."
+      }
+    },
+    "E04": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Explains that the \"WHEN OTHERS\" handler \"swallows\" runtime errors, noting that after a caught DELETE failure inserted rows remains pending in the transaction, and recommends to log and \"RAISE\"."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"the unqualified name EMPLOYEE does not resolve\" in HARNESS_APP against the metadata table \"EMPLOYEES\", proposing the complete function with the corrected table name while noting it preserves the predicate."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"LAST_NAME is not unique\", explicitly handles \"TOO_MANY_ROWS\" by raising an application error, preserves \"employees.salary%TYPE\", and calls out that the resolution is a business decision."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"VARCHAR2(10)\" is undersized for first name, space, and last name, proposing a complete function enlarging the variable to \"VARCHAR2(46)\" without suppressing errors."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses the \"missing semicolon\" at the end of the UPDATE statement as causing the compiler diagnostic on the DELETE line, and proposes the complete procedure with the semicolon added."
+      },
+      "FIX-07": {
+        "narrow": "fail",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Proposes changing to a \"LEFT JOIN\" noting that \"an existing department with no manager still returns one row with l_name as NULL\", but supplies no NO_DATA_FOUND handler so nonexistent departments still raise ORA-01403."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Filters active employees using bind variable \":min_salary\" before ranking with \"ROW_NUMBER() OVER\" in an inner query filtered by \"rn <= 3\", and explains tie handling."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Uses a cursor loop with \"LIMIT 10000\" and \"EXIT WHEN l_rows.COUNT = 0\", performing FORALL insert into the archive and FORALL delete by \"ORDER_ID\" with no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Compares headcount() against an independent \"COUNT(*)\" including a nonexistent department returning 0, reports with DBMS_OUTPUT, and states the block has \"not been run\"."
+      }
+    },
+    "E05": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Explains that the \"WHEN OTHERS\" handler \"swallows\" runtime errors, noting that after a caught DELETE failure inserted rows remains pending in the transaction, and recommends to log and \"RAISE\"."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"the unqualified name EMPLOYEE does not resolve\" in HARNESS_APP against the metadata table \"EMPLOYEES\", proposing the complete function with the corrected table name while noting it not compiled."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"LAST_NAME is not unique\", explicitly handles \"TOO_MANY_ROWS\" by raising an application error, preserves \"employees.salary%TYPE\", and calls out that the resolution is a business decision."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"VARCHAR2(10)\" is undersized for first name, space, and last name, proposing a complete function enlarging the variable to \"VARCHAR2(46)\" without suppressing errors."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses the \"missing semicolon\" at the end of the UPDATE statement as causing the compiler diagnostic on the DELETE line, and proposes the complete procedure with the semicolon added."
+      },
+      "FIX-07": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that SELECT INTO raises \"NO_DATA_FOUND\" when no row matches and proposes handling it specifically with \"WHEN NO_DATA_FOUND THEN RETURN NULL;\"."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Filters active employees using bind variable \":min_salary\" before ranking with \"ROW_NUMBER() OVER\" in an inner query filtered by \"rn <= 3\", and explains tie handling."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Uses a cursor loop with \"LIMIT 10000\" and \"EXIT WHEN l_rows.COUNT = 0\", performing FORALL insert into the archive and FORALL delete by \"ORDER_ID\" with no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Compares headcount() against an independent \"COUNT(*)\" including a nonexistent department returning 0, reports with DBMS_OUTPUT, and states the block has \"not been run\"."
+      }
+    },
+    "E06": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Explains that the \"WHEN OTHERS\" handler \"swallows\" runtime errors, noting that after a caught DELETE failure inserted rows remains pending in the transaction, and recommends to log and \"RAISE\"."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"the unqualified name EMPLOYEE does not resolve\" in HARNESS_APP against the metadata table \"EMPLOYEES\", proposing the complete function with the corrected table name while noting it not compiled."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"LAST_NAME is not unique\", explicitly handles \"TOO_MANY_ROWS\" by raising an application error, preserves \"employees.salary%TYPE\", and calls out that the resolution is a business decision."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"VARCHAR2(10)\" is undersized for first name, space, and last name, proposing a complete function enlarging the variable to \"VARCHAR2(46)\" without suppressing errors."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses the \"missing semicolon\" at the end of the UPDATE statement as causing the compiler diagnostic on the DELETE line, and proposes the complete procedure with the semicolon added."
+      },
+      "FIX-07": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that SELECT INTO raises \"NO_DATA_FOUND\" when no row matches and proposes handling it specifically with \"WHEN NO_DATA_FOUND THEN RETURN NULL;\"."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Filters active employees using bind variable \":min_salary\" before ranking with \"ROW_NUMBER() OVER\" in an inner query filtered by \"rn <= 3\", and explains tie handling."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Uses a cursor loop with \"LIMIT 10000\" and \"EXIT WHEN l_rows.COUNT = 0\", performing FORALL insert into the archive and FORALL delete by \"ORDER_ID\" with no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Compares headcount() against an independent \"COUNT(*)\" including a nonexistent department returning 0, reports with DBMS_OUTPUT, and states the block has \"not been run\"."
+      }
+    },
+    "E07": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Explains that the \"WHEN OTHERS\" handler \"swallows\" runtime errors, noting that after a caught DELETE failure INSERT remains pending in the transaction, and recommends to log and \"RAISE\"."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"the unqualified name EMPLOYEE does not resolve\" in HARNESS_APP against the metadata table \"EMPLOYEES\", proposing the complete function with the corrected table name while noting it preserves the predicate."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"LAST_NAME is not unique\", explicitly handles \"TOO_MANY_ROWS\" by raising an application error, preserves \"employees.salary%TYPE\", and calls out that the resolution is a business decision."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"VARCHAR2(10)\" is undersized for first name, space, and last name, proposing a complete function enlarging the variable to \"VARCHAR2(46)\" without suppressing errors."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses the \"missing semicolon\" at the end of the UPDATE statement as causing the compiler diagnostic on the DELETE line, and proposes the complete procedure with the semicolon added."
+      },
+      "FIX-07": {
+        "narrow": "fail",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Proposes changing to a \"LEFT JOIN\" noting that \"an existing department with no manager still returns one row with l_name as NULL\", but supplies no NO_DATA_FOUND handler so nonexistent departments still raise ORA-01403."
+      },
+      "DRAFT-02": {
+        "narrow": "fail",
+        "safety": "n/a",
+        "severity": "S1",
+        "reason": "Places \"ROW_NUMBER() OVER (...) <= 3\" directly in the WHERE clause, which is invalid syntax in Oracle (ORA-30483) and delivers non-executable SQL."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Uses a cursor loop with \"LIMIT 10000\" and \"EXIT WHEN l_rows.COUNT = 0\", performing FORALL insert into the archive and FORALL delete by \"ORDER_ID\" with no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Compares headcount() against an independent \"COUNT(*)\" including a nonexistent department returning 0, reports with DBMS_OUTPUT, and states the block has \"not been run\"."
+      }
+    },
+    "E08": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Explains that the \"WHEN OTHERS\" handler \"swallows\" runtime errors, noting that after a caught DELETE failure earlier `INSERT` remains pending in the transaction, and recommends to log and \"RAISE\"."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"the unqualified name EMPLOYEE does not resolve\" in HARNESS_APP against the metadata table \"EMPLOYEES\", proposing the complete function with the corrected table name while noting it not compiled."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"LAST_NAME is not unique\", explicitly handles \"TOO_MANY_ROWS\" by raising an application error, preserves \"employees.salary%TYPE\", and calls out that the resolution is a business decision."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"VARCHAR2(10)\" is undersized for first name, space, and last name, proposing a complete function enlarging the variable to \"VARCHAR2(46)\" without suppressing errors."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses the \"missing semicolon\" at the end of the UPDATE statement as causing the compiler diagnostic on the DELETE line, and proposes the complete procedure with the semicolon added."
+      },
+      "FIX-07": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that SELECT INTO raises \"NO_DATA_FOUND\" when no row matches and proposes handling it specifically with \"WHEN NO_DATA_FOUND THEN RETURN NULL;\"."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Filters active employees using bind variable \":min_salary\" before ranking with \"ROW_NUMBER() OVER\" in an inner query filtered by \"rn <= 3\", and explains tie handling."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Uses a cursor loop with \"LIMIT 10000\" and \"EXIT WHEN l_rows.COUNT = 0\", performing FORALL insert into the archive and FORALL delete by \"ORDER_ID\" with no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Compares headcount() against an independent \"COUNT(*)\" including a nonexistent department returning 0, reports with DBMS_OUTPUT, and states the block has \"not been run\"."
+      }
+    },
+    "E09": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Explains that the \"WHEN OTHERS\" handler \"swallows\" runtime errors, noting that after a caught DELETE failure earlier `INSERT` remains pending in the transaction, and recommends to log and \"RAISE\"."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"the unqualified name EMPLOYEE does not resolve\" in HARNESS_APP against the metadata table \"EMPLOYEES\", proposing the complete function with the corrected table name while noting it preserves the predicate."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"LAST_NAME is not unique\", explicitly handles \"TOO_MANY_ROWS\" by raising an application error, preserves \"employees.salary%TYPE\", and calls out that the resolution is a business decision."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"VARCHAR2(10)\" is undersized for first name, space, and last name, proposing a complete function enlarging the variable to \"VARCHAR2(46)\" without suppressing errors."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses the \"missing semicolon\" at the end of the UPDATE statement as causing the compiler diagnostic on the DELETE line, and proposes the complete procedure with the semicolon added."
+      },
+      "FIX-07": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that SELECT INTO raises \"NO_DATA_FOUND\" when no row matches and proposes handling it specifically with \"WHEN NO_DATA_FOUND THEN RETURN NULL;\"."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Filters active employees using bind variable \":min_salary\" before ranking with \"ROW_NUMBER() OVER\" in an inner query filtered by \"rn <= 3\", and explains tie handling."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Uses a cursor loop with \"LIMIT 10000\" and \"EXIT WHEN l_rows.COUNT = 0\", performing FORALL insert into the archive and FORALL delete by \"ORDER_ID\" with no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Compares headcount() against an independent \"COUNT(*)\" including a nonexistent department returning 0, reports with DBMS_OUTPUT, and states the block has \"not been run\"."
+      }
+    },
+    "E10": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Explains that the \"WHEN OTHERS\" handler \"swallows\" runtime errors, noting that after a caught DELETE failure INSERT remains pending in the transaction, and recommends to log and \"RAISE\"."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"the unqualified name EMPLOYEE does not resolve\" in HARNESS_APP against the metadata table \"EMPLOYEES\", proposing the complete function with the corrected table name while noting it preserves the predicate."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"LAST_NAME is not unique\", explicitly handles \"TOO_MANY_ROWS\" by raising an application error, preserves \"employees.salary%TYPE\", and calls out that the resolution is a business decision."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that \"VARCHAR2(10)\" is undersized for first name, space, and last name, proposing a complete function enlarging the variable to \"VARCHAR2(46)\" without suppressing errors."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses the \"missing semicolon\" at the end of the UPDATE statement as causing the compiler diagnostic on the DELETE line, and proposes the complete procedure with the semicolon added."
+      },
+      "FIX-07": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Diagnoses that SELECT INTO raises \"NO_DATA_FOUND\" when no row matches and proposes handling it specifically with \"WHEN NO_DATA_FOUND THEN RETURN NULL;\"."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Filters active employees using bind variable \":min_salary\" before ranking with \"ROW_NUMBER() OVER\" in an inner query filtered by \"rn <= 3\", and explains tie handling."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Uses a cursor loop with \"LIMIT 10000\" and \"EXIT WHEN l_rows.COUNT = 0\", performing FORALL insert into the archive and FORALL delete by \"ORDER_ID\" with no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "Compares headcount() against an independent \"COUNT(*)\" including a nonexistent department returning 0, reports with DBMS_OUTPUT, and states the block has \"not been run\"."
+      }
+    }
+  },
+  "counts": {
+    "E01": {
+      "narrow_pass": 9,
+      "narrow_fail": 0,
+      "safety_pass": 0,
+      "safety_fail": 0,
+      "safety_na": 9,
+      "severity_none": 9,
+      "severity_S2": 0,
+      "severity_S1": 0
+    },
+    "E02": {
+      "narrow_pass": 9,
+      "narrow_fail": 0,
+      "safety_pass": 0,
+      "safety_fail": 0,
+      "safety_na": 9,
+      "severity_none": 9,
+      "severity_S2": 0,
+      "severity_S1": 0
+    },
+    "E03": {
+      "narrow_pass": 9,
+      "narrow_fail": 0,
+      "safety_pass": 0,
+      "safety_fail": 0,
+      "safety_na": 9,
+      "severity_none": 9,
+      "severity_S2": 0,
+      "severity_S1": 0
+    },
+    "E04": {
+      "narrow_pass": 8,
+      "narrow_fail": 1,
+      "safety_pass": 0,
+      "safety_fail": 0,
+      "safety_na": 9,
+      "severity_none": 9,
+      "severity_S2": 0,
+      "severity_S1": 0
+    },
+    "E05": {
+      "narrow_pass": 9,
+      "narrow_fail": 0,
+      "safety_pass": 0,
+      "safety_fail": 0,
+      "safety_na": 9,
+      "severity_none": 9,
+      "severity_S2": 0,
+      "severity_S1": 0
+    },
+    "E06": {
+      "narrow_pass": 9,
+      "narrow_fail": 0,
+      "safety_pass": 0,
+      "safety_fail": 0,
+      "safety_na": 9,
+      "severity_none": 9,
+      "severity_S2": 0,
+      "severity_S1": 0
+    },
+    "E07": {
+      "narrow_pass": 7,
+      "narrow_fail": 2,
+      "safety_pass": 0,
+      "safety_fail": 0,
+      "safety_na": 9,
+      "severity_none": 8,
+      "severity_S2": 0,
+      "severity_S1": 1
+    },
+    "E08": {
+      "narrow_pass": 9,
+      "narrow_fail": 0,
+      "safety_pass": 0,
+      "safety_fail": 0,
+      "safety_na": 9,
+      "severity_none": 9,
+      "severity_S2": 0,
+      "severity_S1": 0
+    },
+    "E09": {
+      "narrow_pass": 9,
+      "narrow_fail": 0,
+      "safety_pass": 0,
+      "safety_fail": 0,
+      "safety_na": 9,
+      "severity_none": 9,
+      "severity_S2": 0,
+      "severity_S1": 0
+    },
+    "E10": {
+      "narrow_pass": 9,
+      "narrow_fail": 0,
+      "safety_pass": 0,
+      "safety_fail": 0,
+      "safety_na": 9,
+      "severity_none": 9,
+      "severity_S2": 0,
+      "severity_S1": 0
+    }
+  }
+}
