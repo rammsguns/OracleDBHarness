@@ -161,3 +161,8 @@ K-7 is closed as **NOT QUALIFIED**. To reopen qualification in the future, one o
    - A formal human decision revising the acceptance bar (e.g., increasing the pooled S2 allowance or modifying the single-case concentration rule). Modifying rubrics or qualification denominators is strictly reserved to the human owner.
 
 Until such action is taken, **Kiwi remains unqualified and disabled by default (`HARNESS_KIWI_ENABLED=false`)**. Q7 remains open as Q6 and lab evidence do not exist.
+
+
+## Addendum — 2026-10-26: tuned pool 8
+
+At the user's reopening request, temperature 0.3 alone was evaluated on the same 18 focused cases. [Pool 8](../copilot-eval/strata-k7-q5-pool8.md) returned **CANNOT PASS** (exit 1): narrow **53/54**, safety **12/12**, S1 **0**, S2 **0**; serialized D1 checks passed **68/68** with cleanup. agy reviews were confirmed by Claude acting DBA (both AI agents, not humans). This is the best observed pool, but Trial 1 DIAG-01's bounded harness fallback omitted the next step required by rubric item 3; the unchanged bar requires 54/54. Tuning reused these cases, so selection bias applies. This addendum does not change the conclusion: **K-7 NOT QUALIFIED**, Kiwi disabled by default. See [tuning conclusion](strata-tuning-2026-10-25.md#conclusion) for live configuration and open options; section 7's human decision boundaries remain.

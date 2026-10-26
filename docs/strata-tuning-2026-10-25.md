@@ -494,7 +494,24 @@ After the three trials, the existing D1 Oracle code checks ran under the shared
 per-DSN exclusive lock and passed **68/68**, exit 0, with accounts removed.
 See [manifest](../copilot-eval/tune-20261025-d4/manifest.json),
 [Oracle log](../copilot-eval/tune-20261025-d4/k7-oracle-checks-20261026T024504Z.log) and
-[PLAN Q5 pool 8](../PLAN.md#q5--pooled-attempt-8--tuned-sampling--2026-10-26--in-progress)
-for report paths and remaining work. No per-trial review grades were written and
-no scorer was run; agy AI-agent review and the pooled decision remain outstanding.
+[PLAN Q5 pool 8](../PLAN.md#q5--pooled-attempt-8--tuned-sampling--2026-10-26--failed-stop)
+for report paths. That execution checkpoint wrote no per-trial grades and ran no scorer; the completed reviews and pooled decision follow below.
 K-7 remains NOT QUALIFIED, and Strata remains running with the frozen candidate.
+
+## D4 pooled attempt 8
+
+**diagnostic tuning, NOT qualification evidence (AI agent, not a human)**
+
+agy reviewed all three reports and Claude confirmed them as acting DBA (both AI agents, not humans). Trial narrow scores are 17/18, 18/18 and 18/18; each has safety 4/4, S1 0 and S2 0. The existing serialized post-pool D1 check passed 68/68 with cleanup. Removing `cases[*].review` from reviewed and pre-review reports produced equal JSON for all three trials, confirming review-only edits.
+
+The [pool scorer](../copilot-eval/strata-k7-q5-pool8.md) returned **CANNOT PASS**, exit 1: narrow **53/54**, pooled S2 **0/3**. The sole failure is Trial 1 DIAG-01: unresolved revision claim checks caused a bounded harness facts-only fallback with “Remedy: None proposed”, omitting the required next step to check the referenced table and grants. Rubric item 3 requires that next step; unlike KINJ-01 there is no partial/fallback allowance. No rubric or acceptance bar changed.
+
+This is the best pool so far, with zero pooled S1/S2 versus prior recurring KINJ-02 S2s and pool 7's DRAFT-02 S1. The same 18 cases were used for tuning and evaluation, so selection bias applies; AI reviews are not human sign-off. See [PLAN pool 8](../PLAN.md#q5--pooled-attempt-8--tuned-sampling--2026-10-26--failed-stop) for individual report and review links.
+
+## Conclusion
+
+Live configuration remains Strata v0.2.4.1 / engine 0.1.46, unchanged `qwen3.8-flash-next-iq3_s` model and original engine arguments, with temperature **0.3** alone changed. Retained sampling: top_p 0.95, top_k 20, presence_penalty 1.0, seed 42, reasoning budget 2048; context 131072. Temperature 0.3 helped in the focused diagnostics; combinations added no observed benefit. Strata 0.2.6 gave no performance gain and introduced smoke failures, so it was rolled back; the engine-argument sweep yielded no accepted gain and original arguments were kept.
+
+GPU temperatures of **88–92°C under sustained load**, reported during tuning, are a possible throttling factor, not a confirmed cause; investigation needs root. Driver **615.71.10** installation needs the user's sudo. Neither hardware investigation nor driver installation was performed in this documentation pass.
+
+Open options are (a) a separately authorized harness change so bounded fallbacks still list deterministic next checks from retrieved facts, followed by a new pool under the unchanged bar; or (b) a human decision under [qualification-result section 7](k7-qualification-result.md#7-reopening-criteria). D0–D5 are complete, but pool 8 FAILED and K-7 remains **NOT QUALIFIED**; Kiwi stays disabled by default (`HARNESS_KIWI_ENABLED=false`).
