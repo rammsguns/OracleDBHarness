@@ -2769,6 +2769,32 @@ The candidate was tuned on the same 18 cases, so selection bias applies; these
 focused reports retain the diagnostic labels used in previous pooled attempts.
 Independent per-trial agy review (AI agent, not a human) is outstanding.
 
-Trial run IDs/report paths and serialized D1 code-check outcome will be appended
-when execution completes. Startup log and loaded `/health` verification are retained
-in `~/llm-rig/strata/benchmarks/tune-20261025/d4/candidate/`.
+All three trials completed sequentially (runner exit 0 each); automated checks were
+18/18 each. These are automated results only, with narrow/safety rubric and S1/S2
+review outstanding; the pool has not been scored.
+
+| Trial | Run ID | Report | Review |
+| --- | --- | --- | --- |
+| 1 | `eval-7582ecbb79ec` | [report](copilot-eval/strata-k7-focused-20261026T015554Z.json) | pending agy |
+| 2 | `eval-18341a5b2208` | [report](copilot-eval/strata-k7-focused-20261026T021332Z.json) | pending agy |
+| 3 | `eval-7bf803fcb632` | [report](copilot-eval/strata-k7-focused-20261026T022924Z.json) | pending agy |
+
+D1: `scripts/k7_oracle_checks.sh localhost:1522/ORCL databases/secrets/d1_system.pw
+system <log-dir>` ran after all trials under the existing `tests.database_locks`
+per-DSN exclusive lock: **PASSED 68/68**, exit 0, accounts removed. Retained
+[Oracle log](copilot-eval/tune-20261025-d4/k7-oracle-checks-20261026T024504Z.log) and
+[run manifest](copilot-eval/tune-20261025-d4/manifest.json).
+
+Reports record runner commit `5840a93ff05f72e90707250f37cba3d44f54cda0` on the tuning branch;
+`git diff main -- services tests scripts oracle pyproject.toml uv.lock` was empty,
+confirming harness code matches the candidate main commit above. Case inventory
+hash/order, rubric, budgets, limits, trial sequence and previous-run links match
+the prior procedure. Per-trial engine identity records match before/after.
+
+Cold startup sampling line: `temperature=0.3, top_p=0.95, top_k=20,
+presence_penalty=1.0, seed=42`; thinking budget 2048. Initial and final `/health`
+returned status `ok`, loaded=true, the expected model and context 131072. Logs,
+health records and runner script remain in
+`~/llm-rig/strata/benchmarks/tune-20261025/d4/`; the live configuration matches
+`backups/tune-20261025/d4-candidate.json`. Strata remains running with this candidate.
+D4 stays in progress for separate per-trial AI review and the later pooled decision.

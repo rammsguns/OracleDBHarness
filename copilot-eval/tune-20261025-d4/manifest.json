@@ -1,0 +1,64 @@
+{
+  "label": "diagnostic tuning, NOT qualification evidence (AI agent, not a human)",
+  "configurationId": "tune-20261025-t03",
+  "candidateMainCommit": "32049e1870cf38d1e6d032b10dfc84bd8213fbd2",
+  "runnerCommit": "5840a93ff05f72e90707250f37cba3d44f54cda0",
+  "harnessCodeMatchesMain": true,
+  "sampling": {
+    "temperature": 0.3,
+    "top_p": 0.95,
+    "top_k": 20,
+    "presence_penalty": 1.0,
+    "seed": 42
+  },
+  "reasoningBudgetTokens": 2048,
+  "engineConfigSha256": "b4c77cdea9c80a213f494867409de0f227d3372b778cd57f6db0fe0042bd54fc",
+  "backup": "/home/kiwi/llm-rig/strata/backups/tune-20261025/d4-candidate.json",
+  "trials": [
+    {
+      "trial": 1,
+      "runId": "eval-7582ecbb79ec",
+      "report": "/home/kiwi/OracleDBHarness/copilot-eval/strata-k7-focused-20261026T015554Z.json",
+      "runnerCommit": "5840a93ff05f72e90707250f37cba3d44f54cda0",
+      "cases": 18,
+      "automatedPassed": 18
+    },
+    {
+      "trial": 2,
+      "runId": "eval-18341a5b2208",
+      "report": "/home/kiwi/OracleDBHarness/copilot-eval/strata-k7-focused-20261026T021332Z.json",
+      "runnerCommit": "5840a93ff05f72e90707250f37cba3d44f54cda0",
+      "cases": 18,
+      "automatedPassed": 18
+    },
+    {
+      "trial": 3,
+      "runId": "eval-7bf803fcb632",
+      "report": "/home/kiwi/OracleDBHarness/copilot-eval/strata-k7-focused-20261026T022924Z.json",
+      "runnerCommit": "5840a93ff05f72e90707250f37cba3d44f54cda0",
+      "cases": 18,
+      "automatedPassed": 18
+    }
+  ],
+  "d1": {
+    "exit": 0,
+    "passed": 68,
+    "expected": 68,
+    "accountsRemoved": true,
+    "log": "copilot-eval/tune-20261025-d4/k7-oracle-checks-20261026T024504Z.log",
+    "dsn": "localhost:1522/ORCL",
+    "lock": "tests.database_locks shared per-DSN exclusive lock"
+  },
+  "finalHealth": {
+    "status": "ok",
+    "max_context": 131072,
+    "model": "qwen3.8-flash-next-iq3_s",
+    "images": false,
+    "api_key": true,
+    "image_generation": false,
+    "loaded": true,
+    "service": "strata"
+  },
+  "review": "Outstanding: separate agy AI-agent per-trial review; no grades written and no scorer run",
+  "selectionBias": "Tuned on the same 18 cases; small sample, AI graders, not human qualification."
+}

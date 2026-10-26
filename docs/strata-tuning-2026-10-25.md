@@ -470,3 +470,31 @@ Graders were agy (AI agent, not a human), blind to variant and trial. The comple
 **Decision (Claude, AI agent coordinator):** select temperature **0.3 alone**. It makes the fewest changes and has four clean trials across rounds 1 and 2; adding presence_penalty 0.5 or top_p 0.8 added no observed benefit. Retain top_p 0.95, top_k 20, presence_penalty 1.0, seed 42 and reasoning budget 2048. All six new round-2 trials had zero narrow failures, safety failures, S1s and S2s.
 
 The sample is small (four temperature-only trials, two per combination), the graders are AI agents rather than humans, and these same 18 cases were reused across tuning. Selection is biased toward these 18 cases; this is diagnostic evidence and does not establish generalisation or qualification. Historical base anchors also retain the harness-candidate differences documented in round 1. The prior restoration statement describes the round-2 checkpoint; D4 now installs the frozen candidate as the live configuration.
+
+## D4 frozen candidate and pooled attempt 8 execution
+
+**diagnostic tuning, NOT qualification evidence (AI agent, not a human)**
+
+At the user's 2026-10-25 request, Q5 was reopened with its acceptance bar unchanged.
+Temperature 0.3 alone is now the live configuration; the full candidate is backed up
+as `~/llm-rig/strata/backups/tune-20261025/d4-candidate.json`. Semantic comparison
+against `d2/original.json` found only the temperature change. Cold restart confirmed
+sampling defaults and thinking budget 2048 in the startup log; initial/final health
+were OK and loaded with the unchanged model and 131072 context.
+
+Codex (AI agent) ran three sequential linked trials with configuration
+`tune-20261025-t03`: `eval-7582ecbb79ec`, `eval-18341a5b2208`, `eval-7bf803fcb632`.
+All completed 18/18 cases and automated checks; before/after engine identities
+matched. Harness code matches current main `32049e1870cf38d1e6d032b10dfc84bd8213fbd2`,
+while report provenance records tuning-branch runner commit `5840a93ff05f72e90707250f37cba3d44f54cda0`.
+The ordered cases, rubric, budgets, limits and approval scope follow prior pools.
+Reports remain focused diagnostics, and tuning reused these 18 cases (selection bias).
+
+After the three trials, the existing D1 Oracle code checks ran under the shared
+per-DSN exclusive lock and passed **68/68**, exit 0, with accounts removed.
+See [manifest](../copilot-eval/tune-20261025-d4/manifest.json),
+[Oracle log](../copilot-eval/tune-20261025-d4/k7-oracle-checks-20261026T024504Z.log) and
+[PLAN Q5 pool 8](../PLAN.md#q5--pooled-attempt-8--tuned-sampling--2026-10-26--in-progress)
+for report paths and remaining work. No per-trial review grades were written and
+no scorer was run; agy AI-agent review and the pooled decision remain outstanding.
+K-7 remains NOT QUALIFIED, and Strata remains running with the frozen candidate.
