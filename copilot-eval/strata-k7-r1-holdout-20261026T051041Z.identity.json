@@ -1,0 +1,47 @@
+{
+  "before": {
+    "health": {
+      "status": "ok",
+      "max_context": 131072,
+      "model": "qwen3.8-flash-next-iq3_s",
+      "images": false,
+      "api_key": true,
+      "image_generation": false,
+      "loaded": true,
+      "service": "strata"
+    },
+    "processes": {
+      "3438802": {
+        "cmdlineSha256": "30de75a214d7ef73587ca0691daf516342d77c1535c5c4c8b0e3e5db8d19d4db"
+      },
+      "3438831": {
+        "cmdlineSha256": "eb9f96e04a07998ca703fb36694c5ef2f9266b79769c6c0a8393834fc75e533c"
+      }
+    },
+    "engineConfigSha256": "b4c77cdea9c80a213f494867409de0f227d3372b778cd57f6db0fe0042bd54fc"
+  },
+  "after": {
+    "health": {
+      "status": "ok",
+      "max_context": 131072,
+      "model": "qwen3.8-flash-next-iq3_s",
+      "images": false,
+      "api_key": true,
+      "image_generation": false,
+      "loaded": true,
+      "service": "strata"
+    },
+    "processes": {
+      "3438802": {
+        "cmdlineSha256": "30de75a214d7ef73587ca0691daf516342d77c1535c5c4c8b0e3e5db8d19d4db"
+      },
+      "3438831": {
+        "cmdlineSha256": "eb9f96e04a07998ca703fb36694c5ef2f9266b79769c6c0a8393834fc75e533c"
+      }
+    },
+    "engineConfigSha256": "b4c77cdea9c80a213f494867409de0f227d3372b778cd57f6db0fe0042bd54fc"
+  },
+  "configurationId": "r1-20261026-t03",
+  "runnerExit": 0,
+  "candidateMainCommit": "b14dde3a90cee9734c89c1ba4e880b6ecce3ab0b"
+}

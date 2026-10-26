@@ -1,0 +1,52 @@
+{
+  "exit": 1,
+  "reports": [
+    "/home/kiwi/OracleDBHarness/copilot-eval/strata-k7-r1-holdout-20261026T051041Z.json",
+    "/home/kiwi/OracleDBHarness/copilot-eval/strata-k7-r1-holdout-20261026T053115Z.json",
+    "/home/kiwi/OracleDBHarness/copilot-eval/strata-k7-r1-holdout-20261026T055022Z.json"
+  ],
+  "log": "copilot-eval/r1-20261026-t03/d1-holdout-delivered.log",
+  "lock": "tests.database_locks per-DSN exclusive localhost:1522/ORCL",
+  "answerSqlOptIn": true,
+  "fixtureSql": "copilot-eval/r1-20261026-t03/holdout-fixtures.sql",
+  "perTrial": [
+    {
+      "report": "strata-k7-r1-holdout-20261026T051041Z.json",
+      "log": "copilot-eval/r1-20261026-t03/d1-holdout-delivered/strata-k7-r1-holdout-20261026T051041Z/k7-proposal-compile-20261026T061217Z.log",
+      "counts": {
+        "COMPILED": 4,
+        "PARSED": 4,
+        "ERROR": 1
+      },
+      "accountsRemoved": true,
+      "remaining": 0,
+      "exit": 1
+    },
+    {
+      "report": "strata-k7-r1-holdout-20261026T053115Z.json",
+      "log": "copilot-eval/r1-20261026-t03/d1-holdout-delivered/strata-k7-r1-holdout-20261026T053115Z/k7-proposal-compile-20261026T061220Z.log",
+      "counts": {
+        "COMPILED": 4,
+        "PARSED": 3,
+        "ERROR": 2
+      },
+      "accountsRemoved": true,
+      "remaining": 0,
+      "exit": 1
+    },
+    {
+      "report": "strata-k7-r1-holdout-20261026T055022Z.json",
+      "log": "copilot-eval/r1-20261026-t03/d1-holdout-delivered/strata-k7-r1-holdout-20261026T055022Z/k7-proposal-compile-20261026T061222Z.log",
+      "counts": {
+        "COMPILED": 3,
+        "PARSED": 3,
+        "ERROR": 3
+      },
+      "accountsRemoved": true,
+      "remaining": 0,
+      "exit": 1
+    }
+  ],
+  "accountsRemoved": true,
+  "documentation": "Supplemental delivered holdout D1 **FAILED**, exit 1, under the same per-DSN\nexclusive lock. The additional fixed-rule pass again passed 68/68. All three\nproposal-compiler runs cleaned up `K7P_APP` (`User dropped`, `REMAINING: 0`).\nThe [combined log](copilot-eval/r1-20261026-t03/d1-holdout-delivered.log) records:\n\n| Holdout trial | Compiled | Parsed | Compile/parse errors | Cleanup |\n| --- | ---: | ---: | ---: | --- |\n| 1 | 4 | 4 | 1 | removed; remaining 0 |\n| 2 | 4 | 3 | 2 | removed; remaining 0 |\n| 3 | 3 | 3 | 3 | removed; remaining 0 |\n\nH-FIX-03 fails in every trial with **PLS-00206**: `p_tag%TYPE` is invalid\nfor that formal parameter. Trial 2 H-FIX-04 answer block 2 fails with\n**ORA-00905** (missing keyword). Trial 3 H-FIX-04 answer block 1 likewise fails\nwith **ORA-00905**, and block 2 fails with **PLS-00315** (unsupported table index\ntype). No generated SQL was repaired or suppressed, and no review grades were\nwritten. These are compiler results, separate from pending narrow/safety and\nS1/S2 review; the holdout D1 gate has not passed."
+}

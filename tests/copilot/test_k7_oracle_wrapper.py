@@ -78,15 +78,18 @@ def run(tmp_path: Path):
     state.mkdir()
     logs = tmp_path / "logs"
 
-    def start(scenario: str) -> subprocess.Popen[str]:
+    def start(
+        scenario: str, reports: tuple[str, ...] = (), **env_extra: str
+    ) -> subprocess.Popen[str]:
         env = {
             **os.environ,
             "SQLPLUS": str(mock),
             "MOCK_DIR": str(state),
             "MOCK_SCENARIO": scenario,
+            **env_extra,
         }
         return subprocess.Popen(
-            ["bash", str(WRAPPER), "db:1521/svc", str(pwfile), "system", str(logs)],
+            ["bash", str(WRAPPER), "db:1521/svc", str(pwfile), "system", str(logs), *reports],
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -184,3 +187,30 @@ def test_an_interrupted_run_still_drops_what_it_created(run) -> None:
     assert result["drops"].strip() == "DROP USER K7Q_OWNER CASCADE;"
     assert result["existing"] == []
     assert "result: INTERRUPTED" in result["log"]
+
+
+@pytest.mark.parametrize("compiler_exit", [0, 1])
+def test_optional_reports_are_forwarded_and_compiler_failure_fails_the_run(
+    run, tmp_path, compiler_exit
+) -> None:
+    compiler = tmp_path / "python-compiler"
+    calls = tmp_path / "compiler-calls"
+    compiler.write_text(
+        '#!/bin/bash\nprintf "%s\\n" "$@" >> "$COMPILER_CALLS"\nexit "$COMPILER_EXIT"\n'
+    )
+    compiler.chmod(0o755)
+    proc = run.start(
+        "normal",
+        reports=("holdout-one.json", "holdout-two.json"),
+        PYTHON=str(compiler),
+        COMPILER_CALLS=str(calls),
+        COMPILER_EXIT=str(compiler_exit),
+    )
+    result = run.finish(proc)
+    assert result["rc"] == compiler_exit
+    assert result["existing"] == []
+    forwarded = calls.read_text()
+    assert "compile_proposals.py\nholdout-one.json\ndb:1521/svc\n" in forwarded
+    assert "holdout-two.json" in forwarded
+    assert PASSWORD not in forwarded
+    assert "result: PASSED - 68/68" in result["log"]

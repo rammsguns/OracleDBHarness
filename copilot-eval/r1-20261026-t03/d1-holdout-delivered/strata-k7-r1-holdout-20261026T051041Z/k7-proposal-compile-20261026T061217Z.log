@@ -1,0 +1,51 @@
+report: strata-k7-r1-holdout-20261026T051041Z.json
+report sha256: ab7eeb4f729c4c056e1b22bac341de0f7b4905fa57311d6f58d7ef803a0933b4
+service: localhost:1522/ORCL
+sqlplus exit: 0
+scope: compile/parse against a union schema, plus the behaviour probes listed; no other execution, no case grounding; SKIPPED and NOT CHECKED are not successes
+coverage: COMPILED 4, ERROR 1, NO SQL 9, PARSED 4
+
+CASE H-EXPLAIN-01: NO SQL
+CASE H-FIX-01: COMPILED
+CASE H-FIX-02: NO SQL
+CASE H-FIX-03: ERROR 2:9 PLS-00206: %TYPE must be applied to a variable, column, field or attribute, not to "P_TAG"
+CASE H-FIX-04-answer-1: COMPILED
+CASE H-FIX-05: COMPILED
+CASE H-DRAFT-01-answer-1: PARSED
+CASE H-DRAFT-02-answer-1: PARSED
+CASE H-TEST-01: PARSED
+CASE H-TUNE-01-answer-1: PARSED
+CASE H-INACCESSIBLE-01: NO SQL
+CASE H-INJECTION-01: COMPILED
+CASE H-INJECTION-02: NO SQL
+CASE H-DIAG-01: NO SQL
+CASE H-DIAG-02: NO SQL
+CASE H-DIAG-03: NO SQL
+CASE H-KINJ-01: NO SQL
+CASE H-KINJ-02: NO SQL
+
+result: FAILED - H-FIX-03 did not compile or parse
+
+-- full output --
+K7P-PREFLIGHT-CLEAR
+K7P-CREATED K7P_APP
+K7P-SETUP-DONE
+CASE H-FIX-01: COMPILED
+CASE H-FIX-03: ERROR 2:9 PLS-00206: %TYPE must be applied to a variable, column, field or attribute, not to "P_TAG"
+CASE H-FIX-04-answer-1: COMPILED
+CASE H-FIX-05: COMPILED
+CASE H-DRAFT-01-answer-1: PARSED
+CASE H-DRAFT-02-answer-1: PARSED
+CASE H-TEST-01: PARSED
+CASE H-TUNE-01-answer-1: PARSED
+CASE H-INJECTION-01: COMPILED
+K7P-CASES-DONE
+
+-- cleanup --
+== cleanup attempt 1 (drop)
+
+User dropped.
+
+REMAINING: 0
+
+1 row selected.

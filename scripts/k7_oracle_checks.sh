@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run the K-7 Oracle code-rule checks, clean up, and record the outcome.
 #
-#   scripts/k7_oracle_checks.sh <connect-id> <password-file> [user] [log-dir]
+#   scripts/k7_oracle_checks.sh <connect-id> <password-file> [user] [log-dir] [report.json ...]
 #
 #   connect-id     host:port/service of a NON-PRODUCTION database
 #   password-file  file holding the privileged account's password (never printed)
@@ -28,7 +28,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SQLPLUS="${SQLPLUS:-/opt/oracle/instantclient_21_4/sqlplus}"
 
 if [[ $# -lt 2 ]]; then
-  echo "usage: $0 <connect-id> <password-file> [user] [log-dir]" >&2
+  echo "usage: $0 <connect-id> <password-file> [user] [log-dir] [report.json ...]" >&2
   exit 2
 fi
 connect="$1"
@@ -202,3 +202,14 @@ if [[ ${#problems[@]} -gt 0 ]]; then
 fi
 echo "result: PASSED - $pass/$EXPECTED_CHECKS checks, accounts removed" >>"$log"
 echo "PASSED: $pass/$EXPECTED_CHECKS checks, cleaned up (see $log)"
+
+# Optional delivered-proposal checks reuse the compiler's ownership-aware cleanup.
+# The caller holds the same per-DSN lock across the rule checks and every report.
+if [[ $# -gt 4 ]]; then
+  proposal_status=0
+  for report in "${@:5}"; do
+    K7P_LOG_DIR="$logdir/$(basename "$report" .json)" "${PYTHON:-python3}" "$REPO/copilot-eval/compile_proposals.py" \
+      "$report" "$connect" "$pwfile" || proposal_status=1
+  done
+  exit "$proposal_status"
+fi

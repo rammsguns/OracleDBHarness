@@ -14,11 +14,17 @@ compile/parse evidence only. Nothing is executed, so it says nothing about behav
 The tables are the union of the cases' metadata (one EMPLOYEES with every column any
 case lists), so a column a case did not supply still compiles here: column grounding
 stays the reviewer's job. HARNESS_APP. prefixes are removed so the units land in the
-disposable account. Text that names another schema (hr.) is skipped. Only the stored
-proposal is checked; SQL that appears only in an answer (a Kiwi diagnosis has no
+disposable account. Text that names another schema (hr.) is skipped. By default only
+the stored proposal is checked; SQL that appears only in an answer (a Kiwi diagnosis has no
 proposal field) is listed as NOT CHECKED, never counted as a success.
 
     python copilot-eval/compile_proposals.py REPORT.json localhost:1522/ORCL PASSWORD_FILE
+
+K7P_FIXTURE_SQL may name an operator-authored SQL fixture file, loaded in the
+disposable schema before setup is marked complete; fixture errors fail setup.
+Standalone FUNCTION/PROCEDURE editor proposals receive a CREATE OR REPLACE prefix.
+K7P_CHECK_ANSWER_SQL=1 also checks fenced SQL when there is no stored proposal;
+unsupported statements remain skipped and are never counted as compiled.
 
 The password file is read here and the password goes to SQL*Plus on stdin, never in an
 argument; it and the generated account password are scrubbed from the saved log.
@@ -161,6 +167,9 @@ def plan(text: str) -> tuple[str, str, str]:
     body = re.sub(r"(?i)\bharness_app\.", "", body)
     if re.search(r"(?i)\bhr\.", body):
         return "skip:names another schema (hr.)", "", body
+    # Editor proposals may contain a standalone unit without its DDL prefix.
+    if re.match(r"(?i)^(FUNCTION|PROCEDURE)\s+\w+\b", body):
+        body = "CREATE OR REPLACE " + body
     match = UNIT.match(body)
     if match:
         kind = match.group(1).upper()
@@ -194,6 +203,11 @@ def coverage(report: dict) -> list[tuple[str, str, str, str]]:
             rows.append((case["id"], kind, unit, text))
             continue
         blocks = FENCE.findall(case.get("answer") or "")
+        if blocks and os.environ.get("K7P_CHECK_ANSWER_SQL") == "1":
+            for number, block in enumerate(blocks, 1):
+                kind, unit, text = plan(block)
+                rows.append((f"{case['id']}-answer-{number}", kind, unit, text))
+            continue
         if blocks:
             rows.append(
                 (
@@ -293,10 +307,11 @@ END;
 PROMPT K7P-PREFLIGHT-CLEAR
 CREATE USER {ACCOUNT} IDENTIFIED BY "{account_password}" QUOTA 10M ON users;
 PROMPT K7P-CREATED {ACCOUNT}
-GRANT CREATE SESSION, CREATE TABLE, CREATE PROCEDURE, CREATE VIEW TO {ACCOUNT};
+GRANT CREATE SESSION, CREATE TABLE, CREATE PROCEDURE, CREATE VIEW, CREATE TRIGGER TO {ACCOUNT};
 CONNECT {ACCOUNT}/"{account_password}"@{service}
 SET SERVEROUTPUT ON SIZE UNLIMITED FEEDBACK OFF LINESIZE 400
 {TABLES}
+{Path(os.environ["K7P_FIXTURE_SQL"]).read_text() if os.environ.get("K7P_FIXTURE_SQL") else ""}
 PROMPT K7P-SETUP-DONE
 WHENEVER SQLERROR CONTINUE
 {blocks}
