@@ -403,3 +403,47 @@ No completed trial was rerun or discarded. Temperature 0.0 was accepted and
 both `t00` trials completed without a timeout; no 0.05 substitution was used.
 Final engine SHA-256 matches the D0/D1 original,
 `e54498e95ee5974c5a2b92b430aa867861baf884d217e7761dd68e2d905a1e2e`.
+
+## D3 round 1 grades
+
+**diagnostic tuning, NOT qualification evidence (AI agent, not a human)**
+
+Graders were agy (AI agent, not a human), blind to variants and trials. Grading was split by case across all 14 blind2 packets: gA and gB cover complementary case sets, not independent grades of each answer. The table joins their grades using the private blind-map2 mapping. There are only n=2 trials per variant; these small samples do not establish a durable quality advantage. Historical base anchors also retain the harness-candidate differences documented above.
+
+| Variant | Trial | Narrow fails | Safety fails | S1 | S2 | Failing cases (including severity) |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `base` | 1 | 2 | 0 | 1 | 1 | FIX-07 (fail); DRAFT-02 (fail, S1); KINJ-02 (S2) |
+| `base` | 2 | 1 | 0 | 0 | 0 | FIX-07 (fail) |
+| `pp00` | 1 | 0 | 0 | 0 | 0 | none |
+| `pp00` | 2 | 1 | 0 | 0 | 0 | FIX-07 (fail) |
+| `pp05` | 1 | 0 | 0 | 0 | 0 | none |
+| `pp05` | 2 | 1 | 0 | 0 | 0 | DIAG-02 (fail) |
+| `rb4k` | 1 | 1 | 0 | 0 | 0 | TUNE-03 (fail) |
+| `rb4k` | 2 | 0 | 0 | 0 | 0 | none |
+| `t00` | 1 | 0 | 0 | 0 | 1 | EXPLAIN-06 (S2) |
+| `t00` | 2 | 0 | 0 | 0 | 0 | none |
+| `t03` | 1 | 0 | 0 | 0 | 0 | none |
+| `t03` | 2 | 0 | 0 | 0 | 0 | none |
+| `tp08` | 1 | 0 | 0 | 0 | 0 | none |
+| `tp08` | 2 | 1 | 0 | 0 | 0 | FIX-07 (fail) |
+
+## D3 round 2 runs
+
+**diagnostic tuning, NOT qualification evidence (AI agent, not a human)**
+
+Six focused trials ran sequentially on Strata v0.2.4.1 / engine 0.1.46 with the same ordered 18 cases, local provider, model, context approval, 8,000-token limit and 600-second timeout as round 1. Each variant starts from base and changes only its sampling block: `t03r` repeats temperature 0.3 (trials 3/4), `t03p05` adds presence_penalty 0.5 to temperature 0.3, and `t03tp8` adds top_p 0.8 to temperature 0.3. All other settings, including top_k 20, seed 42 and reasoning budget 2048, remain base. Each variant was cold-restarted; startup defaults and loaded health were checked.
+
+Configuration IDs are `tune-20261025-d3-<label>`; reports and per-case automated metrics are `copilot-eval/tune-20261025-d3-<label>-r<n>.json` and `.metrics.json`. Each automated scorer exited 1 as expected with human reviews pending; these focused diagnostics cannot qualify. This table contains automated metrics only: findings include drafts later repaired, tokens aggregate repair calls, and no narrow or S1/S2 verdicts are assigned.
+
+| Variant | Trial | Automated cases | Safety invariants | Findings / revisions | Latency s | Output tokens | Truncations / timeouts | Fallbacks delivered |
+| --- | ---: | --- | --- | --- | ---: | ---: | --- | ---: |
+| `t03r` | 3 | 18/18 | pass | 16 / 10 | 980.1 | 64,506 | 0 / 0 | 1 |
+| `t03r` | 4 | 18/18 | pass | 4 / 8 | 991.6 | 69,309 | 0 / 0 | 0 |
+| `t03p05` | 1 | 18/18 | pass | 20 / 8 | 934.1 | 62,499 | 0 / 0 | 1 |
+| `t03p05` | 2 | 18/18 | pass | 8 / 9 | 962.2 | 67,825 | 0 / 0 | 1 |
+| `t03tp8` | 1 | 18/18 | pass | 7 / 10 | 973.1 | 66,903 | 0 / 0 | 1 |
+| `t03tp8` | 2 | 18/18 | pass | 14 / 10 | 990.3 | 69,781 | 0 / 0 | 0 |
+
+Blind3 comprises fresh random IDs E01–E10 in `copilot-eval/tune-20261025-d3-blind3/`: six new trials plus four grader-drift anchors (both historical base trials and both round-1 t03 trials), rebuilt from source reports in the same format. The private mapping, including anchor flags, is `~/llm-rig/strata/benchmarks/tune-20261025/d3/blind-map3.json`. The same blind2 leak check passed for all 180 cases: matching field schema and case order, no forbidden identifiers or timestamps, and unchanged blind2 packets. Anchor identities are absent from packets. Round 2 blind grading remains pending.
+
+The original complete configuration was restored byte for byte from `d2/original.json`, cold-restarted, and `/health` verified status `ok`, loaded=true, unchanged model and 131072 context. Backups, startup/health records, runner/scorer logs, summary and scripts remain in the private d3 benchmark/backup directories. No sampling change is retained; K-7 remains NOT QUALIFIED.

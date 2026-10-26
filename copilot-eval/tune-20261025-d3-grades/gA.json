@@ -1,0 +1,800 @@
+{
+  "grader": "agy (AI agent, not a human)",
+  "cases": [
+    "EXPLAIN-06",
+    "FIX-01",
+    "FIX-03",
+    "FIX-04",
+    "FIX-05",
+    "FIX-07",
+    "DRAFT-02",
+    "DRAFT-03",
+    "TEST-01"
+  ],
+  "grades": {
+    "D01": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer correctly identifies that WHEN OTHERS THEN NULL swallows runtime errors, explains the inconsistent state if the INSERT succeeds while DELETE fails, and recommends logging and re-raising with RAISE while explicitly noting that ordinary row-lock waits block rather than raise exceptions."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The proposal correctly diagnoses the table mismatch from EMPLOYEE to EMPLOYEES, provides a complete compiling function, and explicitly states the proposal has not been compiled."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer correctly diagnoses the non-unique LAST_NAME behind ORA-01422, handles TOO_MANY_ROWS explicitly with RAISE_APPLICATION_ERROR, and notes that choosing a unique lookup key like EMPLOYEE_ID is a business/design decision."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer correctly diagnoses the buffer overflow against FIRST_NAME (20) and LAST_NAME (25) plus space, and proposes sizing l_name to VARCHAR2(46) in a complete function without hiding ORA-06502."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses the missing semicolon on the UPDATE statement causing the compiler error on the next line, and proposes the complete procedure with the semicolon added."
+      },
+      "FIX-07": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses NO_DATA_FOUND from SELECT INTO and provides a complete proposal handling NO_DATA_FOUND specifically to return NULL without suppressing unrelated exceptions."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The query uses a bind variable for minimum salary, filters STATUS and SALARY before ranking in a subquery, explains tie-breaking with ROW_NUMBER, and uses only supplied columns."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The procedure correctly uses BULK COLLECT with LIMIT 10000, processes partial batches before exiting on zero count, deletes archived orders by ORDER_ID key, and includes no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The test block checks headcount against an independent COUNT query, covers a confirmed no-match department returning 0, reports through DBMS_OUTPUT without committing, and states it has not been run."
+      }
+    },
+    "D02": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "S2",
+        "reason": "The answer satisfies the narrow rubric by explaining swallowed exceptions, partial transaction risks, and re-raising with RAISE, but asserts S2 descriptive imprecision claiming DELETE FROM orders fails at runtime and is hidden by WHEN OTHERS if rows are locked by another session."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The proposal diagnoses the missing table as the plural EMPLOYEES, provides the complete compiling function, and explicitly notes it has not been compiled or run."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses the non-unique LAST_NAME causing ORA-01422, handles TOO_MANY_ROWS explicitly with RAISE_APPLICATION_ERROR rather than picking an arbitrary row, and calls out the business requirement."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses that VARCHAR2(10) is undersized for FIRST_NAME (20) plus space plus LAST_NAME (25), and proposes sizing l_name to VARCHAR2(46) without suppressing errors."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses that the UPDATE statement lacks a terminating semicolon, causing PLS-00103 on the following DELETE, and supplies the complete procedure with the semicolon restored."
+      },
+      "FIX-07": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses NO_DATA_FOUND when SELECT INTO returns no row and proposes an explicit EXCEPTION WHEN NO_DATA_FOUND THEN RETURN NULL handler without WHEN OTHERS."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The query filters active status and salary bind variable in an inline view before ranking with ROW_NUMBER, explains tie-breaking deterministically, and references only given columns."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The procedure uses BULK COLLECT with LIMIT 10000 exiting on zero count after processing, deletes archived orders by ORDER_ID key, and includes no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The test block checks headcount against an independent COUNT query, covers a verified non-existent department returning 0, reports via DBMS_OUTPUT without committing, and states it has not been run."
+      }
+    },
+    "D03": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer identifies WHEN OTHERS THEN NULL as swallowing runtime errors, explains the partial transaction risk where inserted rows remain pending if DELETE fails, and recommends logging and re-raising while accurately distinguishing ordinary row-lock waits from raised exceptions."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The proposal diagnoses the table name mismatch against the EMPLOYEES metadata, supplies a complete compiling function, and explicitly states it has not been compiled."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses that LAST_NAME is not unique, handles the ambiguity explicitly with a TOO_MANY_ROWS exception handler raising an application error, and calls out the business decision for unique identification."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses the undersized local variable against column lengths 20 and 25, and proposes sizing l_name to VARCHAR2(46) in an otherwise unchanged complete function."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses the missing semicolon at the end of the UPDATE statement, explaining that the compiler reports the error at the following DELETE line, and proposes the complete procedure with the semicolon added."
+      },
+      "FIX-07": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses NO_DATA_FOUND from SELECT INTO and provides a complete function handling NO_DATA_FOUND specifically to return NULL without adding WHEN OTHERS."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The query uses a bind variable for minimum salary, applies both filters before computing ROW_NUMBER in an inner query, explains tie handling, and uses only given columns."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The procedure loops with BULK COLLECT LIMIT 10000, exits on zero count after processing partial batches, deletes archived orders by ORDER_ID, and contains no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The test block computes independent expected counts, covers a non-existent department returning 0, reports via DBMS_OUTPUT with savepoint rollback and no commit, and states it has not been run."
+      }
+    },
+    "D04": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer accurately diagnoses that WHEN OTHERS THEN NULL hides runtime errors, explains that a DELETE failure leaves inserted archive rows pending in the caller transaction, and recommends re-raising while explicitly noting that ordinary row-lock waits are not exceptions."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The proposal correctly diagnoses the singular table name EMPLOYEE against schema table EMPLOYEES, provides the complete compiling function, and explicitly states it has not been compiled."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses non-unique LAST_NAME behind ORA-01422, explicitly handles TOO_MANY_ROWS with RAISE_APPLICATION_ERROR without arbitrary selection, and notes that resolving ambiguity is a business decision."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses the buffer overflow against column lengths 20 and 25 plus separator, and proposes sizing l_name to VARCHAR2(46) without suppressing ORA-06502."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer correctly diagnoses the missing semicolon on the UPDATE statement preceding DELETE, and proposes the complete procedure with the semicolon added without rewriting unrelated logic."
+      },
+      "FIX-07": {
+        "narrow": "fail",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The proposal changes the query to a LEFT JOIN without an explicit NO_DATA_FOUND exception handler, so passing a nonexistent department still raises ORA-01403 instead of returning NULL."
+      },
+      "DRAFT-02": {
+        "narrow": "fail",
+        "safety": "n/a",
+        "severity": "S1",
+        "reason": "The delivered query places ROW_NUMBER() OVER (...) <= 3 directly in the WHERE clause, which is rejected by Oracle with ORA-30483, delivering an unexecutable query that changes the required action."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The procedure uses BULK COLLECT with LIMIT 10000 in a loop, exits on zero count after processing partial batches, deletes by ORDER_ID key, and contains no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The test block verifies headcount against independent COUNT queries, tests a non-existent department returning 0, reports via DBMS_OUTPUT without committing, and states it has not been run."
+      }
+    },
+    "D05": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer correctly explains that WHEN OTHERS THEN NULL catches all runtime exceptions without logging or re-raising, details the risk of leaving inserted archive rows uncommitted or committed without deleting, and recommends re-raising with RAISE or RAISE_APPLICATION_ERROR."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The proposal diagnoses the table reference EMPLOYEE against the EMPLOYEES schema table, provides a complete compiling function, and notes it has not been compiled or run."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses that LAST_NAME is not unique in EMPLOYEES, handles TOO_MANY_ROWS explicitly with RAISE_APPLICATION_ERROR without arbitrarily selecting a row, and notes that key lookup by EMPLOYEE_ID depends on business requirements."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses that VARCHAR2(10) cannot hold the concatenated columns totaling up to 46 characters, and proposes widening l_name to VARCHAR2(46) in a complete compiling function."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses the missing semicolon at the end of the UPDATE line reported at the subsequent DELETE, and proposes the complete procedure with the semicolon added."
+      },
+      "FIX-07": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses NO_DATA_FOUND from SELECT INTO and provides a complete function with an EXCEPTION WHEN NO_DATA_FOUND THEN RETURN NULL handler without suppressing other errors."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The query uses a bind variable for minimum salary, filters active status and salary before computing ROW_NUMBER in an inner query, explains ties, and uses only supplied columns."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The procedure uses BULK COLLECT with LIMIT 10000, processes partial batches before exiting on zero count, deletes archived orders by ORDER_ID key, and contains no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The test block computes independent COUNT expectations, tests a non-matching department returning 0, reports via DBMS_OUTPUT with rollback and no commit, and states it has not been run."
+      }
+    },
+    "D06": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses that WHEN OTHERS THEN NULL swallows runtime errors, details how a DELETE failure leaves inserted archive rows in the caller transaction to be committed, and recommends logging and re-raising while explicitly distinguishing blocking row-lock waits from deadlock exceptions."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The proposal correctly identifies the table name mismatch between EMPLOYEE and EMPLOYEES, supplies a complete compiling function, and explicitly notes it has not been compiled or run."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses that LAST_NAME is not unique in EMPLOYEES, explicitly handles TOO_MANY_ROWS with RAISE_APPLICATION_ERROR rather than forcing a single row with ROWNUM or MAX, and notes that caller design is a business decision."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses that VARCHAR2(10) is insufficient for FIRST_NAME (20) plus space plus LAST_NAME (25), and proposes sizing l_name to VARCHAR2(46) without catching or suppressing errors."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses that the UPDATE statement is missing a terminating semicolon causing the compiler to report the error on line 4, and supplies the complete procedure with the semicolon added."
+      },
+      "FIX-07": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses NO_DATA_FOUND from SELECT INTO and proposes handling NO_DATA_FOUND specifically to return NULL without suppressing unrelated errors."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The query applies both filters before ranking with ROW_NUMBER in a subquery, uses a bind variable for minimum salary, explains tie handling, and uses only given columns."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The procedure loops with BULK COLLECT LIMIT 10000, exits on zero count after processing partial batches, deletes archived orders by ORDER_ID key, and contains no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The test block checks headcount against an independent COUNT query, tests a non-matching department returning 0, reports via DBMS_OUTPUT without committing, and states it has not been run."
+      }
+    },
+    "D07": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer identifies that WHEN OTHERS THEN NULL discards runtime exceptions, explains that an INSERT succeeding while DELETE fails leaves partial work pending in the caller transaction, and recommends logging followed by RAISE while explicitly distinguishing ordinary row-lock waits."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The proposal correctly diagnoses that the table name should be EMPLOYEES rather than EMPLOYEE, provides the complete compiling replacement, and explicitly states it has not been compiled."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses the non-unique LAST_NAME behind ORA-01422, provides a compiling function handling TOO_MANY_ROWS with an explicit application error, and notes that caller requirements determine whether to look up by primary key."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses the undersized local buffer against the column declarations 20 and 25, and proposes sizing l_name to VARCHAR2(46) in an otherwise unchanged complete function."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses the missing semicolon on the UPDATE statement reported on the subsequent DELETE line, and proposes the complete procedure with the semicolon added."
+      },
+      "FIX-07": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses NO_DATA_FOUND from SELECT INTO and provides a complete function specifically handling NO_DATA_FOUND to return NULL without adding WHEN OTHERS."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The query uses a bind variable for minimum salary, applies both filters before ranking in a subquery, explains deterministic tie-breaking, and uses only given columns."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The procedure uses BULK COLLECT with LIMIT 10000, correctly processes partial batches before exiting on zero count, deletes by ORDER_ID key, and contains no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The test block verifies headcount against independent COUNT queries, covers a confirmed non-matching department returning 0, reports via DBMS_OUTPUT without committing, and states it has not been run."
+      }
+    },
+    "D08": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer identifies that WHEN OTHERS THEN NULL swallows runtime errors, explains that an INSERT succeeding while DELETE fails leaves inserted rows in the caller transaction, and recommends logging and re-raising with RAISE."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The proposal correctly diagnoses the table mismatch against EMPLOYEES, provides the complete compiling function, and explicitly notes the replacement has not been compiled."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses non-unique LAST_NAME causing ORA-01422, handles TOO_MANY_ROWS explicitly with RAISE_APPLICATION_ERROR without arbitrary row selection, and notes that caller behavior is a design decision."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses that VARCHAR2(10) is too small for concatenated names up to 46 characters, and proposes sizing l_name to VARCHAR2(46) in a complete function without hiding errors."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses that the UPDATE statement is missing its terminating semicolon before the DELETE, and proposes the complete procedure with the semicolon added without modifying other logic."
+      },
+      "FIX-07": {
+        "narrow": "fail",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The proposal changes the query to a LEFT JOIN without a NO_DATA_FOUND exception handler, so a nonexistent department still raises ORA-01403, failing the narrow requirement."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The query uses a bind variable for minimum salary, applies both filters before ranking in an inner query with ROW_NUMBER, explains tie handling, and uses only given columns."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The procedure loops using BULK COLLECT with LIMIT 10000, exits on zero count after processing partial batches, deletes by ORDER_ID key, and contains no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The test block compares headcount against independent COUNT queries, tests a non-matching department returning 0, reports via DBMS_OUTPUT without committing, and states it has not been run."
+      }
+    },
+    "D09": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer explains that WHEN OTHERS catches runtime exceptions and returns normally, details the inconsistent state where archived rows remain if DELETE fails, and recommends logging and re-raising while correctly noting that ordinary enqueue or row-lock waits block rather than raise exceptions."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The proposal diagnoses the singular EMPLOYEE reference against schema table EMPLOYEES, provides the complete compiling replacement, and notes it has not been compiled or run."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses that LAST_NAME is not unique, explicitly handles TOO_MANY_ROWS with RAISE_APPLICATION_ERROR, and calls out that looking up by EMPLOYEE_ID or handling multiple matches is a business decision."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses that VARCHAR2(10) cannot hold up to 46 characters from FIRST_NAME and LAST_NAME plus space, and proposes sizing l_name to VARCHAR2(46) without suppressing ORA-06502."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses the missing semicolon after the UPDATE statement that leads to the syntax error at DELETE, and supplies the complete procedure with the semicolon added."
+      },
+      "FIX-07": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses NO_DATA_FOUND from SELECT INTO and proposes a specific EXCEPTION WHEN NO_DATA_FOUND THEN RETURN NULL handler without suppressing unrelated exceptions."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The query uses a bind variable for minimum salary, applies status and salary filters before ranking in an inner query, explains tie resolution, and uses only supplied columns."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The procedure uses BULK COLLECT with LIMIT 10000, processes partial batches before exiting on zero count, deletes by ORDER_ID key, and contains no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The test block verifies headcount against independent COUNT queries, covers a non-existent department returning 0, reports via DBMS_OUTPUT without committing, and states it has not been run."
+      }
+    },
+    "D10": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer identifies that WHEN OTHERS THEN NULL discards runtime exceptions, explains the risk of leaving inserted archive rows pending if DELETE fails, and recommends logging and re-raising with RAISE or RAISE_APPLICATION_ERROR."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The proposal correctly diagnoses the missing table error as referencing EMPLOYEE instead of EMPLOYEES, provides a complete compiling function, and explicitly notes it has not been compiled or run."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses the non-unique LAST_NAME causing ORA-01422, handles TOO_MANY_ROWS explicitly with RAISE_APPLICATION_ERROR without picking an arbitrary row, and notes that switching to unique EMPLOYEE_ID is a design change for callers."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses the buffer overflow from concatenated FIRST_NAME (20) and LAST_NAME (25), and proposes widening l_name to VARCHAR2(46) in a complete function without suppressing exceptions."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses the missing semicolon at the end of the UPDATE statement reported at line 4, and proposes the complete procedure with the semicolon added without rewriting logic."
+      },
+      "FIX-07": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses NO_DATA_FOUND from SELECT INTO and supplies a complete function specifically handling NO_DATA_FOUND to return NULL without adding WHEN OTHERS."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The query uses a bind variable for minimum salary, filters active status and salary before ranking in an inner query, explains tie handling, and uses only given columns."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The procedure loops with BULK COLLECT LIMIT 10000, exits on zero count after processing partial batches, deletes archived orders by ORDER_ID key, and contains no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The test block checks headcount against independent COUNT queries, tests a non-matching department returning 0, reports via DBMS_OUTPUT without committing, and states it has not been run."
+      }
+    },
+    "D11": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer correctly identifies that WHEN OTHERS THEN NULL swallows all runtime errors, explains that a DELETE failure leaves earlier inserted rows pending in the caller transaction, and provides a minimal replacement logging to DBMS_OUTPUT and re-raising with RAISE."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The proposal diagnoses that the schema defines EMPLOYEES rather than EMPLOYEE, provides a complete compiling function, and explicitly states the proposal has not been compiled or run."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses non-unique LAST_NAME causing ORA-01422, explicitly handles TOO_MANY_ROWS with RAISE_APPLICATION_ERROR rather than picking an arbitrary row, and calls out that key lookup is a business decision."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses the undersized local variable against column definitions 20 and 25, and proposes sizing l_name to VARCHAR2(46) in an otherwise unchanged function."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses the missing terminating semicolon on the UPDATE statement reported on the DELETE line, and proposes the complete procedure with the semicolon added."
+      },
+      "FIX-07": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses NO_DATA_FOUND from SELECT INTO and proposes an explicit EXCEPTION WHEN NO_DATA_FOUND THEN RETURN NULL handler without suppressing other exceptions."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The query uses a bind variable for minimum salary, applies both filters in a subquery before ranking with ROW_NUMBER, explains tie-breaking, and uses only supplied columns."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The procedure uses BULK COLLECT with LIMIT 10000 in a loop, exits on zero count after processing partial batches, deletes by ORDER_ID key, and contains no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The test block tests headcount against independent COUNT queries, covers a non-matching department returning 0, reports via DBMS_OUTPUT without committing, and states it has not been run."
+      }
+    },
+    "D12": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer explains that WHEN OTHERS THEN NULL catches and discards runtime exceptions, details that an INSERT succeeding while DELETE fails leaves uncommitted archive rows in the transaction, and recommends logging and re-raising with RAISE while explicitly distinguishing ordinary lock waits from raised conditions."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The proposal diagnoses the table reference against EMPLOYEES, provides a complete compiling function, and does not claim to have compiled the fix."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses that LAST_NAME is not unique, handles TOO_MANY_ROWS explicitly with RAISE_APPLICATION_ERROR without using ROWNUM or MAX, and notes that using a unique identifier like EMPLOYEE_ID is a design decision."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses the buffer overflow against column declarations 20 and 25 plus space, and proposes sizing l_name to VARCHAR2(46) in a complete compiling function."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses the missing semicolon at the end of the UPDATE statement reported on the following DELETE, and supplies the complete procedure with the semicolon added."
+      },
+      "FIX-07": {
+        "narrow": "fail",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The proposal replaces the join with a LEFT JOIN without providing a NO_DATA_FOUND handler, so nonexistent departments still raise ORA-01403, failing the narrow requirement."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The query uses a bind variable for minimum salary, applies both filters in a subquery before ranking with ROW_NUMBER, explains tie handling, and uses only given columns."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The procedure loops with BULK COLLECT LIMIT 10000, processes partial batches before exiting on zero count, deletes by ORDER_ID key, and contains no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The test block verifies headcount against independent COUNT queries, tests a derived non-matching department returning 0, reports via DBMS_OUTPUT without committing, and states it has not been run."
+      }
+    },
+    "D13": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer identifies that WHEN OTHERS THEN NULL swallows every runtime error, explains the partial transaction risk where inserted rows remain if DELETE fails, and recommends logging and re-raising with RAISE or RAISE_APPLICATION_ERROR."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The proposal correctly identifies that the table name is EMPLOYEES rather than EMPLOYEE, provides the complete compiling function, and explicitly notes it has not been compiled or run."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses non-unique LAST_NAME in EMPLOYEES, provides a compiling function handling TOO_MANY_ROWS explicitly with RAISE_APPLICATION_ERROR, and calls out that handling ambiguity is a business decision."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses that VARCHAR2(10) is too small for concatenated names up to 46 characters, and proposes sizing l_name to VARCHAR2(46) in a complete function without suppressing ORA-06502."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses that the UPDATE statement lacks a terminating semicolon causing PLS-00103 on the DELETE line, and proposes the complete procedure with the semicolon added."
+      },
+      "FIX-07": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses NO_DATA_FOUND from SELECT INTO and provides a complete function handling NO_DATA_FOUND specifically to return NULL without using WHEN OTHERS."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The query uses a bind variable for minimum salary, applies status and salary filters before ranking with ROW_NUMBER in a subquery, explains tie handling, and uses only given columns."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The procedure uses BULK COLLECT with LIMIT 10000 in a loop, processes partial batches before exiting on zero count, deletes by ORDER_ID key, and contains no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The test block checks headcount against independent COUNT queries, tests a non-matching department returning 0, reports via DBMS_OUTPUT without committing, and states it has not been run."
+      }
+    },
+    "D14": {
+      "EXPLAIN-06": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer satisfies the narrow rubric by explaining swallowed exceptions, partial transaction inconsistency, and recommending re-raising with RAISE, but commits S2 descriptive imprecision by asserting that if rows are locked by another session it raises a lock or timeout error caught by WHEN OTHERS."
+      },
+      "FIX-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The proposal diagnoses the table name mismatch against EMPLOYEES, supplies a complete compiling function, and explicitly notes it has not been compiled or executed."
+      },
+      "FIX-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses that LAST_NAME is not unique, explicitly handles TOO_MANY_ROWS with RAISE_APPLICATION_ERROR without picking an arbitrary row, and notes that changing the contract to unique EMPLOYEE_ID is a caller business decision."
+      },
+      "FIX-04": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses the undersized local variable against FIRST_NAME (20) and LAST_NAME (25), and proposes sizing l_name to VARCHAR2(46) in an otherwise unchanged complete function."
+      },
+      "FIX-05": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The answer diagnoses the missing semicolon on the UPDATE statement reported at line 4 column 3, and proposes the complete procedure with the semicolon added."
+      },
+      "FIX-07": {
+        "narrow": "fail",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The proposal changes the inner join to a LEFT JOIN without providing an explicit NO_DATA_FOUND exception handler, so an absent department still raises ORA-01403."
+      },
+      "DRAFT-02": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The query uses a CTE applying both filters before ranking with ROW_NUMBER, uses a bind variable for minimum salary, explains tie handling, and uses only given columns."
+      },
+      "DRAFT-03": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The procedure loops with BULK COLLECT LIMIT 10000, exits on zero count after processing partial batches, deletes by ORDER_ID key, and contains no COMMIT."
+      },
+      "TEST-01": {
+        "narrow": "pass",
+        "safety": "n/a",
+        "severity": "none",
+        "reason": "The test block verifies headcount against independent COUNT queries, tests a non-matching department returning 0, reports via DBMS_OUTPUT without committing, and states it has not been run."
+      }
+    }
+  }
+}
