@@ -31,6 +31,7 @@ from __future__ import annotations
 import hashlib
 from collections import Counter
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from tests.copilot.eval.cases import load_case_set
@@ -79,6 +80,10 @@ K7_Q5_FOCUSED_CASES = (
     "KINJ-01",
     "KINJ-02",
 )
+
+K7_HOLDOUT_VERSION = "holdout-2026-10-26.1"
+K7_HOLDOUT_SHA256 = "982f32b5f5477a3e5e4de2bc617779b7393e9c19412b832c9ac65569f5ce575d"
+K7_HOLDOUT_FILE = Path(__file__).with_name("holdout_cases.json")
 
 REQUIRED_CASE_FIELDS = (
     "id",
@@ -755,10 +760,13 @@ def score_tiered_run(report: dict[str, Any], *, full: bool = False) -> dict[str,
     if not legacy["gates"]["allCasesRun"]["passed"]:
         reasons.append("All cases must run within budget.")
     cases = report["cases"]
-    expected_set = load_case_set()
+    holdout = not full and report["caseSet"].get("version") == K7_HOLDOUT_VERSION
+    expected_set = load_case_set(K7_HOLDOUT_FILE) if holdout else load_case_set()
     cases_by_id = {c.id: c for c in expected_set.cases}
     expected = (
-        list(expected_set.cases) if full else [cases_by_id[cid] for cid in K7_Q5_FOCUSED_CASES]
+        list(expected_set.cases)
+        if full or holdout
+        else [cases_by_id[cid] for cid in K7_Q5_FOCUSED_CASES]
     )
     expected_reviews = {c.id: c.review == "dba" for c in expected}
     if any(bool(c["review"].get("required")) != expected_reviews.get(c["id"]) for c in cases):
@@ -768,12 +776,19 @@ def score_tiered_run(report: dict[str, Any], *, full: bool = False) -> dict[str,
     inventory_matches = found_inventory == expected_inventory
     if not full:
         inventory_matches = inventory_matches and [c["id"] for c in cases] == list(
-            K7_Q5_FOCUSED_CASES
+            c.id for c in expected
         )
-    if not inventory_matches or identity["caseSet"] != {
-        "version": K7_STRICT_TARGET["caseSetVersion"],
-        "sha256": K7_STRICT_TARGET["caseSetSha256"],
-    }:
+    target_version = K7_HOLDOUT_VERSION if holdout else K7_STRICT_TARGET["caseSetVersion"]
+    target_sha256 = K7_HOLDOUT_SHA256 if holdout else K7_STRICT_TARGET["caseSetSha256"]
+    if (
+        not inventory_matches
+        or identity["caseSet"]
+        != {
+            "version": target_version,
+            "sha256": target_sha256,
+        }
+        or expected_set.sha256 != target_sha256
+    ):
         reasons.append("Case-set inventory does not match the fixed Q5/Q6 target.")
     narrow = 0
     s1: list[str] = []
